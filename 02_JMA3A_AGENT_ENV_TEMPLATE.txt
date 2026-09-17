@@ -1,0 +1,171 @@
+======================================================================
+JMA3A — AGENT ENVIRONMENT TEMPLATE
+DO NOT COMMIT THE REAL VERSION OF THIS FILE
+======================================================================
+
+PURPOSE
+-------
+This is the PRIVATE environment contract for an autonomous coding/deployment
+agent.
+
+Recommended private filename:
+.agent.env
+
+The repository itself should contain a SAFE `.env.example` that excludes
+deployment-agent credentials.
+
+IMPORTANT SECURITY RULES
+------------------------
+1. NEVER commit .agent.env.
+2. NEVER paste token values into README, issues, logs, screenshots, or chat.
+3. NEVER expose GITHUB_TOKEN / VERCEL_TOKEN / SESSION_SECRET to browser code.
+4. ONLY variables intentionally safe for the browser may use NEXT_PUBLIC_.
+5. Prefer fine-grained GitHub credentials restricted to the target repository.
+6. Rotate any token immediately if it is accidentally committed or publicly exposed.
+
+======================================================================
+A. BRAND / APP
+======================================================================
+
+NEXT_PUBLIC_APP_NAME=JMA3A
+
+# Initial production can be the final Vercel URL.
+# Later this can become https://jma3a.ma or https://jma3a.com after you own/configure it.
+NEXT_PUBLIC_APP_URL=https://YOUR-PRODUCTION-DOMAIN
+
+NEXT_PUBLIC_DEFAULT_LOCALE=darija
+
+# Optional deployment/environment label
+APP_ENV=production
+
+======================================================================
+B. DATABASE
+======================================================================
+
+# Managed PostgreSQL connection. Neon is recommended but not mandatory.
+DATABASE_URL=postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require
+
+# Optional direct/non-pooled URL only if migration tooling actually needs it.
+# DIRECT_DATABASE_URL=postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require
+
+======================================================================
+C. REDIS / REALTIME COORDINATION
+======================================================================
+
+# Preferred for WebSocket cross-instance pub/sub/presence.
+# Example shape only; do not reuse this placeholder:
+REDIS_URL=rediss://default:PASSWORD@HOST:6379
+
+# Optional if using Upstash REST features such as rate limiting:
+UPSTASH_REDIS_REST_URL=https://YOUR-ENDPOINT.upstash.io
+UPSTASH_REDIS_REST_TOKEN=REPLACE_ME
+
+======================================================================
+D. APP SECURITY
+======================================================================
+
+# Generate long random values; do NOT use these placeholders.
+# Example command:
+# openssl rand -base64 48
+
+SESSION_SECRET=REPLACE_WITH_LONG_RANDOM_SECRET
+GAME_SECRET_KEY=REPLACE_WITH_LONG_RANDOM_SECRET
+
+======================================================================
+E. GITHUB — AGENT PRIVATE CREDENTIALS
+======================================================================
+
+GITHUB_TOKEN=REPLACE_ME
+GITHUB_OWNER=YOUR_GITHUB_USER_OR_ORG
+GITHUB_REPO=jma3a
+GITHUB_REPO_VISIBILITY=private
+
+# Suggested fine-grained permission posture:
+# - restrict resource owner
+# - restrict to the target repository when possible
+# - Contents: Read and write
+# - Metadata: Read
+# - Actions/Workflows only if the agent must manage CI workflow behavior
+# - Administration only when actually required for repo creation/settings
+#
+# If the target repo does not exist and your token cannot create it,
+# either pre-create an empty repo named "jma3a" or grant only the specific
+# repo-creation permission required by your GitHub account/org policy.
+
+======================================================================
+F. VERCEL — AGENT PRIVATE CREDENTIALS
+======================================================================
+
+VERCEL_TOKEN=REPLACE_ME
+
+# Optional if known. Agent can resolve/create when permissions allow.
+VERCEL_ORG_ID=
+VERCEL_PROJECT_ID=
+
+# Optional preferred project name
+VERCEL_PROJECT_NAME=jma3a
+
+======================================================================
+G. OPTIONAL CI / E2E
+======================================================================
+
+# Base URL for production smoke tests after deployment.
+E2E_BASE_URL=https://YOUR-PRODUCTION-DOMAIN
+
+# Explicit dev-only tools. KEEP FALSE IN PRODUCTION.
+ENABLE_DEV_TOOLS=false
+
+======================================================================
+H. OPTIONAL ANALYTICS
+======================================================================
+
+# Keep analytics optional. The app must work without these.
+# NEXT_PUBLIC_ANALYTICS_PROVIDER=
+# NEXT_PUBLIC_ANALYTICS_ID=
+
+======================================================================
+I. FUTURE CUSTOM DOMAIN
+======================================================================
+
+# Do not assume either domain is available or owned.
+# Do not purchase a domain automatically.
+#
+# Future targets:
+# https://jma3a.ma
+# https://jma3a.com
+#
+# Once a domain is actually owned/configured, change:
+# NEXT_PUBLIC_APP_URL=https://jma3a.ma
+#
+# Then redeploy and verify:
+# - QR URLs
+# - room links
+# - canonical metadata
+# - social share links
+# - PWA start URL
+
+======================================================================
+J. WHAT MUST NEVER APPEAR IN THE REPOSITORY
+======================================================================
+
+Real values for:
+GITHUB_TOKEN
+VERCEL_TOKEN
+DATABASE_URL credentials
+REDIS_URL credentials
+UPSTASH_REDIS_REST_TOKEN
+SESSION_SECRET
+GAME_SECRET_KEY
+
+Suggested .gitignore rules:
+
+.env
+.env.*
+!.env.example
+.agent.env
+credentials.env
+deployment.env
+
+======================================================================
+END
+======================================================================

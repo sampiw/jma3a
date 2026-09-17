@@ -1,0 +1,272 @@
+======================================================================
+JMA3A — AGENT DEPLOYMENT + ACCEPTANCE CHECKLIST
+Use this as the FINAL gate before claiming the project is complete.
+======================================================================
+
+A. REPOSITORY
+-------------
+[ ] Git repository initialized.
+[ ] Correct remote configured.
+[ ] No token embedded in remote URL stored in committed config.
+[ ] main branch clean.
+[ ] Lockfile committed.
+[ ] .gitignore protects .env and agent credential files.
+[ ] `git status` has no accidental secret file.
+[ ] Search performed for obvious leaked token prefixes/credential values.
+[ ] Source pushed to target GitHub repository.
+[ ] Final commit SHA recorded.
+[ ] CI configured or equivalent local commands documented.
+
+B. INSTALL / STATIC QUALITY
+---------------------------
+[ ] Clean `pnpm install --frozen-lockfile` works.
+[ ] TypeScript strict typecheck passes.
+[ ] Lint passes.
+[ ] Unit/integration tests pass.
+[ ] Content validation passes.
+[ ] Production build passes.
+[ ] No core feature is represented by TODO/mock/fake action.
+
+C. DATABASE
+-----------
+[ ] Production PostgreSQL configured.
+[ ] Migrations apply on a clean database.
+[ ] Production migrations applied.
+[ ] Seed/content data loaded intentionally.
+[ ] No fake users/players inserted into production.
+[ ] Room cleanup/expiration strategy exists.
+[ ] Important mutations are transaction/idempotency safe.
+
+D. REALTIME
+-----------
+[ ] Production WebSocket/realtime endpoint works.
+[ ] Shared Redis/broker configured for multi-instance coordination.
+[ ] Authoritative room state is not held only in process memory.
+[ ] Two separate browser contexts can join the same room.
+[ ] Join/leave/reconnect updates are visible.
+[ ] Private realtime events reach only intended player/device.
+[ ] Snapshot recovery works after a missed connection.
+[ ] Refresh restores current state.
+[ ] Connection-loss UI works.
+
+E. SECURITY / PRIVACY
+---------------------
+[ ] Room code alone cannot retrieve private player state.
+[ ] Nickname alone cannot impersonate a player.
+[ ] Anonymous session token is high entropy.
+[ ] Production cookies are secure where applicable.
+[ ] Host cannot fetch global game secrets.
+[ ] Public websocket/broadcast payload contains no global secrets.
+[ ] DIB roles are not all sent to every client.
+[ ] Intrus word/identity is not globally exposed.
+[ ] Mission Sirriya missions are not globally exposed.
+[ ] Pass-the-phone previous secret cannot be trivially recovered via Back.
+[ ] Private responses use safe cache behavior.
+[ ] Mutation payloads are schema validated.
+[ ] Rate limiting exists for room creation/join/code probing/action spam.
+[ ] Secrets do not use NEXT_PUBLIC_.
+[ ] Production logs avoid private game secrets and credentials.
+
+F. JMA3A PLATFORM UX
+--------------------
+[ ] Landing page feels like one coherent multi-game platform.
+[ ] Parent brand is JMA3A.
+[ ] Brand configuration is centralized and renameable.
+[ ] No hard-coded jma3a.ma/.com dependency.
+[ ] Game catalog is mobile-first.
+[ ] Game cards display player count/duration/modes.
+[ ] Create Game works.
+[ ] Join Room works.
+[ ] QR join works.
+[ ] Copy/share room link works.
+[ ] Lobby updates in realtime.
+[ ] Host can play and does not become omniscient.
+[ ] One-phone flow works.
+[ ] Hybrid player/device mapping works where required.
+[ ] "Play Again" works.
+[ ] Group can return to lobby and switch to a different game.
+
+G. DARIJA / LOCALIZATION
+------------------------
+[ ] Darija is a first-class locale.
+[ ] UI strings are not scattered/hard-coded.
+[ ] Darija copy was manually reviewed for natural tone.
+[ ] French locale loads.
+[ ] English locale loads.
+[ ] Arabic locale loads.
+[ ] RTL behavior works for Arabic where relevant.
+[ ] Long translations do not break mobile layouts.
+
+H. DIB
+------
+[ ] Quick Game produces valid role distribution.
+[ ] Custom setup validates role total.
+[ ] Private role reveal.
+[ ] Multi-phone role privacy.
+[ ] One-phone privacy transitions.
+[ ] Hybrid private delivery.
+[ ] Wolf action.
+[ ] Wolf multi-vote/tie rule.
+[ ] Seer action + private result.
+[ ] Witch heal.
+[ ] Witch poison.
+[ ] Potion consumption persists.
+[ ] Night resolution is server-side.
+[ ] Public dawn announcement.
+[ ] Physical discussion phase.
+[ ] Private day voting.
+[ ] Vote tie/revote.
+[ ] Elimination.
+[ ] Dead player restrictions.
+[ ] Village win.
+[ ] Wolves win.
+[ ] Game-over reveal.
+[ ] Rematch reassigns roles.
+
+I. L'INTRUS
+------------
+[ ] No-word variant works.
+[ ] Close-word variant works if exposed in UI.
+[ ] Secret content private.
+[ ] Turn order.
+[ ] Clue rounds.
+[ ] Vote.
+[ ] Tie/revote.
+[ ] Optional Intruder final guess.
+[ ] Round/session score.
+[ ] Multi-phone.
+[ ] One-phone.
+[ ] Hybrid.
+
+J. CHKON FINA?
+---------------
+[ ] Original content pack present.
+[ ] Secret votes.
+[ ] Aggregate reveal.
+[ ] Individual voter identity hidden by default.
+[ ] Self-vote setting works.
+[ ] One-phone private voting works.
+[ ] Multiple rounds do not immediately repeat prompt.
+[ ] No forced winner required.
+
+K. METTELHA
+-----------
+[ ] Teams.
+[ ] Original prompt content.
+[ ] Large private actor card.
+[ ] Timer is server-consistent enough for session.
+[ ] Correct.
+[ ] Skip.
+[ ] Score.
+[ ] Turn rotates team.
+[ ] Final result.
+
+L. MAMNOU3
+----------
+[ ] Original target/forbidden-word cards.
+[ ] Card privacy.
+[ ] Timer.
+[ ] Correct.
+[ ] Taboo violation.
+[ ] Skip.
+[ ] Score.
+[ ] Team rotation.
+[ ] Final result.
+
+M. MISSION SIRRIYA
+------------------
+[ ] Original safe mission content.
+[ ] Private mission assignment.
+[ ] Unique missions where possible.
+[ ] Mission swap rule.
+[ ] Timer/no-timer.
+[ ] Completion claim.
+[ ] Group confirmation.
+[ ] Reveal.
+[ ] Score/result.
+[ ] Multi-phone.
+[ ] One-phone.
+[ ] Hybrid.
+[ ] Reconnect preserves mission.
+
+N. CONTENT
+----------
+[ ] L'Intrus content meets minimum count.
+[ ] Chkon Fina content meets minimum count.
+[ ] Mettelha content meets minimum count.
+[ ] Mamnou3 content meets minimum count.
+[ ] Mission Sirriya content meets minimum count.
+[ ] Content schemas validated.
+[ ] Duplicate IDs rejected.
+[ ] Normalized duplicates checked.
+[ ] No copied commercial deck included.
+[ ] Default pack is safe/socially appropriate.
+
+O. ACCESSIBILITY / MOBILE
+-------------------------
+[ ] Tested at 375px viewport.
+[ ] Tested on larger mobile viewport.
+[ ] Primary controls roughly 48px+ high.
+[ ] No gameplay desktop tables.
+[ ] Strong contrast.
+[ ] Not color-only.
+[ ] Reduced-motion honored.
+[ ] Touch interactions usable one-handed where practical.
+[ ] Private text is large/readable.
+[ ] Loading/reconnecting/error states are understandable.
+
+P. PWA
+------
+[ ] Manifest.
+[ ] Icons.
+[ ] Install metadata.
+[ ] Safe service worker or intentional decision not to cache private state.
+[ ] Private game-state responses are not stale-cached.
+[ ] App launches correctly from installed shortcut.
+
+Q. VERCEL
+---------
+[ ] Vercel project linked/created.
+[ ] Production environment variables configured.
+[ ] Preview environment configured where needed.
+[ ] Production deployment succeeds.
+[ ] Production URL recorded.
+[ ] NEXT_PUBLIC_APP_URL equals canonical production URL.
+[ ] Redeployed after canonical URL change if necessary.
+[ ] QR created in production points to production.
+[ ] Runtime logs inspected for hidden errors.
+[ ] WebSocket endpoint works on deployed environment.
+[ ] Database works from deployed environment.
+[ ] Redis works from deployed environment.
+
+R. PRODUCTION SMOKE
+-------------------
+[ ] Home loads without console-breaking error.
+[ ] Create room.
+[ ] Join from second context/device.
+[ ] Realtime lobby.
+[ ] Refresh/reconnect.
+[ ] Complete at least one short end-to-end game.
+[ ] Smoke each remaining game through its key loop.
+[ ] Test one-phone private transition.
+[ ] Test mobile viewport.
+[ ] Test invalid room.
+[ ] Test room expiration/error state where practical.
+
+S. FINAL HANDOFF
+----------------
+[ ] Live production URL supplied.
+[ ] GitHub repository URL supplied.
+[ ] Final commit SHA supplied.
+[ ] Non-secret Vercel project identity supplied.
+[ ] Required ENV NAMES supplied — no values.
+[ ] Test results summarized.
+[ ] Known limitations explicitly listed.
+[ ] No promise of work that was not actually performed.
+[ ] No secret value appears in final message.
+
+======================================================================
+DO NOT CLAIM "DONE" UNTIL EVERY REQUIRED ITEM IS EITHER:
+A) VERIFIED COMPLETE, OR
+B) EXPLICITLY MARKED BLOCKED WITH THE EXACT TECHNICAL/PERMISSION REASON.
+======================================================================

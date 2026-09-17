@@ -1,0 +1,223 @@
+======================================================================
+JMA3A — ORIGINAL CONTENT PACK REQUIREMENTS
+Instructions for seed content created by the coding agent
+======================================================================
+
+GENERAL
+-------
+All seed content must be original.
+Do not scrape or reproduce proprietary decks or commercial party-game cards.
+
+Content should feel natural for Moroccan social groups.
+Default packs should work for friends, university-age groups, families,
+cafés, trips, and casual gatherings without requiring explicit/18+ content.
+
+Store content as structured data validated by schemas.
+Every item requires a stable unique ID.
+
+======================================================================
+1. L'INTRUS
+======================================================================
+
+NO-WORD VARIANT:
+Minimum 120 words/concepts.
+
+Suggested categories:
+- food
+- Morocco
+- everyday objects
+- places
+- jobs
+- football
+- transport
+- school/campus
+- technology
+- travel
+- animals
+- entertainment concepts
+
+Requirements:
+- not too obscure
+- easy to describe without saying exact word
+- avoid several nearly identical entries in same pack
+- include difficulty
+
+CLOSE-WORD VARIANT:
+Minimum 80 original related pairs.
+
+Good pair criteria:
+- related enough that clue overlap creates uncertainty
+- different enough that game is solvable
+- culturally understandable
+
+Do not use examples from a commercial deck as dataset.
+
+======================================================================
+2. CHKON FINA?
+======================================================================
+
+Minimum 180 prompts.
+At least 100 should have polished Darija wording.
+
+Categories:
+- friends
+- funny
+- personality
+- everyday life
+- travel
+- football
+- campus
+- family-safe
+
+Tone:
+playful, socially revealing, not cruel.
+
+Avoid default prompts that:
+- shame appearance
+- target ethnicity/religion/politics/sexual orientation/medical conditions
+- encourage bullying
+- pressure substance use
+- ask people to reveal secrets/passwords
+- humiliate one participant
+
+Prompt quality:
+- should lead to a fun vote
+- should be concise
+- should name "who among us" naturally
+- avoid repetitive templates when possible
+
+======================================================================
+3. METTELHA
+======================================================================
+
+Minimum 250 acting prompts.
+
+Categories:
+- actions
+- animals
+- jobs
+- objects
+- Moroccan daily life
+- sports
+- football
+- travel
+- places
+- emotions that can be acted
+- generic entertainment concepts
+
+Each item:
+id
+locale
+answer
+category
+difficulty
+optional hint
+
+Avoid prompts that require copyrighted images/audio.
+
+======================================================================
+4. MAMNOU3
+======================================================================
+
+Minimum 180 cards.
+
+Each card:
+- target
+- 3 to 5 forbidden words
+- locale
+- category
+- difficulty
+
+Quality criteria:
+- forbidden words are genuinely tempting clues
+- not impossible
+- avoid target appearing inside a forbidden phrase or vice versa in a broken way
+- normalize accents/case for validation
+- support multilingual pack separation
+
+The app is honor-based in V1.
+Do not implement fake "AI voice detection" just to claim anti-cheat.
+
+======================================================================
+5. MISSION SIRRIYA
+======================================================================
+
+Minimum 120 missions.
+
+Each:
+id
+locale
+instruction
+difficulty
+estimatedDuration
+tags
+safetyFlags (normally none)
+
+Mission design:
+- subtle
+- harmless
+- feasible in a normal gathering
+- funny when revealed
+- should not require a specific venue unless tagged
+- not dependent on buying something
+
+Never include default missions involving:
+- dangerous actions
+- illegal acts
+- driving distraction
+- sexual coercion
+- unwanted touching
+- theft
+- property damage
+- passwords/private messages
+- photographing someone secretly
+- financial spending
+- alcohol/drug consumption
+- humiliation
+- harassment
+- medical acts
+
+======================================================================
+6. LOCALIZATION STRATEGY
+======================================================================
+
+Do not assume literal translation is good game content.
+
+Content packs may be independently authored by locale.
+
+Example:
+A funny Darija prompt can have a culturally equivalent French version
+rather than a literal translation.
+
+Keep:
+content ID
+pack ID
+locale
+version
+
+separate enough to update content without changing game engine.
+
+======================================================================
+7. CONTENT QA
+======================================================================
+
+Create scripts/tests for:
+- exact duplicate IDs
+- normalized duplicate text
+- empty target/prompt
+- forbidden-word count
+- missing category
+- invalid locale
+- count minimums
+- unsafe development placeholders
+- accidental "TODO", "lorem ipsum", "test prompt" in production packs
+
+Generate a developer content report such as:
+- count per game
+- count per locale
+- count per category
+- duplicate warnings
+
+======================================================================
+END
+======================================================================

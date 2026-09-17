@@ -1,0 +1,17 @@
+{
+  "name": "JMA3A — جماعة",
+  "short_name": "JMA3A",
+  "description": "ألعاب جماعية مغربية للأصدقاء والعائلة",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B0E14",
+  "theme_color": "#0B0E14",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

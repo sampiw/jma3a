@@ -1,0 +1,2678 @@
+======================================================================
+JMA3A — COMPLETE MASTER BUILD PROMPT
+Production MVP • Darija-first Moroccan Social Party Games Platform
+======================================================================
+
+WORKING PRODUCT NAME
+JMA3A
+
+Working brand rendering:
+JMA3A
+جماعة
+
+IMPORTANT:
+- JMA3A is the PLATFORM, not one individual game.
+- The codebase must centralize branding so the product can be renamed later.
+- Do NOT hard-code jma3a.ma or jma3a.com anywhere.
+- jma3a.ma and jma3a.com are FUTURE commercial-domain targets only.
+- The first deployed production URL may be a Vercel URL.
+- The canonical base URL MUST come from environment/configuration.
+
+======================================================================
+0. YOUR ROLE AND EXECUTION MANDATE
+======================================================================
+
+You are acting as:
+- senior product engineer
+- senior full-stack engineer
+- systems architect
+- multiplayer/realtime engineer
+- game-system designer
+- UX engineer
+- security-minded backend engineer
+- QA engineer
+- deployment engineer
+
+Your job is NOT to give me a proposal, screenshots, pseudocode, or a partial demo.
+
+Your job is to DESIGN, IMPLEMENT, TEST, DEPLOY, VERIFY, AND DELIVER a
+working production-quality MVP of JMA3A.
+
+You are authorized to:
+- create/edit/delete project files
+- initialize the repository
+- install dependencies
+- run development servers
+- create database schemas and migrations
+- run migrations
+- create seed data
+- run automated tests
+- run type checks
+- run linters
+- run builds
+- use the GitHub credentials supplied through the agent environment
+- create or update the target GitHub repository if permissions allow
+- push commits
+- use the Vercel credentials supplied through the agent environment
+- create/link/configure the Vercel project if permissions allow
+- configure Vercel environment variables
+- deploy previews
+- deploy production
+- inspect deployment/build/runtime errors
+- fix those errors
+- redeploy
+- continue until acceptance criteria are met
+
+DO NOT stop after planning.
+DO NOT stop after scaffolding.
+DO NOT stop after creating a pretty landing page.
+DO NOT tell me to manually paste files that you can create yourself.
+DO NOT tell me how I could deploy when you have the credentials/tools to deploy.
+DO NOT mark placeholder behavior as complete.
+DO NOT create fake multiplayer.
+DO NOT expose hidden game state to clients.
+DO NOT commit secrets.
+DO NOT rewrite working systems merely for stylistic preference.
+DO NOT ask for confirmation for routine engineering decisions.
+
+If an external permission genuinely prevents an action:
+1. complete everything that does not depend on that permission,
+2. preserve all work locally and in any accessible remote,
+3. report the exact blocked action,
+4. report the exact missing permission/capability,
+5. do not falsely claim deployment/repository linking succeeded.
+
+======================================================================
+1. PRODUCT VISION
+======================================================================
+
+JMA3A is a mobile-first Moroccan social party-game platform for people
+who are PHYSICALLY TOGETHER.
+
+Core idea:
+
+"جمع الجماعة. اختار اللعبة. وبداو."
+
+Alternative English product idea:
+"Games made for the jma3a."
+
+The technology should support the gathering, not replace it.
+
+Players are sitting together:
+- at a café
+- at home
+- at a party
+- at a game night
+- during a trip
+- at a social gathering
+
+They should be talking, laughing, bluffing, accusing, guessing,
+performing, voting, and reacting IN REAL LIFE.
+
+The web app is the invisible game box / Game Master.
+
+The product must feel:
+- Moroccan
+- modern
+- premium
+- social
+- adult enough to be used by university students and adults
+- simple enough for casual players
+- fast
+- reliable
+- mobile-first
+- install-free
+- registration-free for basic play
+
+It must NOT feel:
+- childish
+- cartoonish
+- like an admin dashboard
+- like an RGB "gamer" product
+- like a casino
+- like stereotypical Moroccan tourism branding
+- like a text-chat app
+- like six unrelated mini-sites glued together
+
+======================================================================
+2. PRIMARY PRODUCT PRINCIPLES
+======================================================================
+
+P1 — REAL-LIFE SOCIAL INTERACTION IS THE PRODUCT
+The app coordinates the game. People interact physically.
+
+P2 — INSTANT PLAY
+Basic play requires no account, email, phone number, or app-store install.
+
+P3 — ONE PLATFORM, MANY GAMES
+Rooms, players, devices, sessions, QR joining, timers, private turns,
+reconnect, voting, scoring, localization, content packs, and realtime
+transport are PLATFORM capabilities.
+
+Each game plugs into this platform through a clear game contract.
+
+P4 — PLAYER != DEVICE
+Multiple players may share one phone.
+One player may have their own phone.
+A room may mix both.
+
+P5 — SERVER AUTHORITATIVE
+Clients express intent.
+The server validates and resolves game state.
+
+P6 — PRIVATE DATA IS ACTUALLY PRIVATE
+Never send all secrets to every browser and merely hide them in UI/CSS.
+
+P7 — DARIJA FIRST
+Moroccan Darija is a first-class product language and content language.
+
+P8 — MOBILE FIRST
+Primary target is modern phone browsers at 375px width and above.
+
+P9 — COMMERCIAL-READY WITHOUT MONETIZATION BLOAT
+No payments are required in V1, but architecture must not block:
+accounts, profiles, achievements, premium content packs, premium games,
+cosmetics, statistics, subscriptions, custom rooms, or branded packs.
+
+======================================================================
+3. V1 GAME CATALOG
+======================================================================
+
+Build SIX playable games for the production MVP.
+
+Every game shown in the production catalog MUST be genuinely playable.
+Never show a "Coming Soon" card unless it is explicitly labeled as such
+and excluded from acceptance criteria.
+
+REQUIRED V1 GAMES:
+
+1. DIB
+   Type: Social deduction / Werewolf-style
+   Icon concept: wolf
+   Complexity: high
+   Required modes: MULTI_PHONE, ONE_PHONE, HYBRID
+   Flagship game.
+
+2. L'INTRUS
+   Type: secret-word social deduction
+   Complexity: medium
+   Required modes: MULTI_PHONE, ONE_PHONE, HYBRID
+
+3. CHKON FINA?
+   Type: "most likely to" / social voting prompts
+   Complexity: low-medium
+   Required modes: MULTI_PHONE, ONE_PHONE
+
+4. METTELHA
+   Type: charades / acting / guessing
+   Complexity: low-medium
+   Required modes: ONE_PHONE, TEAM_MODE
+   MULTI_PHONE may be added if it materially improves UX.
+
+5. MAMNOU3
+   Type: forbidden-word team guessing
+   Complexity: medium
+   Required modes: ONE_PHONE, TEAM_MODE
+
+6. MISSION SIRRIYA
+   Type: secret social missions during the gathering
+   Complexity: medium
+   Required modes: MULTI_PHONE, ONE_PHONE, HYBRID
+
+Do NOT copy proprietary card databases, copyrighted decks, branded
+question sets, or exact commercial-game content.
+
+Mechanics can be inspired by classic/public social-game patterns, but all
+JMA3A seed prompts, word pairs, missions, and forbidden-word cards must
+be original.
+
+======================================================================
+4. GAME CAPABILITY MODEL
+======================================================================
+
+Do NOT force every game to support every interaction mode.
+
+Use capabilities such as:
+
+type GameCapability =
+  | "MULTI_PHONE"
+  | "ONE_PHONE"
+  | "HYBRID"
+  | "SHARED_SCREEN"
+  | "TEAM_MODE"
+  | "PRIVATE_TURNS"
+  | "ANONYMOUS_VOTING"
+  | "REALTIME"
+  | "SCORES"
+  | "TIMERS"
+  | "NARRATION";
+
+Each game definition declares its supported capabilities.
+
+The UI must only offer modes that the selected game supports.
+
+======================================================================
+5. SHARED GAME REGISTRY
+======================================================================
+
+Create a proper game registry.
+
+Conceptually:
+
+interface GameDefinition<TState, TAction, TSettings> {
+  id: string;
+  slug: string;
+  version: number;
+  displayNameKey: string;
+  shortDescriptionKey: string;
+  minPlayers: number;
+  maxPlayers: number | null;
+  capabilities: GameCapability[];
+  defaultSettings: TSettings;
+  settingsSchema: Schema<TSettings>;
+
+  validateSetup(ctx): ValidationResult;
+  createInitialState(ctx): TState;
+  start(ctx): TransitionResult<TState>;
+  handleAction(ctx, action: TAction): TransitionResult<TState>;
+  getPublicView(ctx): PublicGameView;
+  getPlayerView(ctx, playerId): PrivatePlayerGameView;
+  getHostAdminView(ctx): HostAdminView;
+  checkFinished(ctx): GameEndResult | null;
+}
+
+Exact names may differ.
+
+Requirements:
+- typed
+- testable outside React
+- server-side authoritative
+- versioned
+- no giant switch statements spread across route handlers
+- each game owns game-specific rules
+- platform owns shared multiplayer/session primitives
+
+======================================================================
+6. PLATFORM DATA MODEL
+======================================================================
+
+Separate platform state from game state.
+
+Core conceptual entities:
+
+GameRoom
+- id
+- code
+- status: LOBBY | ACTIVE | FINISHED | EXPIRED
+- selectedGameId
+- selectedGameVersion
+- hostPlayerId nullable
+- createdAt
+- updatedAt
+- expiresAt
+- settings JSON for room-level settings
+
+Player
+- id
+- roomId
+- nickname
+- normalizedNickname
+- status: ACTIVE | ELIMINATED | LEFT | SPECTATING
+- joinedAt
+- connectionStatus
+- avatarSeed or lightweight visual identity
+- teamId nullable
+
+DeviceSession
+- id
+- roomId
+- secure token hash / session identity
+- type: PERSONAL | SHARED_HOST
+- createdAt
+- lastSeenAt
+- revokedAt nullable
+
+PlayerDeviceBinding
+- playerId
+- deviceSessionId
+- interactionMode
+This enables several players to share one device.
+
+GameSession
+- id
+- roomId
+- gameId
+- gameVersion
+- round
+- phase
+- state JSONB or typed persisted representation
+- stateVersion integer
+- startedAt
+- finishedAt
+- winner/result summary
+
+GameAction
+- id
+- gameSessionId
+- actorPlayerId nullable
+- actionType
+- payload server-private JSON
+- phase
+- round
+- idempotencyKey
+- createdAt
+- resolutionStatus
+
+Vote
+- id
+- gameSessionId
+- voterPlayerId
+- targetPlayerId nullable
+- choice JSON
+- round
+- phase
+- createdAt
+- uniqueness constraints appropriate to the game
+
+GameEvent
+- id
+- gameSessionId
+- eventType
+- visibility type
+- publicPayload
+- privatePayload or secure internal payload
+- round
+- phase
+- createdAt
+
+ContentPack
+- id/slug
+- gameId
+- locale
+- version
+- label
+- active
+
+No user account is required in V1.
+
+Database IDs should not be unnecessarily exposed to clients.
+Use public opaque identifiers where useful.
+
+======================================================================
+7. ROOM SYSTEM
+======================================================================
+
+Home experience:
+
+JMA3A
+"شنو غادي نلعبو؟"
+
+Primary flow:
+- choose a game
+- create a room/game
+- join with a code
+- optionally read "How it works"
+
+Room codes:
+- short
+- readable
+- case-insensitive
+- avoid confusing characters where practical
+- unique among active rooms
+- rate-limited against brute force
+- room code alone is NOT authorization to private state
+
+Suggested format:
+6 characters such as K7M4PX
+or grouped such as JM-7K2P
+
+Do not couple room code format to a specific game.
+
+Create flow:
+1. Choose game.
+2. Choose QUICK GAME or CUSTOM GAME when game supports customization.
+3. Choose supported device/play mode.
+4. Configure minimal settings.
+5. Create room.
+6. Show room code, share URL, and QR.
+7. Friends join.
+8. Start when setup validates.
+
+Join flow target:
+Scan QR
+→ enter nickname
+→ join
+
+Target interaction time:
+approximately 5–10 seconds for a returning user.
+
+Join URL:
+${APP_URL}/join/{ROOM_CODE}
+
+Large QR actions:
+- Copy link
+- Native share when available
+- Fullscreen QR
+- Copy room code
+
+======================================================================
+8. LOBBY SYSTEM
+======================================================================
+
+Lobby should show:
+- JMA3A branding
+- selected game
+- room code
+- QR
+- players
+- connection/reconnect state
+- game-specific setup summary
+- host/admin controls
+- clear Start Game CTA when valid
+- validation explanation when invalid
+
+Host is an administrator, NOT a human moderator.
+
+Host may:
+- start game
+- change allowed settings while in lobby
+- add local/shared-device players where supported
+- remove a player before start
+- pause/resume where game supports it
+- end room
+- restart / play again after game
+
+Host must NOT receive secret role/word/mission information simply
+because they are host.
+
+Host should be allowed to play.
+
+======================================================================
+9. DEVICE MODES
+======================================================================
+
+A. MULTI_PHONE
+Each player has their own browser/device session.
+
+B. ONE_PHONE
+All players use one shared phone.
+Privacy transitions are mandatory between secret interactions.
+
+C. HYBRID
+Some players have personal devices.
+Some are local players bound to a shared device.
+
+D. TEAM_MODE
+A team-oriented game may intentionally use one shared device and team
+turns without requiring every person to join individually.
+
+Do not create separate duplicated engines for these modes.
+The game engine operates on PLAYER entities.
+Delivery of interactions is adapted to devices.
+
+======================================================================
+10. PASS-THE-PHONE PRIVACY
+======================================================================
+
+This is a first-class platform capability.
+
+Before every private turn:
+
+🔒 PRIVATE TURN
+دوز التليفون لـ {PLAYER}
+
+[ أنا هو/هي {PLAYER} ]
+
+Then private content is shown.
+
+After action/reveal:
+[ خبي وكمل ]
+
+Immediately replace private content with a neutral privacy screen.
+
+Requirements:
+- browser Back must not trivially expose the previous secret
+- avoid secret state in URL
+- avoid full secret histories in localStorage
+- do not persist unneeded secret text client-side
+- on refresh, server decides the current revealable private state
+- clear sensitive in-memory UI state when leaving private step
+- use no-cache headers on secret endpoints/views where appropriate
+- prevent another local player from simply revisiting the prior private route
+- shared device tokens authorize only the currently granted reveal step
+
+======================================================================
+11. REALTIME ARCHITECTURE
+======================================================================
+
+Production target:
+- Vercel-hosted application
+- Vercel WebSocket-capable Function/runtime when currently supported
+- shared Redis for cross-instance presence/pub-sub/realtime coordination
+- PostgreSQL for durable authoritative state
+
+IMPORTANT:
+Do not rely on one Vercel Function instance's process memory as the
+authoritative room state.
+
+Realtime adapter requirements:
+- transport isolated behind an interface
+- local/dev implementation may use local memory where explicitly limited
+- production implementation must work across multiple instances
+- reconnect support
+- room-scoped broadcasts
+- player-private messages
+- presence/heartbeat
+- event sequence/version numbers
+- missed-update recovery through authoritative HTTP/game-state fetch
+
+Possible server-to-client events:
+room.player_joined
+room.player_left
+room.player_reconnected
+room.settings_changed
+game.started
+game.phase_changed
+game.public_state_changed
+game.private_action_requested
+game.private_state_changed
+game.action_accepted
+game.vote_progress_changed
+game.player_eliminated
+game.finished
+system.reconnect_required
+
+Never place hidden data in a broadcast event intended for the whole room.
+
+Every client must be able to recover from a missed realtime event by
+fetching its authorized current snapshot.
+
+If the exact Vercel WebSocket API has changed since this prompt was
+written, verify the CURRENT official Vercel documentation at execution
+time and use the current supported API.
+Preserve the RealtimeAdapter abstraction.
+
+======================================================================
+12. CONCURRENCY / TRANSACTIONS
+======================================================================
+
+Multiple players can act at the same time.
+
+Protect against:
+- duplicate vote
+- duplicate action
+- double phase advancement
+- double elimination
+- stale-state write
+- two simultaneous game resolutions
+- reusing limited abilities
+- repeated submit caused by mobile retries
+- reconnect replay
+
+Use:
+- DB transactions where appropriate
+- unique constraints
+- optimistic stateVersion checks and/or row locking
+- idempotency keys
+- deterministic resolution
+- Redis only as coordination/cache/broadcast, not the sole durable truth
+  for finished/important game state
+
+Every mutating game command should conceptually operate against:
+room/game ID + actor identity + expected state/phase + idempotency key.
+
+======================================================================
+13. SESSION / RECONNECT MODEL
+======================================================================
+
+Refresh must not destroy identity.
+
+Use secure anonymous session tokens.
+
+Requirements:
+- random high-entropy token
+- only hashed representation persisted where practical
+- secure HttpOnly cookie for personal-device browser session when possible
+- SameSite protection appropriate to the application
+- Secure in production
+- token rotation/revocation support
+- room code is not identity
+- nickname is not identity
+
+Reconnect restores:
+- same room
+- same player
+- same role/secret authorization
+- same alive/eliminated state
+- current game phase
+- current pending private action
+
+Handle:
+- browser refresh
+- temporary network loss
+- phone sleep/wake
+- closing and reopening tab
+- host refresh
+- duplicate tabs
+- player permanently leaving
+- expired rooms
+
+======================================================================
+14. SECURITY MODEL
+======================================================================
+
+SERVER IS AUTHORITATIVE.
+
+Never:
+- send all roles to all clients
+- send all secret words to all clients
+- send all secret missions to all clients
+- send Seer results to unauthorized players
+- send wolf targets publicly before resolution
+- place secrets in HTML and hide them with CSS
+- trust client-supplied role/team/status
+- let client decide who wins
+- let client advance phase without server validation
+- let a shared device query arbitrary players' secrets
+- embed server secrets in NEXT_PUBLIC_* variables
+
+Every action validates:
+- authenticated anonymous session
+- room membership
+- player identity
+- game status
+- alive/eligible status where relevant
+- current phase
+- action permission
+- target permission
+- limits/cooldowns/consumables
+- duplicate submission
+- state version / stale request
+- payload schema
+
+Add:
+- Zod or equivalent validation
+- rate limits on create/join/code probing/action spam
+- secure headers
+- safe error responses
+- structured server logs without leaking secrets
+- no tokens in logs
+- dependency audit hygiene
+- CSP where practical
+- CSRF-conscious mutation design
+- origin checks for websocket connections
+- production error boundaries
+
+======================================================================
+15. LOCALIZATION
+======================================================================
+
+Do not hard-code UI copy throughout React components.
+
+Suggested locales:
+
+/locales
+  darija.json
+  fr.json
+  en.json
+  ar.json
+
+Default market:
+Morocco.
+
+Darija must sound natural and casual, not formal Modern Standard Arabic
+and not machine-translated.
+
+Examples of product tone:
+- "جمع الجماعة وبدأو"
+- "دخل السمية ديالك"
+- "تسنى حتى يدخلو صحابك"
+- "دابا دورك"
+- "شوف غير بوحدك 👀"
+- "ماتخليش شي حد يشوف الشاشة"
+- "دوز التليفون لـ حمزة"
+- "وقت التصويت"
+- "ناقشو بيناتكم"
+- "واجدين؟ يلا بينا"
+
+Keep copy easily editable.
+
+Game content and UI localization are separate:
+- UI strings
+- game content packs
+- narration scripts
+
+======================================================================
+16. BRAND / VISUAL SYSTEM
+======================================================================
+
+Parent brand: JMA3A
+
+Brand should feel:
+- contemporary Moroccan
+- premium
+- warm
+- social
+- minimal
+- confident
+- adult
+- culturally aware without cliché
+
+Avoid:
+- cartoon mascots as primary identity
+- childish bubble UI
+- RGB gamer gradients everywhere
+- fake neon casino feel
+- excessive glassmorphism
+- tourist-poster Morocco clichés
+- overloaded zellige on every surface
+
+Suggested parent palette direction:
+- deep charcoal / black-brown
+- warm ivory
+- burgundy / terracotta accent
+- restrained gold/warm highlight where useful
+
+Typography:
+- excellent Latin and Arabic readability
+- bold editorial display type for game titles
+- highly readable UI text
+
+Subtle Moroccan influence may appear in:
+- geometry
+- separators
+- texture
+- motion rhythm
+- icon framing
+but must remain restrained.
+
+Each game gets its own visual identity while using the same design system.
+
+DIB:
+dark forest / night / burgundy / moon
+
+L'INTRUS:
+spy / black / acid-lime or sharp accent / coded identity
+
+CHKON FINA:
+social / expressive / energetic cards
+
+METTELHA:
+stage / spotlight / performance
+
+MAMNOU3:
+high-energy timer / bold word-card system
+
+MISSION SIRRIYA:
+covert / elegant / secret-envelope feeling
+
+Respect prefers-reduced-motion.
+
+======================================================================
+17. HOME / DISCOVERY EXPERIENCE
+======================================================================
+
+Home should immediately communicate:
+this is a library of party games.
+
+Suggested content hierarchy:
+
+JMA3A
+
+"شنو غادي نلعبو؟"
+
+Game cards:
+DIB
+L'INTRUS
+CHKON FINA?
+METTELHA
+MAMNOU3
+MISSION SIRRIYA
+
+Each card:
+- title
+- short Darija description
+- player-count range
+- approximate duration
+- mode indicators
+- strong but restrained art direction
+- Play CTA
+
+Also:
+"عندك كود ديال الغرفة؟"
+[ JOIN ROOM ]
+
+Do not force account creation.
+
+======================================================================
+18. QUICK GAME VS CUSTOM GAME
+======================================================================
+
+Where useful:
+
+QUICK GAME
+- sensible defaults
+- minimum decisions
+- fastest start
+
+CUSTOM GAME
+- advanced settings
+- role/content/timer configuration
+
+Never overwhelm casual users with 20 settings before first play.
+
+======================================================================
+19. GAME 1 — DIB
+======================================================================
+
+DIB is the flagship automatic-Game-Master social deduction game.
+
+PRODUCT GOAL:
+Play a Werewolf/Loup-Garou-style game without forcing one friend to sit
+out as moderator.
+
+Players physically discuss and accuse each other.
+The app handles secret roles, night order, actions, votes, deaths, and win conditions.
+
+Required modes:
+- MULTI_PHONE
+- ONE_PHONE
+- HYBRID
+
+------------------------
+19.1 DIB V1 ROLES
+------------------------
+
+Required:
+- VILLAGER
+- WOLF
+- SEER
+- WITCH
+
+Architecture must support future roles without rewriting the engine.
+
+Potential future roles:
+Hunter
+Cupid
+Protector
+White Wolf
+Black Wolf
+Thief
+Elder
+Idiot
+Fox
+etc.
+
+Use a role registry/definition model.
+
+Conceptually:
+
+RoleDefinition {
+  id
+  team
+  priority
+  nightBehavior
+  validateAction()
+  resolveAction()
+  getPrivateView()
+}
+
+------------------------
+19.2 VILLAGER
+------------------------
+
+Team:
+Village
+
+Night ability:
+none
+
+Goal:
+eliminate all hostile wolves.
+
+------------------------
+19.3 WOLF
+------------------------
+
+Team:
+Wolves
+
+Night ability:
+choose a victim.
+
+Multi-phone:
+eligible wolves receive authorized wolf information and vote/choose
+privately.
+
+Never expose wolf identities to non-wolves.
+
+Resolve multiple wolf choices by a documented deterministic rule.
+Default:
+- plurality/majority among wolf submissions
+- if top targets tie, use a deterministic configured tie rule
+Recommended default: one quick wolf revote among tied targets.
+If still tied or timeout: no wolf kill OR deterministic rule chosen in settings.
+Do NOT use hidden arbitrary client randomness.
+
+------------------------
+19.4 SEER
+------------------------
+
+Team:
+Village
+
+Night:
+select one living player.
+Server returns configured information only to the Seer.
+
+Default:
+reveal alignment or role according to DIB settings.
+Pick one default and document it.
+Recommended Quick Game default: alignment to reduce excessive certainty.
+
+------------------------
+19.5 WITCH
+------------------------
+
+Team:
+Village
+
+One-use:
+- healing potion
+- poison potion
+
+Server stores remaining potions.
+
+Depending on settings the Witch may learn the wolf victim.
+
+Actions:
+SAVE
+POISON a valid living target
+DO NOTHING
+
+Define whether both potions can be used in one night.
+Recommended Quick Game default:
+allow at most one potion action per night for simpler balancing.
+Make rule centralized/configurable.
+
+------------------------
+19.6 DIB STATE MACHINE
+------------------------
+
+LOBBY
+ROLE_ASSIGNMENT
+ROLE_REVEAL
+NIGHT_START
+WOLF_ACTION
+SEER_ACTION
+WITCH_ACTION
+NIGHT_RESOLUTION
+DAY_ANNOUNCEMENT
+DISCUSSION
+DAY_VOTE
+VOTE_RESOLUTION
+CHECK_WIN
+NEXT_NIGHT
+GAME_OVER
+
+Actual night sequence must come from active role priorities/handlers,
+not scattered UI conditionals.
+
+------------------------
+19.7 DIB ROLE REVEAL
+------------------------
+
+Private.
+Exciting but fast.
+
+Possible flow:
+face-down card
+"Tap to reveal"
+animated flip
+role
+short Darija explanation
+"HOLD TO HIDE" or clear hide CTA
+
+One-phone:
+privacy transition before and after each player.
+
+------------------------
+19.8 DIB NARRATION
+------------------------
+
+Game Master guidance:
+text always available
+audio optional
+logic independent of audio
+
+Use NarrationService abstraction.
+
+Darija concepts:
+"المدينة تنعس 🌙"
+"الذيابة يفيقو 🐺"
+"اختارو الضحية ديالكم"
+"الذيابة ينعسو"
+"الشوافة تفيق 🔮"
+"شكون بغيتي تكشفي؟"
+"السحارة تفيق"
+"المدينة فاقت ☀️"
+
+Audio files/TTS are not required to be hardcoded into game logic.
+
+------------------------
+19.9 DIB DISCUSSION
+------------------------
+
+No text chat.
+
+Public screen:
+"المدينة فاقت ☀️"
+"ناقشو بيناتكم: شكون كتشكو فيه؟"
+
+Optional timer:
+default 3:00 for Quick Game, configurable.
+
+Pause/resume host control allowed.
+
+------------------------
+19.10 DIB DAY VOTE
+------------------------
+
+Living players vote.
+Private until closed.
+
+Server counts.
+
+Default tie rule:
+revote among tied candidates once.
+If repeated tie:
+nobody eliminated.
+Centralize this as setting.
+
+Role reveal after elimination:
+configurable.
+Choose a sensible Quick Game default and document it.
+
+------------------------
+19.11 DIB DEATH
+------------------------
+
+Eliminated players:
+remain in room
+cannot vote
+cannot use normal night actions
+cannot see active secrets unless settings explicitly allow
+
+Spectator/dead view should keep them engaged without leaking information.
+
+------------------------
+19.12 DIB WIN CONDITIONS
+------------------------
+
+Village:
+no hostile wolves alive.
+
+Wolves:
+wolves reach parity with remaining non-wolves, unless a future role
+modifies condition.
+
+Server checks after relevant resolutions.
+
+Game Over:
+winner
+all players/roles reveal after game
+play again
+new game
+home
+
+------------------------
+19.13 DIB RECOMMENDED SETUPS
+------------------------
+
+Centralized role-balance presets.
+
+Examples:
+5:
+1 Wolf, 1 Seer, 3 Villagers
+
+6:
+1 Wolf, 1 Seer, 1 Witch, 3 Villagers
+or configurable stronger preset with 2 wolves
+
+7–8:
+typically 2 Wolves plus specials and villagers
+
+Larger:
+increase wolves/specials sensibly.
+
+Do not make these numbers impossible to tune later.
+
+======================================================================
+20. GAME 2 — L'INTRUS
+======================================================================
+
+Core social loop:
+Most players receive a secret concept/word.
+One player is the Intruder or receives meaningfully different information.
+Players take turns giving clues verbally.
+They must expose enough knowledge to prove they belong without saying the
+word directly.
+Then players vote for the Intruder.
+
+Required modes:
+- MULTI_PHONE
+- ONE_PHONE
+- HYBRID
+
+Two supported rule variants:
+A. NO-WORD INTRUDER
+   All normal players receive the same word.
+   Intruder receives "You are the Intruder" but no word.
+
+B. CLOSE-WORDS
+   Majority receives Word A.
+   Minority/Intruder receives closely related Word B.
+   Example structure only: "train" vs "tram".
+   Actual seed pairs must be original and culturally appropriate.
+
+Quick Game default:
+NO-WORD INTRUDER for simplicity.
+
+Flow:
+LOBBY
+SECRET_ASSIGNMENT
+PRIVATE_REVEAL
+CLUE_ROUNDS
+VOTING
+VOTE_RESULT
+OPTIONAL_INTRUDER_GUESS
+SCORE/RESULT
+NEXT_ROUND or GAME_OVER
+
+Rules:
+- never reveal word to unauthorized client
+- randomize starting player
+- show visible turn order publicly
+- clue is spoken in real life; no required text entry
+- configurable 1–3 clue rounds
+- after clues, everyone votes privately
+- tied vote: revote tied players
+- if Intruder is caught, optional final chance to guess the secret word
+- if correct, Intruder may steal/earn win depending settings
+- support score-based multi-round session
+- play-again preserves group but rerandomizes secrets
+
+Minimum original V1 content:
+- at least 120 Darija-friendly secret words
+- at least 80 close-word pairs if CLOSE-WORDS variant is enabled
+- categories/tags
+- no duplicates
+- no proprietary deck copying
+- avoid unnecessarily obscure clues in Quick Game
+
+======================================================================
+21. GAME 3 — CHKON FINA?
+======================================================================
+
+A social "who among us?" voting game.
+
+Core loop:
+1. Display a prompt.
+2. Players read it together.
+3. Every participating player secretly votes for one eligible person.
+4. Reveal results dramatically.
+5. Discuss/laugh in real life.
+6. Next prompt.
+
+Example tone:
+"شكون فينا يقدر يسافر غدا بلا ما يقول لحتى واحد؟"
+"شكون فينا كيتأخر أكثر؟"
+"شكون فينا يقدر يولي مشهور؟"
+
+Do not directly copy prompts from a branded app/deck.
+
+Required modes:
+- MULTI_PHONE
+- ONE_PHONE
+
+One-phone voting:
+privacy pass-to-player sequence.
+
+Settings:
+- number of rounds
+- category pack
+- self-vote allowed ON/OFF
+- anonymous individual votes ON by default
+- reveal aggregate counts/percentages
+- optional "unanimous bonus" visual moment
+- skip prompt
+- family-safe default pack
+
+Do not publicly expose exactly who voted for whom by default.
+
+Optional scoring:
+This game does not require a "winner".
+Do not force competitive scoring into every game.
+
+Minimum original V1 content:
+- 180 prompts total
+- at least 100 in Darija
+- categories such as:
+  Friends
+  Funny
+  Café / Everyday
+  Travel
+  Football
+  Personality
+  Family-safe
+- content IDs + locale + tags
+- no hate, harassment, sensitive-trait targeting, or humiliating default prompts
+
+======================================================================
+22. GAME 4 — METTELHA
+======================================================================
+
+Charades / acting game.
+
+Core loop:
+- split into 2+ teams OR use casual free-play
+- active player sees secret prompt on phone
+- acts without saying the answer
+- teammates guess verbally
+- timer
+- correct / skip controls
+- score
+- next team
+
+Primary modes:
+- ONE_PHONE
+- TEAM_MODE
+
+Required categories:
+- Moroccan everyday life
+- jobs
+- animals
+- actions
+- football concepts
+- movies/TV as generic concepts only where content rights allow
+- objects
+- places/general culture
+
+Avoid using protected artwork or copying commercial charade databases.
+
+Round options:
+30 / 45 / 60 / 90 seconds
+Quick Game default: 60 seconds.
+
+Private prompt screen:
+Large readable text.
+Correct and Skip actions must be thumb-friendly.
+Do not accidentally show next prompt before current player is ready.
+
+Scoring:
++1 correct
+0 skip by default
+optional -1 skip setting
+
+Minimum original V1 content:
+250 prompts across categories.
+
+======================================================================
+23. GAME 5 — MAMNOU3
+======================================================================
+
+Team forbidden-word guessing.
+
+Each card contains:
+- target word
+- 3–5 forbidden clue words
+
+Player must make teammates guess target without saying:
+- target
+- forbidden words
+- obvious configured morphological variant when practical
+
+This is primarily honor-based in physical play.
+Do not pretend the phone can perfectly detect spoken cheating unless actual
+speech recognition is deliberately added later.
+
+Modes:
+- ONE_PHONE
+- TEAM_MODE
+
+Flow:
+team setup
+round
+private card
+timer
+correct / taboo violation / skip
+score
+next team
+final result
+
+Quick default:
+60 seconds per turn
+2 teams
++1 correct
+-1 taboo
+0 skip
+
+Minimum V1:
+180 ORIGINAL cards.
+Darija/French mixing may be supported through content packs, but each card
+must clearly declare its locale/language.
+
+No copying a commercial Taboo deck.
+
+======================================================================
+24. GAME 6 — MISSION SIRRIYA
+======================================================================
+
+A signature JMA3A social game.
+
+Each player privately receives one secret mission to accomplish naturally
+during the gathering without the others realizing.
+
+Examples of mission STRUCTURE:
+- get someone to say a common word
+- get someone to hand you a harmless object
+- make two players agree on something
+- make someone ask you a specific kind of question
+- cause a harmless social interaction
+
+Create ORIGINAL missions.
+
+Safety/content rules:
+- no dangerous acts
+- no illegal acts
+- no sexual coercion
+- no humiliation
+- no property damage
+- no forced physical contact
+- no harassment
+- no requests for passwords/private information
+- no consuming substances
+- no driving-related distractions
+- default pack family/social safe
+
+Required modes:
+- MULTI_PHONE
+- ONE_PHONE
+- HYBRID
+
+Flow:
+LOBBY
+MISSION_ASSIGNMENT
+PRIVATE_REVEAL
+ACTIVE_MISSION_PERIOD
+PLAYER_CLAIMS_COMPLETION
+OPTIONAL_GROUP_CONFIRMATION
+REVEAL
+SCORE
+NEXT_ROUND or FINAL_RESULTS
+
+Game settings:
+- round duration: 10 / 20 / 30 minutes / no timer
+- one mission each
+- allow mission swap once
+- confirmation mode:
+  SELF_CLAIM
+  GROUP_CONFIRM
+Recommended Quick Game: GROUP_CONFIRM after mission claim without exposing
+mission before the claimed completion.
+
+Mission secrecy is server-side.
+
+Minimum V1:
+120 original missions with difficulty tags.
+
+======================================================================
+25. CONTENT PACK ARCHITECTURE
+======================================================================
+
+Do not bake all content into components.
+
+Suggested:
+
+/content
+  /intrus
+  /chkon-fina
+  /mettelha
+  /mamnou3
+  /mission-sirriya
+
+Each entry should have:
+- stable ID
+- locale
+- category
+- difficulty where relevant
+- tags
+- enabled flag
+- version or pack version
+
+Support future packs:
+- Morocco
+- Football
+- Movies / entertainment where legally appropriate
+- S7ab / Friends
+- Family
+- Travel
+- Campus
+- Office
+- Premium packs later
+
+Content must be loadable without rewriting game logic.
+
+Create validation scripts/tests:
+- required fields
+- duplicate IDs
+- duplicate normalized content
+- forbidden empty values
+- reasonable counts
+- game-specific schema
+
+======================================================================
+26. PUBLIC VS PRIVATE GAME VIEWS
+======================================================================
+
+Every game must expose at least:
+- public room/game view
+- player-authorized private view
+- host admin view
+
+Host admin view is NOT secret omniscient view.
+
+For example:
+
+DIB Villager may receive:
+{
+  "myRole": "villager",
+  "phase": "discussion",
+  ...
+}
+
+They must not receive:
+{
+  "allRoles": {...}
+}
+
+L'INTRUS normal player may receive their authorized word.
+They must not receive the Intruder identity.
+
+MISSION SIRRIYA player may receive only their mission.
+
+Shared-device endpoint may return only secret for the currently authorized
+privacy turn after explicit identity handoff.
+
+======================================================================
+27. TIMERS
+======================================================================
+
+Use server-derived timestamps, not purely client countdown state.
+
+Timer payload:
+- startsAt
+- endsAt
+- pausedAt / accumulated pause if needed
+- serverNow or clock-correction strategy
+
+Client renders countdown.
+Server determines expiry.
+
+Handle:
+- refresh during timer
+- reconnect
+- host pause
+- browser background throttling
+- slightly skewed device clocks
+
+======================================================================
+28. PWA / MOBILE WEB
+======================================================================
+
+Build as responsive PWA-ready web app.
+
+Users should be able to:
+- open a link
+- play immediately
+- optionally add to home screen
+
+Provide:
+- manifest
+- app icons architecture
+- install metadata
+- theme metadata
+- safe service-worker strategy
+
+Never cache stale private game-state responses in a way that can leak or
+replay secrets.
+
+Secret/private routes should use explicit cache control.
+
+======================================================================
+29. ACCESSIBILITY
+======================================================================
+
+- strong contrast
+- 48–52px comfortable primary touch targets
+- do not rely only on color
+- icon + text where meaning matters
+- screen-reader labels for controls
+- keyboard usability where practical
+- reduced motion
+- large readable role/word cards
+- audio narration always has visible text equivalent
+- Arabic RTL support where applicable
+- test layout with long French and Arabic strings
+
+======================================================================
+30. ANALYTICS / PRIVACY
+======================================================================
+
+V1 basic play collects:
+- nickname only
+- anonymous session identity
+
+No email.
+No phone number.
+No unnecessary personal profile.
+
+Prepare privacy-conscious product events:
+- app_opened
+- game_selected
+- room_created
+- room_joined
+- game_started
+- game_completed
+- game_abandoned
+- play_again
+- mode_selected
+
+Analytics must be separate from core game logic.
+No invasive fingerprinting.
+The app must work if analytics is disabled.
+
+Provide simple:
+- Privacy page
+- Terms/About rules page
+suitable for an MVP without pretending to be formal legal advice.
+
+======================================================================
+31. ROOM EXPIRATION / CLEANUP
+======================================================================
+
+Rooms:
+ACTIVE
+FINISHED
+EXPIRED
+
+Use configurable expiration.
+
+Suggested:
+- abandoned lobby expires after hours
+- finished room retained only as long as required for replay/debug policy
+- anonymous secret state eventually purged
+
+Create cleanup mechanism compatible with deployment environment:
+- scheduled job / Vercel Cron where appropriate
+- idempotent cleanup
+
+Do not leave unlimited abandoned active rooms.
+
+======================================================================
+32. TECH STACK
+======================================================================
+
+Target deployment:
+VERCEL
+
+Preferred implementation:
+
+Frontend / fullstack:
+- current stable Next.js App Router
+- TypeScript strict
+- React
+- Tailwind CSS
+- reusable design-system primitives
+- shadcn/ui may be used selectively, not as visual identity
+
+Validation:
+- Zod or equivalent
+
+Database:
+- PostgreSQL
+- preferably Neon for Vercel-friendly managed Postgres
+- Drizzle ORM + migrations preferred
+- Prisma acceptable only if there is a concrete compatibility/maintainability reason
+
+Realtime:
+- Vercel WebSocket-capable server function/runtime using the current
+  official API at implementation time
+- ws or Socket.IO only as justified
+- Upstash Redis / Redis-compatible shared service for cross-instance pub/sub,
+  presence, rate limiting, and ephemeral coordination
+- durable game state remains PostgreSQL
+
+QR:
+- maintained QR library
+
+Testing:
+- Vitest for unit/integration
+- Playwright for critical browser flows
+- game-engine simulation tests
+
+Package manager:
+- pnpm preferred
+- lockfile committed
+
+Runtime:
+- current Vercel-supported stable Node LTS
+
+Do not lock the codebase to assumptions that prevent moving realtime to
+another provider later.
+
+======================================================================
+33. REPOSITORY / FOLDER STRUCTURE
+======================================================================
+
+A clean single-repo structure is preferred.
+
+Example:
+
+/
+  app/
+    ...
+  components/
+    ...
+  lib/
+    auth/
+    db/
+    realtime/
+    rooms/
+    security/
+    localization/
+  games/
+    registry.ts
+    shared/
+    dib/
+      engine/
+      server/
+      ui/
+      tests/
+    intrus/
+    chkon-fina/
+    mettelha/
+    mamnou3/
+    mission-sirriya/
+  content/
+    ...
+  db/
+    schema/
+    migrations/
+    seeds/
+  public/
+  tests/
+    e2e/
+  scripts/
+  locales/
+  docs/
+  README.md
+  .env.example
+  package.json
+
+A monorepo is acceptable only if it provides real value.
+Do not create architectural ceremony for its own sake.
+
+======================================================================
+34. API / COMMAND DESIGN
+======================================================================
+
+Prefer game commands over CRUD dumping of state.
+
+Conceptual commands:
+createRoom
+joinRoom
+addLocalPlayer
+updateRoomSettings
+startGame
+getAuthorizedGameState
+ackPrivateReveal
+submitGameAction
+submitVote
+pauseGame
+resumeGame
+leaveRoom
+reconnect
+requestRematch
+
+Server decides consequences.
+
+Use typed response envelopes and structured error codes:
+ROOM_NOT_FOUND
+ROOM_EXPIRED
+ROOM_FULL
+NICKNAME_TAKEN
+GAME_ALREADY_STARTED
+INVALID_PHASE
+ACTION_NOT_ALLOWED
+STALE_STATE
+ALREADY_SUBMITTED
+NOT_YOUR_TURN
+TARGET_INVALID
+SESSION_EXPIRED
+RATE_LIMITED
+etc.
+
+UI should map errors to friendly localized copy.
+
+======================================================================
+35. TESTING — PLATFORM
+======================================================================
+
+Automated tests at minimum:
+
+Room:
+- create room
+- unique code
+- invalid code
+- expired room
+- join room
+- nickname normalization/duplicates
+- late join active game rejected where appropriate
+- host leaves
+- room becomes empty
+- cleanup expiration
+
+Sessions:
+- personal session
+- shared device
+- reconnect
+- refresh
+- revoked session
+- duplicate tabs behavior
+- no nickname-based impersonation
+
+Privacy:
+- one player cannot fetch another player's secret
+- host cannot fetch all secrets
+- room code alone cannot fetch private state
+- public broadcast contains no private payload
+- private response cache controls
+- pass-the-phone transition does not expose previous secret
+
+Realtime:
+- join broadcast
+- reconnect broadcast
+- private event targeting
+- missed event snapshot recovery
+- state version monotonicity
+- cross-instance strategy is covered by integration abstraction tests
+
+Concurrency:
+- duplicate command idempotency
+- simultaneous votes
+- simultaneous phase completion
+- stale state mutation rejected/retried
+- one transition wins
+
+======================================================================
+36. TESTING — DIB
+======================================================================
+
+At minimum:
+- recommended setup generation
+- invalid role totals rejected
+- role distribution
+- no role leak
+- wolf action
+- multiple wolf submissions
+- wolf tie behavior
+- Seer action
+- Seer result privacy
+- Witch heal
+- Witch poison
+- potion cannot be reused
+- one-potion-per-night rule if default
+- night resolution
+- multiple death causes
+- day vote
+- vote tie/revote
+- elimination
+- dead player cannot vote
+- dead player cannot use normal ability
+- village win
+- wolf parity win
+- reconnect during role reveal
+- reconnect during night action
+- pass-the-phone role reveal
+- hybrid device/player mapping
+- full simulated match without UI
+
+======================================================================
+37. TESTING — OTHER GAMES
+======================================================================
+
+L'INTRUS:
+- assignment count
+- exactly configured Intruder count
+- private word privacy
+- no-word variant
+- close-word variant
+- clue round advancement
+- vote
+- tie
+- final word guess
+- multi-round score
+
+CHKON FINA:
+- prompt selection no immediate duplicate
+- private votes
+- aggregate reveal
+- self-vote setting
+- one-phone privacy
+- no forced winner
+
+METTELHA:
+- team setup
+- timer
+- prompt rotation
+- correct
+- skip
+- score
+- content exhaustion handling
+
+MAMNOU3:
+- card schema
+- score for correct/taboo/skip
+- timer
+- team turn
+- no card leakage to waiting team
+
+MISSION SIRRIYA:
+- unique mission assignment where possible
+- private mission privacy
+- claim completion
+- group confirmation
+- mission swap limit
+- timer/no-timer
+- reconnect does not lose mission
+
+======================================================================
+38. END-TO-END TESTS
+======================================================================
+
+Use Playwright for a minimal but meaningful production-style suite.
+
+Required E2E examples:
+1. Create room → second browser joins → lobby updates.
+2. DIB multi-phone → roles privately differ → start first night.
+3. One-phone DIB → privacy screen → reveal → hide → next player.
+4. L'INTRUS → secret reveal → vote → result.
+5. CHKON FINA → two/three players vote → aggregate reveal.
+6. METTELHA → team turn → score.
+7. MAMNOU3 → card action → score.
+8. Mission Sirriya → private missions → claim/reveal.
+9. Refresh/reconnect during active game.
+10. Production smoke test against deployed URL where safe.
+
+Do not put real production credentials in test source.
+
+======================================================================
+39. DEV / DEMO UTILITIES
+======================================================================
+
+Provide development-only helpers behind explicit environment guard:
+- seed content
+- create demo room
+- simulate extra players/bots for testing
+- advance game in dev if useful
+
+These MUST NOT expose a production cheat endpoint.
+
+If a dev admin route exists:
+- disabled in production
+- guarded by NODE_ENV and explicit flag
+- tested that production build cannot use it
+
+======================================================================
+40. ERROR / OFFLINE UX
+======================================================================
+
+Create polished states for:
+- connecting
+- reconnecting
+- connection lost
+- room not found
+- room expired
+- room already started
+- session cannot be recovered
+- invalid action
+- waiting for other players
+- host disconnected
+- maintenance/unexpected server error
+
+Do not dump raw stack traces to players.
+
+======================================================================
+41. SEO / METADATA / SHARE
+======================================================================
+
+Provide:
+- product title
+- description
+- social share metadata
+- icon/favicons
+- install metadata
+- per-game share metadata where useful
+
+QR and share URLs use canonical APP_URL config.
+
+No hardcoded Vercel domain.
+
+======================================================================
+42. ENVIRONMENT / CONFIGURATION
+======================================================================
+
+The repository MUST contain:
+.env.example
+
+The actual agent credential file MUST NEVER be committed.
+
+Required server environment concepts:
+
+# Public brand/config
+NEXT_PUBLIC_APP_NAME
+NEXT_PUBLIC_APP_URL
+NEXT_PUBLIC_DEFAULT_LOCALE
+
+# Durable database
+DATABASE_URL
+
+# Redis / realtime coordination
+REDIS_URL
+Optionally provider REST credentials if a feature requires them:
+UPSTASH_REDIS_REST_URL
+UPSTASH_REDIS_REST_TOKEN
+
+# Security
+SESSION_SECRET
+GAME_SECRET_KEY
+
+# Deployment automation — agent/private environment only
+GITHUB_TOKEN
+GITHUB_OWNER
+GITHUB_REPO
+GITHUB_REPO_VISIBILITY
+VERCEL_TOKEN
+VERCEL_ORG_ID
+VERCEL_PROJECT_ID
+
+Never make GITHUB_TOKEN or VERCEL_TOKEN available to browser code.
+Never prefix secrets with NEXT_PUBLIC_.
+
+Use runtime env validation and fail clearly on missing required production vars.
+
+======================================================================
+43. SECRET MANAGEMENT
+======================================================================
+
+.gitignore must include:
+.env
+.env.*
+!.env.example
+
+If the agent receives a file such as:
+.agent.env
+deployment.env
+credentials.env
+
+it must:
+- treat it as secret
+- not commit it
+- not print values
+- not include values in README
+- not paste values into issue bodies
+- not include values in screenshots
+- not include values in final report
+
+When running CLI commands, avoid echoing secrets.
+
+Git history must be checked before final delivery for accidental secret files.
+
+If a secret is accidentally committed:
+- stop pushing further sensitive history
+- remove it properly from history if possible
+- clearly report that rotation is required
+- never pretend deletion of the latest file alone makes leaked token safe
+
+======================================================================
+44. GITHUB EXECUTION CONTRACT
+======================================================================
+
+Target repository values come from environment.
+
+Behavior:
+1. Detect whether target repository exists.
+2. If not and token has permission, create it.
+3. Initialize Git if required.
+4. Configure origin securely WITHOUT embedding token in committed config.
+5. Use a clean main branch.
+6. Commit coherent milestones.
+7. Push main.
+8. Add GitHub Actions CI if useful:
+   - install
+   - lint
+   - typecheck
+   - unit/integration tests
+   - build
+9. Do not put deployment tokens in repository files.
+10. Prefer Vercel Git integration or Vercel-managed deployment where available.
+
+Recommended token posture:
+- use fine-grained credentials
+- restrict to target owner/repository where possible
+- minimum permissions needed
+- Contents write
+- Metadata read
+- Actions/Workflows permission only if the agent needs to create/update workflow files
+- repository Administration only if actually required for repository creation/settings
+
+If repository creation is impossible with provided token:
+- do not weaken security by requesting account-wide credentials automatically
+- finish local project
+- report exact permission requirement
+
+======================================================================
+45. VERCEL EXECUTION CONTRACT
+======================================================================
+
+The agent must deploy the project, not merely describe deployment.
+
+Preferred flow:
+1. Install/use Vercel CLI or API.
+2. Authenticate with supplied private VERCEL_TOKEN.
+3. Resolve team/org.
+4. Link existing project if VERCEL_PROJECT_ID is provided.
+5. Otherwise create project if permissions allow.
+6. Configure framework/build settings.
+7. Configure environment variables for Preview/Production as appropriate.
+8. Provision or connect managed database/Redis if credentials/integration
+   permissions allow, otherwise use supplied DATABASE_URL/REDIS_URL.
+9. Deploy preview.
+10. Fix build/runtime failures.
+11. Deploy production.
+12. Discover production URL.
+13. Set NEXT_PUBLIC_APP_URL to the canonical deployed production URL when
+    no custom domain is configured.
+14. Redeploy if needed so generated QR/share URLs use canonical URL.
+15. Run production smoke tests.
+16. Verify realtime using at least two independent browser contexts.
+17. Verify mobile viewport.
+18. Verify reconnect.
+19. Record final deployment URL in final handoff.
+
+Do not attempt to purchase jma3a.ma or jma3a.com.
+
+Custom domain configuration is optional and only performed if domain
+ownership/DNS access is explicitly available.
+
+======================================================================
+46. DATABASE DEPLOYMENT
+======================================================================
+
+Use migrations.
+
+Repository must include:
+- schema
+- migrations
+- seed process for content/dev data
+- documented commands
+
+Production deployment must:
+- apply migrations safely
+- avoid destructive reset
+- seed only content that is intended for production
+- not seed fake player/user data in production
+- verify DB connection health
+
+If using Neon:
+- use pooled/serverless-compatible connection settings
+- separate direct migration URL only if actually required by chosen tooling
+
+======================================================================
+47. REDIS / REALTIME DEPLOYMENT
+======================================================================
+
+Redis may hold:
+- pub/sub
+- presence
+- rate-limit counters
+- transient room coordination
+- websocket cross-instance synchronization
+
+Redis must NOT be the only permanent record of:
+- final game outcome
+- important persistent state
+- content source of truth if loss would break durable sessions
+
+Use namespaced keys:
+jma3a:{environment}:...
+
+Provide TTLs for ephemeral keys.
+
+Never store secrets in client-visible Redis channels.
+
+======================================================================
+48. OBSERVABILITY
+======================================================================
+
+Provide structured logs with:
+- request/event IDs
+- room public identifier or safe internal reference
+- game type
+- phase
+- event type
+- duration
+- error code
+
+Never log:
+- session tokens
+- GitHub/Vercel tokens
+- full secret roles map during active game
+- secret words unnecessarily
+- private missions unnecessarily
+
+Provide basic health diagnostics:
+- app
+- database
+- Redis/realtime where safe
+
+No unauthenticated endpoint should reveal infrastructure secrets.
+
+======================================================================
+49. PERFORMANCE
+======================================================================
+
+Optimize for:
+- mobile connections
+- low-latency room updates
+- minimal JavaScript where practical
+- image optimization
+- lazy-load nonessential game assets
+- no giant initial content bundle if server can deliver pack subsets safely
+- avoid N+1 database patterns
+- efficient room snapshots
+
+Target:
+- fast landing load
+- near-instant in-room UI response
+- realtime update in normal conditions feels immediate
+- graceful degradation/reconnect on weaker networks
+
+======================================================================
+50. FIRST-TIME EXPERIENCE
+======================================================================
+
+A person who has never used JMA3A should understand how to start without
+a manual.
+
+Use contextual instructions.
+
+Do not show huge rulebooks during active play.
+
+Each game:
+- 20–60 second concise "How to play"
+- accessible before starting
+- short reminders inside relevant phases
+
+Example:
+DIB role card includes a concise role explanation.
+L'INTRUS explains clue rule.
+MAMNOU3 clearly displays forbidden words.
+
+======================================================================
+51. PLAY AGAIN / GROUP CONTINUITY
+======================================================================
+
+After a game:
+PLAY AGAIN should preserve group membership where practical.
+
+New match:
+- fresh secrets/roles/missions
+- reset scores depending chosen session mode
+- retain room settings
+- let host switch game without forcing everyone to scan a new QR where practical
+
+Strong platform feature:
+after finishing DIB, group can choose:
+"بدلو اللعبة"
+and select L'INTRUS/CHKON FINA/etc. while preserving the room/player group.
+
+This is a major JMA3A advantage.
+
+Design room architecture to support multiple GameSessions sequentially.
+
+======================================================================
+52. GAME SWITCHING
+======================================================================
+
+A room may host:
+GameSession 1: CHKON FINA
+GameSession 2: DIB
+GameSession 3: METTELHA
+
+Do not assume room == one irreversible game session.
+
+Between games:
+- return to room lobby
+- preserve players
+- select another game
+- validate its player count/mode
+- launch new GameSession
+
+Private state from prior game must not leak into new session.
+
+======================================================================
+53. COMMERCIAL EXTENSIBILITY
+======================================================================
+
+Do NOT implement payments now.
+
+But architecture should permit later:
+- user accounts
+- profile
+- friends
+- favorite games
+- achievements
+- XP
+- statistics
+- match history
+- premium content packs
+- premium games
+- custom game creation
+- custom prompts
+- branded packs
+- premium narration
+- themes/cosmetics
+- ad-free plans
+- private event rooms
+- public/community packs with moderation
+
+Do not add premature tables/screens for all of these.
+Just avoid blocking them.
+
+======================================================================
+54. DEVELOPMENT ORDER
+======================================================================
+
+Follow roughly:
+
+PHASE 0
+- inspect environment
+- verify current Vercel realtime docs/API
+- initialize repo
+- configure lint/typecheck/test/build
+- establish env validation
+
+PHASE 1
+- platform domain models
+- database
+- room/session identity
+- game registry contract
+- tests
+
+PHASE 2
+- realtime adapter
+- Redis coordination
+- reconnect
+- multi-browser room prototype
+- tests
+
+PHASE 3
+- shared UI/design system
+- landing/catalog
+- create/join/lobby/QR
+- one-phone privacy system
+- hybrid bindings
+
+PHASE 4
+- DIB engine completely server-side
+- engine tests
+- UI
+- multi/one/hybrid E2E
+
+PHASE 5
+- L'INTRUS
+- CHKON FINA
+- content schemas/seeds
+
+PHASE 6
+- METTELHA
+- MAMNOU3
+- team system/scoring
+
+PHASE 7
+- MISSION SIRRIYA
+- mission privacy/claim flow
+
+PHASE 8
+- localization
+- Darija polish
+- PWA
+- accessibility
+- loading/error/reconnect states
+- content validation
+
+PHASE 9
+- GitHub CI
+- production database/Redis configuration
+- Vercel deploy
+- production smoke/E2E
+- fix regressions
+
+PHASE 10
+- final security review
+- final acceptance checklist
+- README/docs
+- handoff
+
+Do not postpone the difficult multiplayer/privacy work until after visual polish.
+
+======================================================================
+55. CODE QUALITY RULES
+======================================================================
+
+Use:
+- TypeScript strict
+- explicit domain types
+- schema validation at boundaries
+- small focused modules
+- tested pure game-engine functions
+- dependency injection/adapters for infrastructure
+- clear error codes
+- consistent async error handling
+- comments explaining complex game rules and concurrency decisions
+
+Avoid:
+- giant React components
+- giant route handlers
+- "any" everywhere
+- mutable global server state
+- magic numbers
+- duplicate game logic
+- duplicated device-mode engines
+- secret state in browser stores
+- giant switch statements for every game
+- hidden TODOs in core functionality
+- dead code
+- fake data in production
+- security through obscurity
+
+======================================================================
+56. REQUIRED PROJECT FILES
+======================================================================
+
+At minimum:
+
+README.md
+.env.example
+.gitignore
+package.json
+pnpm-lock.yaml
+database schema
+migrations
+seed/content scripts
+tests
+CI workflow where appropriate
+Vercel configuration only if actually needed
+manifest/PWA assets
+localization files
+content packs
+architecture notes
+
+Recommended docs:
+docs/ARCHITECTURE.md
+docs/GAME_ENGINE.md
+docs/SECURITY.md
+docs/REALTIME.md
+docs/DEPLOYMENT.md
+docs/CONTENT.md
+
+======================================================================
+57. README REQUIREMENTS
+======================================================================
+
+README must explain:
+
+- what JMA3A is
+- game catalog
+- requirements
+- local setup
+- environment variables
+- database setup
+- Redis setup
+- migrations
+- content seed
+- dev command
+- tests
+- lint/typecheck
+- production build
+- Vercel deployment architecture
+- realtime architecture
+- how to add a new game
+- how to add a content pack
+- security notes
+- never commit secrets
+
+Local run should be reasonably simple, e.g.:
+
+pnpm install
+cp .env.example .env.local
+# fill local services
+pnpm db:migrate
+pnpm db:seed
+pnpm dev
+
+If local Docker improves Postgres/Redis setup, provide docker-compose,
+but do not make Docker mandatory if managed dev services are simpler.
+
+======================================================================
+58. DEFINITION OF DONE — FUNCTIONAL
+======================================================================
+
+The project is NOT done until:
+
+PLATFORM
+[ ] Landing page shows real playable games.
+[ ] Create room works.
+[ ] Join by code works.
+[ ] QR join works.
+[ ] Nicknames work.
+[ ] Personal sessions work.
+[ ] Shared device players work.
+[ ] Hybrid mapping works where required.
+[ ] Reconnect works.
+[ ] Switching games while preserving the group works.
+[ ] Mobile UI works.
+[ ] Darija UI exists and feels intentional.
+
+DIB
+[ ] Roles private.
+[ ] Automatic night.
+[ ] Wolves.
+[ ] Seer.
+[ ] Witch.
+[ ] Discussion.
+[ ] Vote.
+[ ] Death.
+[ ] Win.
+[ ] Multi-phone.
+[ ] One-phone.
+[ ] Hybrid.
+
+L'INTRUS
+[ ] Secret assignment.
+[ ] Clue rounds.
+[ ] Vote.
+[ ] Intruder result.
+[ ] Replay/rounds.
+[ ] Multi/one/hybrid.
+
+CHKON FINA
+[ ] Prompts.
+[ ] Secret vote.
+[ ] Aggregate reveal.
+[ ] One-phone privacy.
+[ ] Multiple rounds.
+
+METTELHA
+[ ] Teams.
+[ ] Private prompt.
+[ ] Timer.
+[ ] Correct/skip.
+[ ] Score.
+[ ] Multiple rounds.
+
+MAMNOU3
+[ ] Target + forbidden words.
+[ ] Timer.
+[ ] Correct/taboo/skip.
+[ ] Score.
+[ ] Teams.
+
+MISSION SIRRIYA
+[ ] Private unique missions.
+[ ] Active period.
+[ ] Claim completion.
+[ ] Confirmation/reveal.
+[ ] Score/result.
+[ ] Multi/one/hybrid.
+
+======================================================================
+59. DEFINITION OF DONE — ENGINEERING
+======================================================================
+
+[ ] Typecheck passes.
+[ ] Lint passes.
+[ ] Unit/integration suite passes.
+[ ] Critical Playwright tests pass.
+[ ] Production build passes.
+[ ] No known secret leakage in client payloads.
+[ ] No committed credentials.
+[ ] DB migrations apply from clean database.
+[ ] Content validation passes.
+[ ] Realtime works across independent clients.
+[ ] Reconnect works.
+[ ] App is deployable reproducibly.
+[ ] README is accurate.
+[ ] No core TODO placeholders.
+[ ] No fake buttons.
+[ ] No dead catalog games.
+
+======================================================================
+60. DEFINITION OF DONE — DEPLOYMENT
+======================================================================
+
+[ ] Target GitHub repository exists and contains final code, if credentials permit.
+[ ] main branch is pushed.
+[ ] CI passes or all equivalent commands pass locally and any CI blocker is documented.
+[ ] Vercel project is created/linked.
+[ ] Production env vars configured.
+[ ] Production database connected.
+[ ] Redis/realtime service connected.
+[ ] Migrations applied.
+[ ] Production deployment succeeds.
+[ ] Production URL opens.
+[ ] Canonical APP_URL matches production/custom domain.
+[ ] QR invite generated in production points to correct production URL.
+[ ] Two-client realtime smoke test passes.
+[ ] Mobile smoke test passes.
+[ ] Refresh/reconnect test passes.
+[ ] At least one complete game flow works on production.
+[ ] Remaining game flows are smoke tested according to risk.
+
+======================================================================
+61. FINAL HANDOFF FORMAT
+======================================================================
+
+When finished, provide a concise engineering handoff containing:
+
+1. PRODUCT
+- what was built
+- implemented games
+
+2. LIVE
+- production URL
+- Vercel project name/ID (non-secret)
+- custom domain status if any
+
+3. SOURCE
+- GitHub repository URL
+- final branch
+- final commit SHA
+
+4. SERVICES
+- database provider/name (non-secret)
+- Redis provider/name (non-secret)
+- realtime approach
+
+5. QUALITY
+- tests run and result
+- build result
+- production smoke result
+
+6. CONFIG
+- list of required env VARIABLE NAMES ONLY
+- never values
+
+7. KNOWN LIMITATIONS
+- exact remaining issues, if any
+- no vague "future work"
+
+8. SECURITY
+- confirm no secret files are tracked
+- confirm client does not receive global hidden game state
+
+======================================================================
+62. FINAL PRODUCT PHILOSOPHY
+======================================================================
+
+Imagine a group of friends in Morocco sitting around a café table.
+
+Someone opens JMA3A.
+
+They do not create accounts.
+They do not install six apps.
+They do not read a long manual.
+
+They see:
+DIB
+L'INTRUS
+CHKON FINA
+METTELHA
+MAMNOU3
+MISSION SIRRIYA
+
+They choose a game.
+
+If everybody has phones:
+scan QR and join.
+
+If only one phone is available:
+pass it safely.
+
+If some have phones and some do not:
+hybrid play still works.
+
+The app handles the boring and secret coordination.
+
+Then phones disappear into the background and the jma3a talks, laughs,
+bluffs, votes, acts, and plays.
+
+THAT is the product.
+
+Build JMA3A accordingly.
+
+======================================================================
+END OF MASTER BUILD PROMPT
+======================================================================
