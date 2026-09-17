@@ -12,6 +12,7 @@
     "test:content": "tsx scripts/validate-content.ts"
   },
   "dependencies": {
+    "@upstash/redis": "^1.38.4",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "framer-motion": "^12.4.7",

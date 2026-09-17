@@ -17,7 +17,7 @@ export async function POST(
       sessionToken = generateSessionToken();
     }
 
-    const res = roomStore.joinRoom(code, nickname, sessionToken, avatarSeed);
+    const res = await roomStore.joinRoom(code, nickname, sessionToken, avatarSeed);
     if (!res.success) {
       return NextResponse.json({ success: false, error: res.error }, { status: 400 });
     }

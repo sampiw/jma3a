@@ -13,7 +13,7 @@ export async function POST(
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const res = roomStore.advancePassThePhone(code, sessionToken);
+    const res = await roomStore.advancePassThePhone(code, sessionToken);
     if (!res.success) {
       return NextResponse.json({ success: false, error: res.error }, { status: 400 });
     }

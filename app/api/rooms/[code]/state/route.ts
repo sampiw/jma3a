@@ -9,7 +9,7 @@ export async function GET(
   const { code } = await params;
   const sessionToken = req.cookies.get(SESSION_COOKIE_NAME)?.value || req.headers.get("x-session-token");
 
-  const state = roomStore.getAuthorizedState(code, sessionToken);
+  const state = await roomStore.getAuthorizedState(code, sessionToken);
   if (!state) {
     return NextResponse.json({ success: false, error: "Room not found" }, { status: 404 });
   }

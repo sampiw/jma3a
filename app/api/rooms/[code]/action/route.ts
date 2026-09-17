@@ -16,7 +16,7 @@ export async function POST(
     const body = await req.json();
     const { action, targetPlayerId } = body;
 
-    const res = roomStore.dispatchAction(code, sessionToken, action, targetPlayerId);
+    const res = await roomStore.dispatchAction(code, sessionToken, action, targetPlayerId);
     if (!res.success) {
       return NextResponse.json({ success: false, error: res.error }, { status: 400 });
     }

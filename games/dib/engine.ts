@@ -460,6 +460,7 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
       round,
       stateVersion,
       publicData: {
+        phase: state.phase,
         narrationKey: state.narrationKey,
         livingPlayersCount,
         wolvesDone: livingWolfVotesCount >= totalLivingWolves,

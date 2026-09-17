@@ -14,7 +14,7 @@ export async function POST(
     }
 
     const { newGameId } = await req.json();
-    const res = roomStore.switchGame(code, sessionToken, newGameId);
+    const res = await roomStore.switchGame(code, sessionToken, newGameId);
     if (!res.success) {
       return NextResponse.json({ success: false, error: res.error }, { status: 400 });
     }

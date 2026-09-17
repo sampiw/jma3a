@@ -6,7 +6,7 @@ export async function GET(
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
-  const room = roomStore.getRoom(code);
+  const room = await roomStore.getRoom(code);
   if (!room) {
     return NextResponse.json({ success: false, error: "الغرفة غير موجودة" }, { status: 404 });
   }

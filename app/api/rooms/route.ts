@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
       sessionToken = generateSessionToken();
     }
 
-    const { room, hostPlayer } = roomStore.createRoom(
+    const { room, hostPlayer } = await roomStore.createRoom(
       hostNickname || "Host",
       gameId || "dib",
       mode || "MULTI_PHONE",

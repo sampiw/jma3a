@@ -10,6 +10,38 @@ import {
 import { generateRoomCode, normalizeRoomCode } from "./code";
 import { getGameDefinition } from "@/games";
 import { realtimeHub } from "@/lib/realtime/pubsub";
+import { Redis } from "@upstash/redis";
+import fs from "node:fs";
+import path from "node:path";
+
+function getEnvVar(key: string): string | undefined {
+  if (process.env[key]) return process.env[key];
+  try {
+    const envPath = path.resolve(process.cwd(), ".env.local");
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, "utf8");
+      for (const line of content.split("\n")) {
+        const parts = line.split("=");
+        if (parts[0]?.trim() === key) {
+          let val = parts.slice(1).join("=").trim();
+          if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+          return val;
+        }
+      }
+    }
+  } catch {}
+  return undefined;
+}
+
+const rawRedisUrl = getEnvVar("KV_REST_API_URL") || getEnvVar("UPSTASH_REDIS_REST_URL");
+const rawRedisToken = getEnvVar("KV_REST_API_TOKEN") || getEnvVar("UPSTASH_REDIS_REST_TOKEN");
+
+const redisUrl = rawRedisUrl?.replace(/^"(.*)"$/, "$1");
+const redisToken = rawRedisToken?.replace(/^"(.*)"$/, "$1");
+
+export const redis = (redisUrl && redisToken)
+  ? new Redis({ url: redisUrl, token: redisToken })
+  : null;
 
 interface InternalGameSession {
   id: string;
@@ -30,19 +62,41 @@ interface InternalGameSession {
   };
 }
 
-class RoomStore {
+export class RoomStore {
   private rooms: Map<string, GameRoom> = new Map();
   private gameSessions: Map<string, InternalGameSession> = new Map();
   private deviceSessions: Map<string, DeviceSession> = new Map();
 
-  createRoom(
+  private async persistRoom(room: GameRoom) {
+    this.rooms.set(room.code, room);
+    if (redis) {
+      try {
+        await redis.set(`jma3a:room:${room.code}`, room, { ex: 86400 });
+      } catch (err) {
+        console.error("Redis persistRoom error:", err);
+      }
+    }
+  }
+
+  private async persistSession(session: InternalGameSession) {
+    this.gameSessions.set(session.id, session);
+    if (redis) {
+      try {
+        await redis.set(`jma3a:session:${session.id}`, session, { ex: 86400 });
+      } catch (err) {
+        console.error("Redis persistSession error:", err);
+      }
+    }
+  }
+
+  async createRoom(
     hostNickname: string,
     gameId: GameId = "dib",
     mode: InteractionMode = "MULTI_PHONE",
     locale: "darija" | "ar" | "fr" | "en" = "darija",
     hostSessionToken: string,
     avatarSeed: string = "avatar_1"
-  ): { room: GameRoom; hostPlayer: Player } {
+  ): Promise<{ room: GameRoom; hostPlayer: Player }> {
     let code = generateRoomCode();
     while (this.rooms.has(code)) {
       code = generateRoomCode();
@@ -82,7 +136,7 @@ class RoomStore {
       historyGameIds: [gameId],
     };
 
-    this.rooms.set(code, room);
+    await this.persistRoom(room);
     this.recordDeviceSession(hostSessionToken, code, "PERSONAL");
 
     realtimeHub.publish(code, "ROOM_UPDATED", 1);
@@ -108,18 +162,49 @@ class RoomStore {
     return session;
   }
 
-  getRoom(code: string): GameRoom | undefined {
+  async getRoom(code: string): Promise<GameRoom | undefined> {
+    const norm = normalizeRoomCode(code);
+    if (redis) {
+      try {
+        const fromRedis = await redis.get<GameRoom>(`jma3a:room:${norm}`);
+        if (fromRedis) {
+          this.rooms.set(norm, fromRedis);
+          return fromRedis;
+        }
+      } catch (err) {
+        console.error("Redis getRoom error:", err);
+      }
+    }
+    return this.rooms.get(norm);
+  }
+
+  getRoomSync(code: string): GameRoom | undefined {
     return this.rooms.get(normalizeRoomCode(code));
   }
 
-  joinRoom(
+  async getSession(sessionId: string): Promise<InternalGameSession | undefined> {
+    if (redis) {
+      try {
+        const fromRedis = await redis.get<InternalGameSession>(`jma3a:session:${sessionId}`);
+        if (fromRedis) {
+          this.gameSessions.set(sessionId, fromRedis);
+          return fromRedis;
+        }
+      } catch (err) {
+        console.error("Redis getSession error:", err);
+      }
+    }
+    return this.gameSessions.get(sessionId);
+  }
+
+  async joinRoom(
     code: string,
     nickname: string,
     sessionToken: string,
     avatarSeed: string = "avatar_1"
-  ): { success: boolean; player?: Player; error?: string } {
+  ): Promise<{ success: boolean; player?: Player; error?: string }> {
     const normCode = normalizeRoomCode(code);
-    const room = this.rooms.get(normCode);
+    const room = await this.getRoom(normCode);
     if (!room) {
       return { success: false, error: "الغرفة ما كايناش. تأكد من الكود عفاك." };
     }
@@ -129,6 +214,7 @@ class RoomStore {
     if (existingPlayer) {
       existingPlayer.isOnline = true;
       existingPlayer.lastSeenAt = Date.now();
+      await this.persistRoom(room);
       this.recordDeviceSession(sessionToken, normCode, "PERSONAL");
       realtimeHub.publish(normCode, "PLAYER_RECONNECTED", 1);
       return { success: true, player: existingPlayer };
@@ -164,19 +250,20 @@ class RoomStore {
 
     room.players.push(newPlayer);
     room.updatedAt = Date.now();
+    await this.persistRoom(room);
     this.recordDeviceSession(sessionToken, normCode, "PERSONAL");
 
     realtimeHub.publish(normCode, "PLAYER_JOINED", 1);
     return { success: true, player: newPlayer };
   }
 
-  addLocalPlayer(
+  async addLocalPlayer(
     code: string,
     hostSessionToken: string,
     nickname: string,
     avatarSeed: string = "avatar_1"
-  ): { success: boolean; player?: Player; error?: string } {
-    const room = this.getRoom(code);
+  ): Promise<{ success: boolean; player?: Player; error?: string }> {
+    const room = await this.getRoom(code);
     if (!room) return { success: false, error: "Room not found" };
 
     const host = room.players.find((p) => p.id === room.hostPlayerId);
@@ -201,16 +288,17 @@ class RoomStore {
 
     room.players.push(localPlayer);
     room.updatedAt = Date.now();
+    await this.persistRoom(room);
     realtimeHub.publish(room.code, "PLAYER_JOINED", 1);
     return { success: true, player: localPlayer };
   }
 
-  switchGame(
+  async switchGame(
     code: string,
     hostSessionToken: string,
     newGameId: GameId
-  ): { success: boolean; error?: string } {
-    const room = this.getRoom(code);
+  ): Promise<{ success: boolean; error?: string }> {
+    const room = await this.getRoom(code);
     if (!room) return { success: false, error: "Room not found" };
 
     const host = room.players.find((p) => p.id === room.hostPlayerId);
@@ -229,12 +317,13 @@ class RoomStore {
     room.historyGameIds.push(newGameId);
     room.updatedAt = Date.now();
 
+    await this.persistRoom(room);
     realtimeHub.publish(room.code, "GAME_SWITCHED", 1, { newGameId });
     return { success: true };
   }
 
-  startGame(code: string, hostSessionToken: string): { success: boolean; error?: string } {
-    const room = this.getRoom(code);
+  async startGame(code: string, hostSessionToken: string): Promise<{ success: boolean; error?: string }> {
+    const room = await this.getRoom(code);
     if (!room) return { success: false, error: "Room not found" };
 
     const host = room.players.find((p) => p.id === room.hostPlayerId);
@@ -266,34 +355,35 @@ class RoomStore {
       },
     };
 
-    this.gameSessions.set(sessionId, session);
     room.activeSessionId = sessionId;
     room.status = "ACTIVE";
     room.updatedAt = Date.now();
+
+    await this.persistSession(session);
+    await this.persistRoom(room);
 
     realtimeHub.publish(room.code, "GAME_STARTED", 1);
     return { success: true };
   }
 
-  dispatchAction(
+  async dispatchAction(
     code: string,
     sessionToken: string,
     action: any,
     targetPlayerId?: string
-  ): { success: boolean; error?: string } {
-    const room = this.getRoom(code);
+  ): Promise<{ success: boolean; error?: string }> {
+    const room = await this.getRoom(code);
     if (!room || room.status !== "ACTIVE" || !room.activeSessionId) {
       return { success: false, error: "No active game in this room" };
     }
 
-    const session = this.gameSessions.get(room.activeSessionId);
+    const session = await this.getSession(room.activeSessionId);
     if (!session) return { success: false, error: "Session not found" };
 
     const gameDef = getGameDefinition(session.gameId);
     if (!gameDef) return { success: false, error: "Game engine not found" };
 
     // Find acting player
-    // If targetPlayerId is supplied and sessionToken is host (e.g. Pass the Phone mode), allow acting as target
     let actor = room.players.find((p) => p.deviceSessionId === sessionToken);
     if (targetPlayerId) {
       const targetP = room.players.find((p) => p.id === targetPlayerId);
@@ -324,6 +414,11 @@ class RoomStore {
     if (result.newRound) session.round = result.newRound;
     session.stateVersion += 1;
 
+    // If DIB transitioned out of ROLE_REVEAL into NIGHT_WOLF, complete pass-the-phone
+    if (session.gameId === "dib" && result.newPhase !== "ROLE_REVEAL") {
+      session.passThePhone = undefined;
+    }
+
     if (result.timerDurationMs) {
       session.timer = {
         startsAt: Date.now(),
@@ -338,14 +433,17 @@ class RoomStore {
       room.status = "FINISHED";
     }
 
+    await this.persistSession(session);
+    await this.persistRoom(room);
+
     realtimeHub.publish(room.code, "STATE_CHANGED", session.stateVersion);
     return { success: true };
   }
 
-  advancePassThePhone(code: string, sessionToken: string): { success: boolean; error?: string } {
-    const room = this.getRoom(code);
+  async advancePassThePhone(code: string, sessionToken: string): Promise<{ success: boolean; error?: string }> {
+    const room = await this.getRoom(code);
     if (!room || !room.activeSessionId) return { success: false, error: "No active room" };
-    const session = this.gameSessions.get(room.activeSessionId);
+    const session = await this.getSession(room.activeSessionId);
     if (!session || !session.passThePhone) return { success: false, error: "No pass-the-phone active" };
 
     if (!session.passThePhone.isRevealed) {
@@ -354,17 +452,23 @@ class RoomStore {
     } else {
       // Hide and move to next player
       session.passThePhone.isRevealed = false;
-      session.passThePhone.currentPlayerIndex =
-        (session.passThePhone.currentPlayerIndex + 1) % room.players.length;
+      const nextIndex = session.passThePhone.currentPlayerIndex + 1;
+      if (nextIndex >= room.players.length) {
+        // All players have viewed their card! Dismiss pass curtain
+        session.passThePhone = undefined;
+      } else {
+        session.passThePhone.currentPlayerIndex = nextIndex;
+      }
     }
 
     session.stateVersion += 1;
+    await this.persistSession(session);
     realtimeHub.publish(room.code, "PASS_THE_PHONE_STEP", session.stateVersion);
     return { success: true };
   }
 
-  getAuthorizedState(code: string, sessionToken?: string | null): AuthorizedGameState | null {
-    const room = this.getRoom(code);
+  async getAuthorizedState(code: string, sessionToken?: string | null): Promise<AuthorizedGameState | null> {
+    const room = await this.getRoom(code);
     if (!room) return null;
 
     const publicRoomView: PublicRoomView = {
@@ -384,7 +488,7 @@ class RoomStore {
       settings: room.settings,
     };
 
-    let session = room.activeSessionId ? this.gameSessions.get(room.activeSessionId) : undefined;
+    let session = room.activeSessionId ? await this.getSession(room.activeSessionId) : undefined;
     const gameDef = getGameDefinition(room.selectedGameId);
 
     if (session && gameDef) {
@@ -461,6 +565,6 @@ class RoomStore {
   }
 }
 
-const globalForStore = global as unknown as { jma3aRoomStore?: RoomStore };
+const globalForStore = globalThis as unknown as { jma3aRoomStore?: RoomStore };
 export const roomStore = globalForStore.jma3aRoomStore || new RoomStore();
-if (process.env.NODE_ENV !== "production") globalForStore.jma3aRoomStore = roomStore;
+globalForStore.jma3aRoomStore = roomStore;

@@ -53,8 +53,10 @@ export function DibGameView({
     }
   }, [publicData.winner]);
 
+  const currentPhase = publicData.phase || (publicData.winner ? "GAME_OVER" : "ROLE_REVEAL");
+
   // Phase: Role Reveal
-  if (!publicData.wolvesDone && publicData.livingPlayersCount && !publicData.recentDeaths?.length && !publicData.lastEliminatedPlayerId && !publicData.votesSubmittedCount && !publicData.winner) {
+  if (currentPhase === "ROLE_REVEAL") {
     return (
       <div className="flex flex-col items-center justify-center max-w-sm mx-auto p-4 text-center">
         <span className="text-xs font-semibold px-3 py-1 rounded-full bg-jma3a-surface text-jma3a-gold border border-jma3a-border mb-4">
@@ -97,7 +99,7 @@ export function DibGameView({
         {isHost && (
           <button
             onClick={() => onAction({ type: "NEXT_PHASE" })}
-            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold shadow-lg shadow-jma3a-terracotta/30"
+            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold shadow-lg shadow-jma3a-terracotta/30 hover:brightness-110 active:scale-95 transition-all"
           >
             الكل شاف دوره؟ بدا الليل 🌙
           </button>
@@ -107,7 +109,7 @@ export function DibGameView({
   }
 
   // Phase: Night
-  const isNight = publicData.narrationKey?.includes("الليل") || publicData.narrationKey?.includes("الذيابة") || publicData.narrationKey?.includes("تنعس") || publicData.narrationKey?.includes("الشوافة");
+  const isNight = currentPhase === "NIGHT_WOLF" || currentPhase === "NIGHT_SEER" || currentPhase === "NIGHT_WITCH" || publicData.narrationKey?.includes("الليل") || publicData.narrationKey?.includes("الذيابة") || publicData.narrationKey?.includes("تنعس") || publicData.narrationKey?.includes("الشوافة");
 
   if (isNight) {
     return (

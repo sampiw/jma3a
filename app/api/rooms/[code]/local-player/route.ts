@@ -14,7 +14,7 @@ export async function POST(
     }
 
     const { nickname, avatarSeed } = await req.json();
-    const res = roomStore.addLocalPlayer(code, sessionToken, nickname, avatarSeed);
+    const res = await roomStore.addLocalPlayer(code, sessionToken, nickname, avatarSeed);
     if (!res.success) {
       return NextResponse.json({ success: false, error: res.error }, { status: 400 });
     }
