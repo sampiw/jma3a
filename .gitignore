@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 .agent.env
+scripts/deploy-helper.mjs
 credentials.env
 deployment.env
 
@@ -30,3 +31,5 @@ pnpm-debug.log*
 # OS files
 .DS_Store
 Thumbs.db
+
+.vercel
