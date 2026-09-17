@@ -6,6 +6,7 @@ import {
   InteractionMode,
   AuthorizedGameState,
   PublicRoomView,
+  DevicePlayerInfo,
 } from "@/lib/types";
 import { generateRoomCode, normalizeRoomCode } from "./code";
 import { getGameDefinition } from "@/games";
@@ -259,30 +260,45 @@ export class RoomStore {
 
   async addLocalPlayer(
     code: string,
-    hostSessionToken: string,
+    callerSessionToken: string,
     nickname: string,
     avatarSeed: string = "avatar_1"
   ): Promise<{ success: boolean; player?: Player; error?: string }> {
     const room = await this.getRoom(code);
-    if (!room) return { success: false, error: "Room not found" };
+    if (!room) return { success: false, error: "الغرفة ما كايناش" };
 
+    const callerHasPlayer = room.players.some((p) => p.deviceSessionId === callerSessionToken);
     const host = room.players.find((p) => p.id === room.hostPlayerId);
-    if (!host || host.deviceSessionId !== hostSessionToken) {
-      return { success: false, error: "Only host can add shared-device players" };
+    const isCallerHost = host?.deviceSessionId === callerSessionToken;
+
+    if (!callerHasPlayer && !isCallerHost) {
+      return { success: false, error: "الجهاز غير معترف به في هذه الغرفة" };
+    }
+
+    if (room.status !== "LOBBY") {
+      return { success: false, error: "اللعبة بدات ديجا فهاد الغرفة" };
     }
 
     const cleanNick = nickname.trim();
+    if (!cleanNick) {
+      return { success: false, error: "عفاك دخل سمية صالحة" };
+    }
+
+    const normNick = cleanNick.toLowerCase();
+    const isNickTaken = room.players.some((p) => p.normalizedNickname === normNick);
+    const finalNick = isNickTaken ? `${cleanNick} (${room.players.length + 1})` : cleanNick;
+
     const localId = "p_loc_" + crypto.randomUUID().slice(0, 8);
     const localPlayer: Player = {
       id: localId,
       roomId: room.code,
-      nickname: cleanNick || `Player ${room.players.length + 1}`,
-      normalizedNickname: cleanNick.toLowerCase(),
+      nickname: finalNick,
+      normalizedNickname: finalNick.toLowerCase(),
       status: "ACTIVE",
       joinedAt: Date.now(),
       avatarSeed,
       isHost: false,
-      deviceSessionId: hostSessionToken, // Bound to host phone
+      deviceSessionId: callerSessionToken, // Bound to this phone's session
       isOnline: true,
     };
 
@@ -291,6 +307,78 @@ export class RoomStore {
     await this.persistRoom(room);
     realtimeHub.publish(room.code, "PLAYER_JOINED", 1);
     return { success: true, player: localPlayer };
+  }
+
+  async removePlayer(
+    code: string,
+    callerSessionToken: string,
+    playerIdToRemove: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const room = await this.getRoom(code);
+    if (!room) return { success: false, error: "الغرفة ما كايناش" };
+
+    const playerIndex = room.players.findIndex((p) => p.id === playerIdToRemove);
+    if (playerIndex === -1) return { success: false, error: "اللاعب غير موجود" };
+
+    const playerToRemove = room.players[playerIndex];
+    const host = room.players.find((p) => p.id === room.hostPlayerId);
+    const isHost = host?.deviceSessionId === callerSessionToken;
+    const isOwnDevice = playerToRemove.deviceSessionId === callerSessionToken;
+
+    if (!isHost && !isOwnDevice) {
+      return { success: false, error: "ما عندكش الصلاحية باش تمسح هاد اللاعب" };
+    }
+
+    if (playerToRemove.isHost) {
+      if (room.players.length <= 1) {
+        return { success: false, error: "ما يمكنش تمسح المضيف الوحيد" };
+      }
+      const nextHost = room.players.find((p) => p.id !== playerToRemove.id);
+      if (nextHost) {
+        nextHost.isHost = true;
+        room.hostPlayerId = nextHost.id;
+      }
+    }
+
+    room.players.splice(playerIndex, 1);
+    room.updatedAt = Date.now();
+
+    // If active session, handle safe mark dead
+    if (room.activeSessionId) {
+      const session = await this.getSession(room.activeSessionId);
+      if (session && session.state && session.state.playerStates?.[playerIdToRemove]) {
+        session.state.playerStates[playerIdToRemove].isAlive = false;
+        await this.persistSession(session);
+      }
+    }
+
+    await this.persistRoom(room);
+    realtimeHub.publish(room.code, "PLAYER_LEFT", 1);
+    return { success: true };
+  }
+
+  async updateGameSettings(
+    code: string,
+    hostSessionToken: string,
+    gameSettings: Record<string, any>
+  ): Promise<{ success: boolean; error?: string }> {
+    const room = await this.getRoom(code);
+    if (!room) return { success: false, error: "الغرفة ما كايناش" };
+
+    const host = room.players.find((p) => p.id === room.hostPlayerId);
+    if (!host || host.deviceSessionId !== hostSessionToken) {
+      return { success: false, error: "غير المضيف لي يقدر يبدل إعدادات اللعبة" };
+    }
+
+    room.settings.gameSettings = {
+      ...(room.settings.gameSettings || {}),
+      ...gameSettings,
+    };
+    room.updatedAt = Date.now();
+
+    await this.persistRoom(room);
+    realtimeHub.publish(room.code, "SETTINGS_UPDATED", 1);
+    return { success: true };
   }
 
   async switchGame(
@@ -334,12 +422,17 @@ export class RoomStore {
     const gameDef = getGameDefinition(room.selectedGameId);
     if (!gameDef) return { success: false, error: "Game engine not found" };
 
-    const val = gameDef.validateSetup(room.players, gameDef.defaultSettings);
+    const mergedSettings = {
+      ...gameDef.defaultSettings,
+      ...(room.settings.gameSettings || {}),
+    };
+
+    const val = gameDef.validateSetup(room.players, mergedSettings);
     if (!val.isValid) {
       return { success: false, error: val.errors?.join(" ") || "Invalid setup" };
     }
 
-    const initialState = gameDef.createInitialState(room.players, gameDef.defaultSettings);
+    const initialState = gameDef.createInitialState(room.players, mergedSettings);
     const sessionId = "sess_" + crypto.randomUUID().slice(0, 8);
 
     const session: InternalGameSession = {
@@ -508,23 +601,14 @@ export class RoomStore {
       };
     }
 
-    // Resolve player view for session token
-    let currentPlayer = sessionToken ? room.players.find((p) => p.deviceSessionId === sessionToken) : undefined;
+    // Resolve players for this device session
+    const myDevicePlayers = sessionToken
+      ? room.players.filter((p) => p.deviceSessionId === sessionToken)
+      : [];
 
-    let privateView = undefined;
-    if (session && gameDef) {
-      // In ONE_PHONE mode, check who the active pass-the-phone player is
-      let viewingPlayerId = currentPlayer?.id;
-      if (room.settings.interactionMode === "ONE_PHONE" && session.passThePhone) {
-        const activeLocalP = room.players[session.passThePhone.currentPlayerIndex];
-        if (session.passThePhone.isRevealed && activeLocalP) {
-          viewingPlayerId = activeLocalP.id;
-        } else {
-          viewingPlayerId = undefined; // Hide secrets behind privacy curtain!
-        }
-      }
-
-      if (viewingPlayerId) {
+    const devicePlayers: DevicePlayerInfo[] = myDevicePlayers.map((p) => {
+      let pView = undefined;
+      if (session && gameDef) {
         const ctx = {
           roomId: room.code,
           players: room.players,
@@ -534,7 +618,38 @@ export class RoomStore {
           phase: session.phase,
           stateVersion: session.stateVersion,
         };
-        privateView = gameDef.getPlayerView(ctx, viewingPlayerId);
+        pView = gameDef.getPlayerView(ctx, p.id);
+      }
+      const isAlive = session?.state?.playerStates?.[p.id]?.isAlive ?? true;
+      return {
+        id: p.id,
+        nickname: p.nickname,
+        avatarSeed: p.avatarSeed,
+        isHost: p.isHost,
+        isAlive,
+        privateView: pView,
+      };
+    });
+
+    let currentPlayer = myDevicePlayers[0];
+    let privateView = devicePlayers[0]?.privateView;
+
+    // In ONE_PHONE mode, pass-the-phone controls the shared viewing screen
+    if (session && gameDef && room.settings.interactionMode === "ONE_PHONE" && session.passThePhone) {
+      const activeLocalP = room.players[session.passThePhone.currentPlayerIndex];
+      if (session.passThePhone.isRevealed && activeLocalP) {
+        const ctx = {
+          roomId: room.code,
+          players: room.players,
+          state: session.state,
+          settings: (room.settings.gameSettings as any) || gameDef.defaultSettings,
+          round: session.round,
+          phase: session.phase,
+          stateVersion: session.stateVersion,
+        };
+        privateView = gameDef.getPlayerView(ctx, activeLocalP.id);
+      } else {
+        privateView = undefined; // Hide secrets behind privacy curtain!
       }
     }
 
@@ -559,6 +674,7 @@ export class RoomStore {
             avatarSeed: currentPlayer.avatarSeed,
           }
         : undefined,
+      devicePlayers,
       privateView,
       passThePhone: passThePhoneData,
     };

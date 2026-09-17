@@ -1,67 +1,88 @@
 import { GameCapability, Player, PublicGameView, PrivatePlayerGameView } from "@/lib/types";
 import { GameContext, GameDefinition, GameEndResult, TransitionResult, ValidationResult } from "@/games/registry";
 
-export type DibRole = "villager" | "wolf" | "seer" | "witch";
+export type DibRole = "villager" | "wolf" | "seer" | "witch" | "hunter";
 
 export interface DibPlayerState {
   playerId: string;
   role: DibRole;
   isAlive: boolean;
   deathRound?: number;
-  deathReason?: "wolf" | "witch" | "vote";
+  deathReason?: "wolf" | "witch" | "vote" | "hunter";
 }
 
 export interface DibSettings {
   discussionDurationSeconds: number;
   seerRevealsRole: boolean;
   witchSeesVictim: boolean;
-  customRoles?: Record<DibRole, number>;
+  customRoles?: Partial<Record<DibRole, number>>;
+}
+
+export interface DibNightSummary {
+  deaths: Array<{ playerId: string; reason: "wolf" | "witch" | "hunter" }>;
+  savedPlayerId?: string;
+  wolfVictimId?: string;
 }
 
 export interface DibState {
   playerStates: Record<string, DibPlayerState>;
-  phase: "ROLE_REVEAL" | "NIGHT_WOLF" | "NIGHT_SEER" | "NIGHT_WITCH" | "DAY_ANNOUNCEMENT" | "DISCUSSION" | "DAY_VOTE" | "GAME_OVER";
+  phase:
+    | "ROLE_REVEAL"
+    | "NIGHT_SEER"
+    | "NIGHT_WOLF"
+    | "NIGHT_WITCH"
+    | "DAY_ANNOUNCEMENT"
+    | "DISCUSSION"
+    | "DAY_VOTE"
+    | "HUNTER_REVENGE"
+    | "GAME_OVER";
   round: number;
   wolfVotes: Record<string, string>; // wolfPlayerId -> targetPlayerId
-  seerTarget?: string;
+  wolfSignals?: Array<{ wolfId: string; signal: string; timestamp: number }>;
+  wolfVictimId?: string; // The single victim chosen by wolves
+  seerTarget?: string; // The single target inspected tonight
   seerHistory: Array<{ round: number; targetId: string; result: "wolf" | "village" | DibRole }>;
   witchHealUsed: boolean;
   witchPoisonUsed: boolean;
   witchActionDone: boolean;
-  witchAction?: { action: "save" | "poison" | "none"; targetId?: string };
-  nightPendingDeaths: Array<{ playerId: string; reason: "wolf" | "witch" }>;
+  witchSavedPlayerId?: string;
+  nightPendingDeaths: Array<{ playerId: string; reason: "wolf" | "witch" | "hunter" }>;
+  nightSummary?: DibNightSummary;
   dayVotes: Record<string, string>; // voterPlayerId -> suspectPlayerId
   lastEliminatedPlayerId?: string;
+  hunterShooterId?: string;
   winner?: "village" | "wolves";
   narrationKey?: string;
 }
 
 export type DibAction =
   | { type: "ACK_ROLE" }
-  | { type: "WOLF_VOTE"; targetPlayerId: string }
   | { type: "SEER_INSPECT"; targetPlayerId: string }
+  | { type: "WOLF_VOTE"; targetPlayerId: string }
+  | { type: "WOLF_SIGNAL"; signal: string }
   | { type: "WITCH_DECIDE"; action: "save" | "poison" | "none"; targetPlayerId?: string }
-  | { type: "SKIP_NIGHT_ACTION" }
-  | { type: "START_VOTING" }
+  | { type: "HUNTER_SHOOT"; targetPlayerId: string }
   | { type: "DAY_VOTE"; targetPlayerId: string }
   | { type: "NEXT_PHASE" };
 
 export function getRecommendedRoleDistribution(playerCount: number): Record<DibRole, number> {
   if (playerCount <= 4) {
-    return { wolf: 1, seer: 1, witch: 0, villager: playerCount - 2 };
+    return { wolf: 1, seer: 1, witch: 0, hunter: 0, villager: Math.max(1, playerCount - 2) };
   } else if (playerCount === 5) {
-    return { wolf: 1, seer: 1, witch: 1, villager: 2 };
+    return { wolf: 1, seer: 1, witch: 1, hunter: 0, villager: 2 };
   } else if (playerCount <= 7) {
-    return { wolf: 2, seer: 1, witch: 1, villager: playerCount - 4 };
+    return { wolf: 2, seer: 1, witch: 1, hunter: 0, villager: Math.max(1, playerCount - 4) };
+  } else if (playerCount <= 9) {
+    return { wolf: 2, seer: 1, witch: 1, hunter: 1, villager: Math.max(1, playerCount - 5) };
   } else {
-    return { wolf: 3, seer: 1, witch: 1, villager: playerCount - 5 };
+    return { wolf: 3, seer: 1, witch: 1, hunter: 1, villager: Math.max(1, playerCount - 6) };
   }
 }
 
 export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
   id: "dib",
   slug: "dib",
-  version: 1,
+  version: 2,
   displayNameKey: "dib.name",
   shortDescriptionKey: "dib.description",
   minPlayers: 4,
@@ -86,20 +107,35 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
     if (players.length < 4) {
       return { isValid: false, errors: ["DIB requires at least 4 players."] };
     }
+    if (settings.customRoles) {
+      const wolves = settings.customRoles.wolf ?? 0;
+      if (wolves < 1) {
+        return { isValid: false, errors: ["يجب اختيار ذيب واحد على الأقل 🐺"] };
+      }
+      if (wolves >= players.length) {
+        return { isValid: false, errors: ["عدد الذيابة لا يمكن أن يساوي أو يتجاوز مجموع اللاعبين"] };
+      }
+    }
     return { isValid: true };
   },
 
   createInitialState(players: Player[], settings: DibSettings): DibState {
-    const dist = settings.customRoles || getRecommendedRoleDistribution(players.length);
+    const recommended = getRecommendedRoleDistribution(players.length);
+    const dist = { ...recommended, ...(settings.customRoles || {}) };
+    
+    // Build deck
     const roleDeck: DibRole[] = [];
-
-    (Object.keys(dist) as DibRole[]).forEach((role) => {
-      for (let i = 0; i < (dist[role] || 0); i++) {
-        roleDeck.push(role);
+    const rolesOrder: DibRole[] = ["wolf", "seer", "witch", "hunter", "villager"];
+    rolesOrder.forEach((role) => {
+      const count = dist[role] ?? 0;
+      for (let i = 0; i < count; i++) {
+        if (roleDeck.length < players.length) {
+          roleDeck.push(role);
+        }
       }
     });
 
-    // Fill remaining with villagers if needed
+    // Fill any remainder with villagers
     while (roleDeck.length < players.length) {
       roleDeck.push("villager");
     }
@@ -121,13 +157,14 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
       phase: "ROLE_REVEAL",
       round: 1,
       wolfVotes: {},
+      wolfSignals: [],
       seerHistory: [],
       witchHealUsed: false,
       witchPoisonUsed: false,
       witchActionDone: false,
       nightPendingDeaths: [],
       dayVotes: {},
-      narrationKey: "المدينة تنعس 🌙",
+      narrationKey: "المدينة تنعس وتغمض عينيها 🌙",
     };
   },
 
@@ -156,23 +193,58 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
 
     switch (action.type) {
       case "NEXT_PHASE": {
-        // Phase stepping logic
+        // Step 1: From ROLE_REVEAL -> Start Night!
+        // Classic Order: Voyante (Seer) -> Loups (Wolves) -> Sorcière (Witch) -> Dawn
         if (state.phase === "ROLE_REVEAL") {
+          const hasAliveSeer = Object.values(state.playerStates).some((p) => p.role === "seer" && p.isAlive);
+          if (hasAliveSeer) {
+            return {
+              success: true,
+              newState: {
+                ...state,
+                phase: "NIGHT_SEER",
+                seerTarget: undefined,
+                nightPendingDeaths: [],
+                narrationKey: "المدينة تنعس 🌙 ... دابا الشوافة تفيق وتكشف سر واحد 🔮",
+              },
+              newPhase: "NIGHT_SEER",
+              timerDurationMs: 25000,
+            };
+          }
+
+          // If no Seer, go directly to Wolves
           return {
             success: true,
             newState: {
               ...state,
               phase: "NIGHT_WOLF",
               wolfVotes: {},
-              narrationKey: "الذيابة يفيقو 🐺",
+              nightPendingDeaths: [],
+              narrationKey: "المدينة تنعس 🌙 ... دابا يفيقو الذيابة ويتفاهمو على الضحية 🐺",
             },
             newPhase: "NIGHT_WOLF",
-            timerDurationMs: 30000,
+            timerDurationMs: 35000,
           };
         }
 
+        // Step 2: From NIGHT_SEER -> Move to NIGHT_WOLF
+        if (state.phase === "NIGHT_SEER") {
+          return {
+            success: true,
+            newState: {
+              ...state,
+              phase: "NIGHT_WOLF",
+              wolfVotes: {},
+              narrationKey: "الشوافة تنعس 😴 ... دابا يفيقو الذيابة ويتفاهمو على الضحية 🐺",
+            },
+            newPhase: "NIGHT_WOLF",
+            timerDurationMs: 35000,
+          };
+        }
+
+        // Step 3: From NIGHT_WOLF -> Move to NIGHT_WITCH or Dawn!
+        // RULES: Wolves can only kill EXACTLY ONE victim per turn!
         if (state.phase === "NIGHT_WOLF") {
-          // Resolve wolves vote
           const votesCount: Record<string, number> = {};
           Object.values(state.wolfVotes).forEach((target) => {
             votesCount[target] = (votesCount[target] || 0) + 1;
@@ -187,29 +259,11 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
             }
           });
 
-          const pendingDeaths: Array<{ playerId: string; reason: "wolf" | "witch" }> = [];
+          const pendingDeaths: Array<{ playerId: string; reason: "wolf" | "witch" | "hunter" }> = [];
           if (victimId) {
             pendingDeaths.push({ playerId: victimId, reason: "wolf" });
           }
 
-          // Check if seer is alive
-          const hasAliveSeer = Object.values(state.playerStates).some((p) => p.role === "seer" && p.isAlive);
-          if (hasAliveSeer) {
-            return {
-              success: true,
-              newState: {
-                ...state,
-                phase: "NIGHT_SEER",
-                nightPendingDeaths: pendingDeaths,
-                seerTarget: undefined,
-                narrationKey: "الشوافة تفيق 🔮",
-              },
-              newPhase: "NIGHT_SEER",
-              timerDurationMs: 20000,
-            };
-          }
-
-          // Check if witch is alive
           const hasAliveWitch = Object.values(state.playerStates).some((p) => p.role === "witch" && p.isAlive);
           if (hasAliveWitch) {
             return {
@@ -217,54 +271,41 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
               newState: {
                 ...state,
                 phase: "NIGHT_WITCH",
+                wolfVictimId: victimId,
                 nightPendingDeaths: pendingDeaths,
                 witchActionDone: false,
-                narrationKey: "السحارة كتفيق 🧪",
+                witchSavedPlayerId: undefined,
+                narrationKey: "الذيابة ينعسو 😴 ... دابا تفيق السحارة 🧪",
               },
               newPhase: "NIGHT_WITCH",
               timerDurationMs: 25000,
             };
           }
 
-          // Night resolution -> Day announcement
-          return resolveNightToDay(state, pendingDeaths, ctx.settings);
+          // No witch -> resolve night directly to dawn announcement
+          return resolveNightToDay(state, pendingDeaths, victimId, undefined);
         }
 
-        if (state.phase === "NIGHT_SEER") {
-          const hasAliveWitch = Object.values(state.playerStates).some((p) => p.role === "witch" && p.isAlive);
-          if (hasAliveWitch) {
-            return {
-              success: true,
-              newState: {
-                ...state,
-                phase: "NIGHT_WITCH",
-                witchActionDone: false,
-                narrationKey: "السحارة كتفيق 🧪",
-              },
-              newPhase: "NIGHT_WITCH",
-              timerDurationMs: 25000,
-            };
-          }
-          return resolveNightToDay(state, state.nightPendingDeaths, ctx.settings);
-        }
-
+        // Step 4: From NIGHT_WITCH -> Resolve night to Dawn!
         if (state.phase === "NIGHT_WITCH") {
-          return resolveNightToDay(state, state.nightPendingDeaths, ctx.settings);
+          return resolveNightToDay(state, state.nightPendingDeaths, state.wolfVictimId, state.witchSavedPlayerId);
         }
 
+        // Step 5: From DAY_ANNOUNCEMENT -> DISCUSSION
         if (state.phase === "DAY_ANNOUNCEMENT") {
           return {
             success: true,
             newState: {
               ...state,
               phase: "DISCUSSION",
-              narrationKey: "المدينة فاقت! ناقشو بيناتكم 🗣️",
+              narrationKey: "ناقشو الشكوك بيناتكم ودافعو على ريوسكم 🗣️",
             },
             newPhase: "DISCUSSION",
             timerDurationMs: (ctx.settings.discussionDurationSeconds || 120) * 1000,
           };
         }
 
+        // Step 6: From DISCUSSION -> DAY_VOTE
         if (state.phase === "DISCUSSION") {
           return {
             success: true,
@@ -272,15 +313,15 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
               ...state,
               phase: "DAY_VOTE",
               dayVotes: {},
-              narrationKey: "وقت التصويت السري 🗳️",
+              narrationKey: "وقت الحساب! صوتو على شكون كتشك فيه ذيب 🗳️",
             },
             newPhase: "DAY_VOTE",
             timerDurationMs: 45000,
           };
         }
 
+        // Step 7: From DAY_VOTE -> Resolve voting elimination!
         if (state.phase === "DAY_VOTE") {
-          // Resolve day vote
           const votesCount: Record<string, number> = {};
           Object.values(state.dayVotes).forEach((target) => {
             votesCount[target] = (votesCount[target] || 0) + 1;
@@ -313,6 +354,22 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
             actuallyEliminated = eliminatedId;
           }
 
+          // Check if eliminated player is Hunter!
+          if (actuallyEliminated && nextPlayerStates[actuallyEliminated].role === "hunter") {
+            return {
+              success: true,
+              newState: {
+                ...state,
+                playerStates: nextPlayerStates,
+                phase: "HUNTER_REVENGE",
+                hunterShooterId: actuallyEliminated,
+                lastEliminatedPlayerId: actuallyEliminated,
+                narrationKey: "الصياد تصوت عليه ولكن عندو رصاصة أخيرة! 🎯",
+              },
+              newPhase: "HUNTER_REVENGE",
+            };
+          }
+
           // Check win condition
           const win = evaluateWinCondition(nextPlayerStates);
           if (win) {
@@ -329,21 +386,72 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
             };
           }
 
-          // Next night
+          // Next night: Wakes up Seer first if alive!
+          const hasAliveSeer = Object.values(nextPlayerStates).some((p) => p.role === "seer" && p.isAlive);
+          const nextNightPhase = hasAliveSeer ? "NIGHT_SEER" : "NIGHT_WOLF";
+
           return {
             success: true,
             newState: {
               ...state,
               playerStates: nextPlayerStates,
               round: state.round + 1,
-              phase: "NIGHT_WOLF",
+              phase: nextNightPhase,
               wolfVotes: {},
+              wolfSignals: [],
+              wolfVictimId: undefined,
+              seerTarget: undefined,
+              witchActionDone: false,
+              witchSavedPlayerId: undefined,
               nightPendingDeaths: [],
               dayVotes: {},
               lastEliminatedPlayerId: actuallyEliminated,
-              narrationKey: "المدينة تنعس من جديد... الذيابة يفيقو 🐺",
+              narrationKey: hasAliveSeer
+                ? "المدينة تنعس من جديد... الشوافة تفيق 🔮"
+                : "المدينة تنعس من جديد... الذيابة يفيقو 🐺",
             },
-            newPhase: "NIGHT_WOLF",
+            newPhase: nextNightPhase,
+            timerDurationMs: 30000,
+          };
+        }
+
+        // Step 8: From HUNTER_REVENGE -> Advance
+        if (state.phase === "HUNTER_REVENGE") {
+          const win = evaluateWinCondition(state.playerStates);
+          if (win) {
+            return {
+              success: true,
+              newState: {
+                ...state,
+                phase: "GAME_OVER",
+                winner: win,
+              },
+              newPhase: "GAME_OVER",
+            };
+          }
+
+          const hasAliveSeer = Object.values(state.playerStates).some((p) => p.role === "seer" && p.isAlive);
+          const nextNightPhase = hasAliveSeer ? "NIGHT_SEER" : "NIGHT_WOLF";
+
+          return {
+            success: true,
+            newState: {
+              ...state,
+              round: state.round + 1,
+              phase: nextNightPhase,
+              wolfVotes: {},
+              wolfSignals: [],
+              wolfVictimId: undefined,
+              seerTarget: undefined,
+              witchActionDone: false,
+              witchSavedPlayerId: undefined,
+              nightPendingDeaths: [],
+              dayVotes: {},
+              narrationKey: hasAliveSeer
+                ? "المدينة تنعس من جديد... الشوافة تفيق 🔮"
+                : "المدينة تنعس من جديد... الذيابة يفيقو 🐺",
+            },
+            newPhase: nextNightPhase,
             timerDurationMs: 30000,
           };
         }
@@ -351,29 +459,18 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
         return { success: false, newState: state, newPhase: state.phase };
       }
 
-      case "WOLF_VOTE": {
-        if (state.phase !== "NIGHT_WOLF" || actor.role !== "wolf" || !actor.isAlive) {
-          return { success: false, newState: state, newPhase: state.phase, error: "Action not permitted" };
-        }
-        return {
-          success: true,
-          newState: {
-            ...state,
-            wolfVotes: {
-              ...state.wolfVotes,
-              [actorPlayerId]: action.targetPlayerId,
-            },
-          },
-          newPhase: state.phase,
-        };
-      }
-
+      // Action: Seer inspection (ONLY ONE PER NIGHT!)
       case "SEER_INSPECT": {
         if (state.phase !== "NIGHT_SEER" || actor.role !== "seer" || !actor.isAlive) {
           return { success: false, newState: state, newPhase: state.phase, error: "Action not permitted" };
         }
+        if (state.seerTarget) {
+          return { success: false, newState: state, newPhase: state.phase, error: "الشوافة كتشوف غير شخص واحد فالليلة!" };
+        }
         const target = state.playerStates[action.targetPlayerId];
-        if (!target) return { success: false, newState: state, newPhase: state.phase, error: "Target not found" };
+        if (!target || !target.isAlive) {
+          return { success: false, newState: state, newPhase: state.phase, error: "Target not found or dead" };
+        }
 
         const inspectResult = ctx.settings.seerRevealsRole
           ? target.role
@@ -395,6 +492,49 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
         };
       }
 
+      // Action: Wolf Vote (Negotiation between pack members)
+      case "WOLF_VOTE": {
+        if (state.phase !== "NIGHT_WOLF" || actor.role !== "wolf" || !actor.isAlive) {
+          return { success: false, newState: state, newPhase: state.phase, error: "Action not permitted" };
+        }
+        const target = state.playerStates[action.targetPlayerId];
+        if (!target || !target.isAlive || target.role === "wolf") {
+          return { success: false, newState: state, newPhase: state.phase, error: "Invalid target" };
+        }
+
+        return {
+          success: true,
+          newState: {
+            ...state,
+            wolfVotes: {
+              ...state.wolfVotes,
+              [actorPlayerId]: action.targetPlayerId,
+            },
+          },
+          newPhase: state.phase,
+        };
+      }
+
+      // Action: Wolf tactical signal for negotiation
+      case "WOLF_SIGNAL": {
+        if (state.phase !== "NIGHT_WOLF" || actor.role !== "wolf" || !actor.isAlive) {
+          return { success: false, newState: state, newPhase: state.phase, error: "Action not permitted" };
+        }
+        const newSignals = [
+          ...(state.wolfSignals || []).slice(-8),
+          { wolfId: actorPlayerId, signal: action.signal, timestamp: Date.now() },
+        ];
+        return {
+          success: true,
+          newState: {
+            ...state,
+            wolfSignals: newSignals,
+          },
+          newPhase: state.phase,
+        };
+      }
+
+      // Action: Witch Decide
       case "WITCH_DECIDE": {
         if (state.phase !== "NIGHT_WITCH" || actor.role !== "witch" || !actor.isAlive) {
           return { success: false, newState: state, newPhase: state.phase, error: "Action not permitted" };
@@ -403,11 +543,13 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
         let pending = [...state.nightPendingDeaths];
         let healUsed = state.witchHealUsed;
         let poisonUsed = state.witchPoisonUsed;
+        let savedPlayerId = state.witchSavedPlayerId;
 
         if (action.action === "save" && !state.witchHealUsed) {
-          // Remove wolf victim
+          // Save wolf victim
           pending = pending.filter((d) => d.reason !== "wolf");
           healUsed = true;
+          savedPlayerId = state.wolfVictimId;
         } else if (action.action === "poison" && !state.witchPoisonUsed && action.targetPlayerId) {
           pending.push({ playerId: action.targetPlayerId, reason: "witch" });
           poisonUsed = true;
@@ -420,12 +562,69 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
             nightPendingDeaths: pending,
             witchHealUsed: healUsed,
             witchPoisonUsed: poisonUsed,
+            witchSavedPlayerId: savedPlayerId,
             witchActionDone: true,
           },
           newPhase: state.phase,
         };
       }
 
+      // Action: Hunter shoot on death
+      case "HUNTER_SHOOT": {
+        if (state.phase !== "HUNTER_REVENGE" || actorPlayerId !== state.hunterShooterId) {
+          return { success: false, newState: state, newPhase: state.phase, error: "Only the dying hunter can shoot" };
+        }
+        const target = state.playerStates[action.targetPlayerId];
+        if (!target || !target.isAlive) {
+          return { success: false, newState: state, newPhase: state.phase, error: "Target dead or invalid" };
+        }
+
+        const nextPlayerStates = { ...state.playerStates };
+        nextPlayerStates[action.targetPlayerId] = {
+          ...nextPlayerStates[action.targetPlayerId],
+          isAlive: false,
+          deathRound: state.round,
+          deathReason: "hunter",
+        };
+
+        const win = evaluateWinCondition(nextPlayerStates);
+        if (win) {
+          return {
+            success: true,
+            newState: {
+              ...state,
+              playerStates: nextPlayerStates,
+              phase: "GAME_OVER",
+              winner: win,
+              hunterShooterId: undefined,
+            },
+            newPhase: "GAME_OVER",
+          };
+        }
+
+        const hasAliveSeer = Object.values(nextPlayerStates).some((p) => p.role === "seer" && p.isAlive);
+        const nextNightPhase = hasAliveSeer ? "NIGHT_SEER" : "NIGHT_WOLF";
+
+        return {
+          success: true,
+          newState: {
+            ...state,
+            playerStates: nextPlayerStates,
+            round: state.round + 1,
+            phase: nextNightPhase,
+            hunterShooterId: undefined,
+            wolfVotes: {},
+            wolfSignals: [],
+            nightPendingDeaths: [],
+            dayVotes: {},
+            narrationKey: "الصياد قتل " + (ctx.players.find((p) => p.id === action.targetPlayerId)?.nickname || "") + "! المدينة تنعس من جديد 🌙",
+          },
+          newPhase: nextNightPhase,
+          timerDurationMs: 30000,
+        };
+      }
+
+      // Action: Day Vote
       case "DAY_VOTE": {
         if (state.phase !== "DAY_VOTE" || !actor.isAlive) {
           return { success: false, newState: state, newPhase: state.phase, error: "Dead players cannot vote" };
@@ -456,16 +655,20 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
 
     return {
       gameId: "dib",
-      phase,
-      round,
+      phase: state.phase,
+      round: state.round,
       stateVersion,
       publicData: {
         phase: state.phase,
         narrationKey: state.narrationKey,
         livingPlayersCount,
-        wolvesDone: livingWolfVotesCount >= totalLivingWolves,
+        livingWolfVotesCount,
+        totalLivingWolves,
         lastEliminatedPlayerId: state.lastEliminatedPlayerId,
-        recentDeaths: state.phase === "DAY_ANNOUNCEMENT" ? state.nightPendingDeaths.map((d) => d.playerId) : [],
+        hunterShooterId: state.hunterShooterId,
+        nightSummary: state.nightSummary,
+        recentDeaths: state.nightSummary?.deaths.map((d) => d.playerId) || [],
+        savedPlayerId: state.nightSummary?.savedPlayerId,
         votesSubmittedCount: Object.keys(state.dayVotes).length,
         winner: state.winner,
         alivePlayerIds: Object.values(state.playerStates).filter((p) => p.isAlive).map((p) => p.playerId),
@@ -491,7 +694,7 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
       isAlive: player.isAlive,
     };
 
-    // If game is over, reveal everyone's roles to all
+    // If game is over, reveal all roles
     if (state.phase === "GAME_OVER") {
       privateData.allRoles = Object.fromEntries(
         Object.entries(state.playerStates).map(([id, p]) => [id, p.role])
@@ -499,30 +702,38 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
     }
 
     if (player.isAlive) {
+      // Seer View
+      if (state.phase === "NIGHT_SEER" && player.role === "seer") {
+        allowedActions.push("SEER_INSPECT");
+        privateData.seerHistory = state.seerHistory;
+        privateData.seerTarget = state.seerTarget;
+      }
+
+      // Wolf View
       if (state.phase === "NIGHT_WOLF" && player.role === "wolf") {
-        allowedActions.push("WOLF_VOTE");
-        // Wolves can see other alive wolves
+        allowedActions.push("WOLF_VOTE", "WOLF_SIGNAL");
         privateData.packMembers = Object.values(state.playerStates)
           .filter((p) => p.role === "wolf" && p.isAlive)
           .map((p) => p.playerId);
         privateData.currentWolfVotes = state.wolfVotes;
+        privateData.wolfSignals = state.wolfSignals || [];
       }
 
-      if (state.phase === "NIGHT_SEER" && player.role === "seer") {
-        allowedActions.push("SEER_INSPECT");
-        privateData.seerHistory = state.seerHistory;
-      }
-
+      // Witch View
       if (state.phase === "NIGHT_WITCH" && player.role === "witch") {
         allowedActions.push("WITCH_DECIDE");
         privateData.canHeal = !state.witchHealUsed;
         privateData.canPoison = !state.witchPoisonUsed;
-        if (ctx.settings.witchSeesVictim) {
-          const wolfVictim = state.nightPendingDeaths.find((d) => d.reason === "wolf");
-          privateData.victimId = wolfVictim?.playerId;
-        }
+        privateData.victimId = state.wolfVictimId;
+        privateData.witchActionDone = state.witchActionDone;
       }
 
+      // Hunter Revenge View
+      if (state.phase === "HUNTER_REVENGE" && player.playerId === state.hunterShooterId) {
+        allowedActions.push("HUNTER_SHOOT");
+      }
+
+      // Day Vote View
       if (state.phase === "DAY_VOTE") {
         allowedActions.push("DAY_VOTE");
         privateData.myVote = state.dayVotes[playerId];
@@ -559,8 +770,9 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
 
 function resolveNightToDay(
   state: DibState,
-  pendingDeaths: Array<{ playerId: string; reason: "wolf" | "witch" }>,
-  settings: DibSettings
+  pendingDeaths: Array<{ playerId: string; reason: "wolf" | "witch" | "hunter" }>,
+  wolfVictimId?: string,
+  savedPlayerId?: string
 ): TransitionResult<DibState> {
   const nextPlayerStates = { ...state.playerStates };
   pendingDeaths.forEach((d) => {
@@ -574,6 +786,12 @@ function resolveNightToDay(
     }
   });
 
+  const nightSummary: DibNightSummary = {
+    deaths: pendingDeaths,
+    wolfVictimId,
+    savedPlayerId,
+  };
+
   const win = evaluateWinCondition(nextPlayerStates);
   if (win) {
     return {
@@ -582,6 +800,7 @@ function resolveNightToDay(
         ...state,
         playerStates: nextPlayerStates,
         phase: "GAME_OVER",
+        nightSummary,
         winner: win,
       },
       newPhase: "GAME_OVER",
@@ -594,7 +813,8 @@ function resolveNightToDay(
       ...state,
       playerStates: nextPlayerStates,
       phase: "DAY_ANNOUNCEMENT",
-      narrationKey: "المدينة فاقت! شوفو شكون توفى هاد الليلة ☀️",
+      nightSummary,
+      narrationKey: "الصباح طلع والقرية كتفيق ☀️ ... شوفو شكون توفى هاد الليلة!",
     },
     newPhase: "DAY_ANNOUNCEMENT",
     timerDurationMs: 15000,

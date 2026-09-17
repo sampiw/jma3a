@@ -108,6 +108,15 @@ export interface PublicRoomView {
   gameView?: PublicGameView;
 }
 
+export interface DevicePlayerInfo {
+  id: string;
+  nickname: string;
+  isHost: boolean;
+  avatarSeed: string;
+  isAlive?: boolean;
+  privateView?: PrivatePlayerGameView;
+}
+
 export interface AuthorizedGameState {
   room: PublicRoomView;
   player?: {
@@ -117,6 +126,7 @@ export interface AuthorizedGameState {
     avatarSeed: string;
   };
   privateView?: PrivatePlayerGameView;
+  devicePlayers?: DevicePlayerInfo[];
   passThePhone?: {
     currentPlayerId: string;
     currentPlayerNickname: string;

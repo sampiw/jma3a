@@ -34,9 +34,15 @@ describe("RoomStore Persistence & DIB Pass Mode", () => {
     const actionRes = await store1.dispatchAction(room.code, token1, { type: "NEXT_PHASE" });
     expect(actionRes.success).toBe(true);
 
-    // 5. Verify phase transitioned to NIGHT_WOLF and passThePhone curtain is cleared
-    const updatedState = await store2.getAuthorizedState(room.code, token1);
-    expect(updatedState?.room.gameView?.publicData.phase).toBe("NIGHT_WOLF");
-    expect(updatedState?.passThePhone).toBeUndefined();
+    // 5. Verify phase transitioned to NIGHT_SEER (Seer wakes up first in classic Loup-Garou)
+    const seerState = await store2.getAuthorizedState(room.code, token1);
+    expect(seerState?.room.gameView?.publicData.phase).toBe("NIGHT_SEER");
+    expect(seerState?.passThePhone).toBeUndefined();
+
+    // 6. Advance from Seer to Wolves
+    const seerDoneRes = await store1.dispatchAction(room.code, token1, { type: "NEXT_PHASE" });
+    expect(seerDoneRes.success).toBe(true);
+    const wolfState = await store2.getAuthorizedState(room.code, token1);
+    expect(wolfState?.room.gameView?.publicData.phase).toBe("NIGHT_WOLF");
   }, 25000);
 });
