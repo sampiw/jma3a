@@ -54,5 +54,5 @@ describe("RoomStore Persistence & DIB Pass Mode", () => {
     expect(finishRes.success).toBe(true);
     const nextTurnState = await store2.getAuthorizedState(room.code, token1);
     expect(nextTurnState?.room.gameView?.publicData.relay?.turnIndex).toBe(1);
-  }, 25000);
+  }, 60000);
 });

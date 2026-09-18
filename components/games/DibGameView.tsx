@@ -32,6 +32,8 @@ interface DibGameViewProps {
   onAction: (action: any, targetPlayerId?: string) => void;
   players: Array<{ id: string; nickname: string; isAlive?: boolean; avatarSeed?: string }>;
   activePlayerId?: string;
+  devicePlayers?: any[];
+  onSelectPlayer?: (playerId: string) => void;
 }
 
 export function DibGameView({
@@ -42,6 +44,8 @@ export function DibGameView({
   onAction,
   players,
   activePlayerId,
+  devicePlayers,
+  onSelectPlayer,
 }: DibGameViewProps) {
   const [selectedTarget, setSelectedTarget] = useState<string>("");
   const [witchHealToggle, setWitchHealToggle] = useState<boolean>(false);
@@ -97,7 +101,9 @@ export function DibGameView({
   // 1. PHASE: ROLE_REVEAL
   // -----------------------------------------------------------------
   if (currentPhase === "ROLE_REVEAL") {
-    const roleKey = myRole || "villager";
+    const currentDevicePlayer = devicePlayers?.find((p) => p.id === activePlayerId);
+    const roleKey = currentDevicePlayer?.privateView?.myRole || myRole || "villager";
+    const curPrivateData = currentDevicePlayer?.privateView?.privateData || privateData;
     return (
       <div className="flex flex-col items-center justify-center max-w-sm mx-auto p-4 text-center animate-fade-in">
         <span className="text-xs font-semibold px-3 py-1 rounded-full bg-jma3a-surface text-jma3a-gold border border-jma3a-border mb-4">
@@ -134,11 +140,11 @@ export function DibGameView({
               <p className="text-xs text-jma3a-sand/90 leading-relaxed mb-3">
                 {roleDescriptions[roleKey]}
               </p>
-              {roleKey === "wolf" && privateData?.packMembers && (
+              {roleKey === "wolf" && curPrivateData?.packMembers && (
                 <div className="mt-2 w-full p-2.5 rounded-xl bg-black/50 border border-rose-500/40 text-xs text-rose-300">
                   <span className="font-bold block mb-1">عصابة الذيابة 🐺:</span>
                   <div className="flex flex-wrap gap-1 justify-center">
-                    {privateData.packMembers.map((id: string) => {
+                    {curPrivateData.packMembers.map((id: string) => {
                       const p = players.find((x) => x.id === id);
                       return (
                         <span key={id} className="px-2 py-0.5 rounded bg-rose-950/80 border border-rose-600/30">
@@ -246,6 +252,7 @@ export function DibGameView({
           <button
             onClick={() => {
               sound.playCardFlip();
+              onSelectPlayer?.(turnPlayerId);
               relayDispatch({ type: "RELAY_UNLOCK" });
             }}
             className="w-full py-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 text-white font-black text-base shadow-xl shadow-indigo-900/40 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
@@ -258,7 +265,15 @@ export function DibGameView({
     }
 
     // PRIVACY UNLOCKED - PRIVATE TURN
-    const roleKey = myRole || "villager";
+    const turnDevicePlayer = devicePlayers?.find((p) => p.id === turnPlayerId);
+    const roleKey =
+      turnDevicePlayer?.privateView?.myRole ||
+      (turnPlayerId === activePlayerId ? myRole : undefined) ||
+      "villager";
+    const turnPrivateData =
+      turnDevicePlayer?.privateView?.privateData ||
+      (turnPlayerId === activePlayerId ? privateData : undefined) ||
+      {};
 
     return (
       <div className="flex flex-col items-center justify-center max-w-md mx-auto p-4 text-center animate-fade-in">
@@ -283,14 +298,14 @@ export function DibGameView({
                   <h3 className="text-base font-bold text-indigo-300">أنتِ هي الشوافة 🔮 - كشفي سر لاعب:</h3>
                 </div>
 
-                {privateData?.seerCurrentInspection ? (
+                {turnPrivateData?.seerCurrentInspection ? (
                   <div className="p-4 rounded-xl bg-indigo-950/80 border border-indigo-400 text-center my-3 animate-fade-in">
                     <span className="text-xs text-indigo-300 block mb-1">نتيجة كشفك لهاد الليلة:</span>
                     <p className="text-lg font-bold text-jma3a-sand">
-                      {players.find((p) => p.id === privateData.seerCurrentInspection.targetId)?.nickname}
+                      {players.find((p) => p.id === turnPrivateData.seerCurrentInspection.targetId)?.nickname}
                     </p>
                     <div className="mt-2 text-xl font-black">
-                      {privateData.seerCurrentInspection.alignment === "WOLF" ? (
+                      {turnPrivateData.seerCurrentInspection.alignment === "WOLF" ? (
                         <span className="text-rose-400 flex items-center justify-center gap-1">
                           <span>ذيب متنكر! 🐺🚨</span>
                         </span>
@@ -328,11 +343,11 @@ export function DibGameView({
                   <h3 className="text-base font-bold text-rose-400">أنت ذيب 🐺 - صوت على ضحية الليلة:</h3>
                 </div>
 
-                {privateData?.packMembers && (
+                {turnPrivateData?.packMembers && (
                   <div className="mb-3 p-2 rounded-xl bg-black/40 border border-rose-500/20 text-xs text-rose-300">
                     <span className="font-bold block mb-1">عصابة الذيابة 🐺:</span>
                     <div className="flex flex-wrap gap-1">
-                      {privateData.packMembers.map((id: string) => (
+                      {turnPrivateData.packMembers.map((id: string) => (
                         <span key={id} className="px-2 py-0.5 rounded bg-rose-950 border border-rose-800 text-[11px]">
                           {players.find((x) => x.id === id)?.nickname || id}
                         </span>
@@ -341,11 +356,40 @@ export function DibGameView({
                   </div>
                 )}
 
+                {/* Wolf Coordination Banner: What previous wolves voted for! */}
+                {turnPrivateData?.currentWolfVotes && Object.keys(turnPrivateData.currentWolfVotes).length > 0 && (
+                  <div className="mb-3 p-3 rounded-xl bg-rose-950/80 border border-rose-500/50 text-right animate-fade-in shadow-inner">
+                    <span className="text-xs font-bold text-rose-300 block mb-1.5 flex items-center gap-1.5">
+                      <DibWolfIcon className="w-4 h-4 text-rose-400" />
+                      <span>تشاور عصابة الذيابة 🐺:</span>
+                    </span>
+                    <div className="space-y-1.5">
+                      {Object.entries(turnPrivateData.currentWolfVotes).map(([wId, targetId]) => {
+                        const wolfPlayer = players.find((x) => x.id === wId);
+                        const targetPlayer = players.find((x) => x.id === targetId);
+                        return (
+                          <div key={wId} className="text-xs text-rose-200 flex justify-between items-center bg-black/50 px-2.5 py-1.5 rounded-lg border border-rose-900/50">
+                            <span>الذيب <strong>{wolfPlayer?.nickname || wId}</strong> صوت على:</span>
+                            <strong className="text-rose-400 text-sm">{targetPlayer?.nickname || (targetId as string)} 🎯</strong>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-rose-300/80 mt-2 leading-snug">
+                      💡 تافق مع خوتك الذيابة باش الضحية تكون بأغلبية الأصوات وما يوقعش تعادل!
+                    </p>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-2 mb-3">
                   {alivePlayers
-                    .filter((p) => !privateData?.packMembers?.includes(p.id))
+                    .filter((p) => !turnPrivateData?.packMembers?.includes(p.id))
                     .map((p) => {
-                      const isSelected = selectedTarget === p.id || privateData?.myWolfVote === p.id;
+                      const isSelected = selectedTarget === p.id || turnPrivateData?.myWolfVote === p.id;
+                      const votersForThis = Object.entries(turnPrivateData?.currentWolfVotes || {})
+                        .filter(([, vId]) => vId === p.id)
+                        .map(([wId]) => players.find((x) => x.id === wId)?.nickname || "ذيب");
+
                       return (
                         <button
                           key={p.id}
@@ -354,20 +398,29 @@ export function DibGameView({
                             sound.playCardFlip();
                             relayDispatch({ type: "WOLF_VOTE", targetPlayerId: p.id });
                           }}
-                          className={`p-3 rounded-xl border text-sm font-semibold transition-all ${
+                          className={`p-3 rounded-xl border text-sm font-semibold transition-all relative ${
                             isSelected
-                              ? "bg-rose-600 text-white border-rose-400 shadow-md"
+                              ? "bg-rose-600 text-white border-rose-400 shadow-md shadow-rose-900/40"
                               : "bg-jma3a-surface text-jma3a-sand border-jma3a-border hover:border-rose-400"
                           }`}
                         >
-                          {p.nickname}
+                          <div>{p.nickname}</div>
+                          {votersForThis.length > 0 && (
+                            <div className="text-[10px] text-rose-200 mt-1 flex flex-wrap gap-1 justify-center">
+                              {votersForThis.map((name, i) => (
+                                <span key={i} className="px-1.5 py-0.5 bg-black/60 border border-rose-400/40 rounded text-[10px]">
+                                  {name} 🐺
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </button>
                       );
                     })}
                 </div>
-                {privateData?.myWolfVote && (
+                {turnPrivateData?.myWolfVote && (
                   <p className="text-xs text-center text-rose-400 font-bold mb-2">
-                    تم تسجيل تصويتك لـ: {players.find((p) => p.id === privateData.myWolfVote)?.nickname}
+                    تم تسجيل تصويتك لـ: {players.find((p) => p.id === turnPrivateData.myWolfVote)?.nickname}
                   </p>
                 )}
               </div>
@@ -419,10 +472,10 @@ export function DibGameView({
                 {/* Wolf attack disclosure */}
                 <div className="p-3 rounded-xl bg-black/40 border border-emerald-500/30 mb-4 text-center">
                   <span className="text-xs text-emerald-300 block mb-1">نتيجة هجوم الذيابة:</span>
-                  {privateData?.wolfAttack?.status === "TARGETED" ? (
+                  {turnPrivateData?.wolfAttack?.status === "TARGETED" ? (
                     <p className="text-base font-bold text-rose-400 flex items-center justify-center gap-1.5">
                       <Skull className="w-4 h-4 text-rose-500" />
-                      <span>{privateData.wolfAttack.victim.nickname} معرض للموت!</span>
+                      <span>{turnPrivateData.wolfAttack.victim.nickname} معرض للموت!</span>
                     </p>
                   ) : (
                     <p className="text-xs text-emerald-300 font-semibold">
@@ -434,12 +487,12 @@ export function DibGameView({
                 {/* Potions controls */}
                 <div className="space-y-3 mb-4">
                   {/* Heal potion */}
-                  {privateData?.witchHealAvailable ? (
+                  {turnPrivateData?.witchHealAvailable ? (
                     <button
                       onClick={() => setWitchHealToggle(!witchHealToggle)}
-                      disabled={privateData?.wolfAttack?.status !== "TARGETED"}
+                      disabled={turnPrivateData?.wolfAttack?.status !== "TARGETED"}
                       className={`w-full py-3 px-3.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all ${
-                        privateData?.wolfAttack?.status !== "TARGETED"
+                        turnPrivateData?.wolfAttack?.status !== "TARGETED"
                           ? "opacity-40 border-gray-700 bg-gray-900 text-gray-500 cursor-not-allowed"
                           : witchHealToggle
                           ? "bg-emerald-600 text-white border-emerald-400"
@@ -448,7 +501,7 @@ export function DibGameView({
                     >
                       <span className="flex items-center gap-2">
                         <Heart className="w-4 h-4 text-emerald-400" />
-                        <span>جرعة الحياة: عتق {privateData?.wolfAttack?.status === "TARGETED" ? privateData.wolfAttack.victim.nickname : "الضحية"}</span>
+                        <span>جرعة الحياة: عتق {turnPrivateData?.wolfAttack?.status === "TARGETED" ? turnPrivateData.wolfAttack.victim.nickname : "الضحية"}</span>
                       </span>
                       <span>{witchHealToggle ? "مفعلة ✅" : "صالحة مرة 1"}</span>
                     </button>
@@ -459,7 +512,7 @@ export function DibGameView({
                   )}
 
                   {/* Poison potion */}
-                  {privateData?.witchPoisonAvailable ? (
+                  {turnPrivateData?.witchPoisonAvailable ? (
                     <div>
                       <button
                         onClick={() => setShowPoisonGrid(!showPoisonGrid)}
@@ -508,7 +561,7 @@ export function DibGameView({
                   )}
 
                   {/* Submit potion decisions */}
-                  {!privateData?.witchActionDone && (
+                  {!turnPrivateData?.witchActionDone && (
                     <button
                       onClick={() => {
                         sound.playCardFlip();
@@ -524,7 +577,7 @@ export function DibGameView({
                     </button>
                   )}
 
-                  {privateData?.witchActionDone && (
+                  {turnPrivateData?.witchActionDone && (
                     <div className="text-center text-xs text-emerald-400 font-bold flex items-center justify-center gap-1">
                       <CheckCircle className="w-4 h-4" />
                       <span>تم تسجيل قراراتك بنجاح لهاته الليلة!</span>
@@ -1058,6 +1111,174 @@ export function DibGameView({
   // -----------------------------------------------------------------
   const isVoting = currentPhase === "DAY_VOTE";
   const isRunoff = currentPhase === "RUNOFF";
+  const votingRelay = publicData?.relay || privateData?.relay;
+
+  // -----------------------------------------------------------------
+  // 7.5. ONE-PHONE DAYTIME VOTING RELAY (DAY_VOTE & RUNOFF)
+  // -----------------------------------------------------------------
+  if ((isVoting || isRunoff) && votingRelay) {
+    const isUnlocked = Boolean(votingRelay.privacyUnlocked);
+    const turnPlayerId = votingRelay.currentTurnPlayerId || activePlayerId;
+    const turnNickname =
+      votingRelay.currentTurnNickname ||
+      players.find((p) => p.id === turnPlayerId)?.nickname ||
+      "اللاعب التالي";
+    const turnIndex = (votingRelay.turnIndex ?? 0) + 1;
+    const totalTurns = votingRelay.totalTurns ?? alivePlayers.length;
+
+    const relayDispatch = (action: any) => {
+      onAction(action, turnPlayerId);
+    };
+
+    const turnDevicePlayer = devicePlayers?.find((p) => p.id === turnPlayerId);
+    const turnPrivateData =
+      turnDevicePlayer?.privateView?.privateData ||
+      (turnPlayerId === activePlayerId ? privateData : undefined) ||
+      {};
+
+    const candidateList = isRunoff
+      ? alivePlayers.filter((p) => publicData.runoffCandidates?.includes(p.id))
+      : alivePlayers;
+
+    const currentVote = isRunoff ? turnPrivateData?.myRunoffVote : turnPrivateData?.myVote;
+
+    if (!isUnlocked) {
+      // ONE-PHONE DAY VOTING PRIVACY CURTAIN
+      return (
+        <div className="flex flex-col items-center justify-center max-w-md mx-auto p-6 text-center animate-fade-in">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 font-bold mb-4">
+            <Users className="w-3.5 h-3.5 text-amber-400" />
+            <span>نظام التصويت السري (One-Phone Voting Relay)</span>
+          </div>
+
+          <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/40 flex items-center justify-center mb-4 shadow-2xl">
+            <Lock className="w-10 h-10 text-amber-400 animate-pulse" />
+          </div>
+
+          <span className="text-xs text-jma3a-muted uppercase tracking-wider mb-1">
+            الدور {turnIndex} من أصل {totalTurns} &bull; {isRunoff ? "تصويت جولة الحسم ⚖️" : "تصويت الإعدام 🗳️"}
+          </span>
+
+          <h2 className="text-xl font-bold text-jma3a-sand mb-2">
+            دوز التلفون فصمت لـ:
+          </h2>
+
+          <div className="my-4 py-4 px-6 rounded-2xl bg-gradient-to-r from-jma3a-surface via-amber-950/40 to-jma3a-surface border border-amber-500/30 shadow-inner">
+            <span className="text-3xl font-black text-jma3a-gold tracking-wide">
+              {turnNickname}
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-black/40 border border-amber-500/30 text-xs text-amber-200/90 leading-relaxed mb-6">
+            <span className="font-bold block mb-1">⚠️ سرية التصويت أمانة:</span>
+            ما تخلي حتى حد يشوف شاشتك، صوت فسرية تامة ودوز التلفون للاعب الموالي فصمت!
+          </div>
+
+          <button
+            onClick={() => {
+              sound.playCardFlip();
+              onSelectPlayer?.(turnPlayerId);
+              relayDispatch({ type: "RELAY_UNLOCK" });
+            }}
+            className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-600 via-jma3a-gold to-yellow-600 text-jma3a-dark font-black text-base shadow-xl shadow-amber-900/40 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
+          >
+            <Unlock className="w-5 h-5 text-jma3a-dark" />
+            <span>أنا هو {turnNickname} - فتح تصويتي السري 🗳️</span>
+          </button>
+        </div>
+      );
+    }
+
+    // PRIVACY UNLOCKED - SECRET BALLOT
+    return (
+      <div className="flex flex-col items-center max-w-md mx-auto p-4 text-center animate-fade-in">
+        <div className="w-full flex items-center justify-between mb-4 px-2">
+          <span className="text-xs px-2.5 py-1 rounded-full bg-amber-950/80 border border-amber-500/40 text-amber-300 font-bold flex items-center gap-1.5">
+            <Unlock className="w-3.5 h-3.5 text-emerald-400" />
+            <span>شاشة تصويت خاصة بـ: {turnNickname}</span>
+          </span>
+          <span className="text-xs text-jma3a-muted">
+            الدور {turnIndex} من {totalTurns}
+          </span>
+        </div>
+
+        <div className="w-full p-4 rounded-2xl bg-jma3a-card border border-jma3a-border mb-4 text-right shadow-xl">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-sm font-bold text-jma3a-sand flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-jma3a-gold" />
+              <span>صوت على شكون كتشك فيه:</span>
+            </h3>
+            <span className="text-xs text-amber-400 font-semibold">
+              سري 100% 🔒
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            {candidateList.map((p) => {
+              const isSelected = selectedTarget === p.id || currentVote === p.id;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    setSelectedTarget(p.id);
+                    sound.playCardFlip();
+                    relayDispatch({
+                      type: isRunoff ? "RUNOFF_VOTE" : "DAY_VOTE",
+                      targetPlayerId: p.id,
+                    });
+                  }}
+                  className={`p-3.5 rounded-xl border text-sm font-semibold transition-all ${
+                    isSelected
+                      ? "bg-jma3a-gold text-jma3a-dark border-jma3a-gold font-bold shadow-md shadow-jma3a-gold/30"
+                      : "bg-jma3a-surface text-jma3a-sand border-jma3a-border hover:border-jma3a-gold"
+                  }`}
+                >
+                  {p.nickname}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Abstain button */}
+          <button
+            onClick={() => {
+              setSelectedTarget("ABSTAIN");
+              sound.playCardFlip();
+              relayDispatch({
+                type: isRunoff ? "RUNOFF_VOTE" : "DAY_VOTE",
+                targetPlayerId: "ABSTAIN",
+              });
+            }}
+            className={`w-full py-2.5 rounded-xl border text-xs font-bold text-center transition-all ${
+              selectedTarget === "ABSTAIN" || currentVote === "ABSTAIN"
+                ? "bg-gray-700 text-white border-gray-400 font-bold"
+                : "bg-jma3a-surface/60 text-jma3a-muted border-jma3a-border hover:text-white"
+            }`}
+          >
+            امتناع عن التصويت (Abstain)
+          </button>
+
+          {(selectedTarget || currentVote) && (
+            <p className="text-xs text-center text-emerald-400 font-bold mt-2">
+              تم تحديد صوتك: {selectedTarget === "ABSTAIN" || currentVote === "ABSTAIN" ? "امتناع" : players.find((p) => p.id === (selectedTarget || currentVote))?.nickname} ✅
+            </p>
+          )}
+        </div>
+
+        {/* FINISH & PASS CTA */}
+        <button
+          onClick={() => {
+            sound.playCardFlip();
+            setSelectedTarget("");
+            relayDispatch({ type: "RELAY_FINISH_TURN" });
+          }}
+          className="w-full py-4 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold text-sm shadow-xl shadow-jma3a-terracotta/30 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
+        >
+          <span>تأكيد التصويت ودوز التلفون فصمت ➡️</span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center max-w-md mx-auto p-4 text-center animate-fade-in">

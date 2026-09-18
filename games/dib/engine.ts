@@ -575,6 +575,14 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
           return { success: false, newState: state, newPhase: state.phase, error: "ليس دورك في التتابع" };
         }
 
+        let nextDayVotes = state.dayVotes;
+        let nextRunoffVotes = state.runoffVotes;
+        if (state.phase === "DAY_VOTE" && !nextDayVotes[actorPlayerId]) {
+          nextDayVotes = { ...nextDayVotes, [actorPlayerId]: "ABSTAIN" };
+        } else if (state.phase === "RUNOFF" && (!nextRunoffVotes || !nextRunoffVotes[actorPlayerId])) {
+          nextRunoffVotes = { ...(nextRunoffVotes || {}), [actorPlayerId]: "ABSTAIN" };
+        }
+
         const nextIndex = state.relayState.currentIndex + 1;
         const total = state.relayState.queue.length;
 
@@ -583,6 +591,8 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
             success: true,
             newState: {
               ...state,
+              dayVotes: nextDayVotes,
+              runoffVotes: nextRunoffVotes,
               relayState: {
                 ...state.relayState,
                 currentIndex: nextIndex,
@@ -596,6 +606,19 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
         }
 
         // Current pass is finished!
+        if (state.phase === "DAY_VOTE" || state.phase === "RUNOFF") {
+          // All living players have privately cast their votes on the shared phone!
+          return advancePhase(
+            {
+              ...state,
+              dayVotes: nextDayVotes,
+              runoffVotes: nextRunoffVotes,
+              relayState: undefined,
+            },
+            settings
+          );
+        }
+
         if (state.relayState.pass === "PRIMARY") {
           // Pass A complete -> resolve wolf ballots
           const pendingWolfVictimId = resolveWolfPlurality(state.wolfVotes, state.playerStates);
@@ -940,14 +963,25 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
     }
 
     // -----------------------------------------------------------------
-    // WOLVES PROJECTION (ONLY LIVING WOLVES SEE PACK MEMBERS)
+    // WOLVES PROJECTION (ONLY LIVING WOLVES SEE PACK MEMBERS & BALLOTS)
     // -----------------------------------------------------------------
     if (player.role === "wolf" && player.isAlive) {
       privateData.packMembers = Object.values(state.playerStates)
         .filter((p) => p.role === "wolf" && p.isAlive)
         .map((p) => p.playerId);
-      if (state.phase === "NIGHT_WOLVES") {
+
+      const isWolfTurn =
+        state.phase === "NIGHT_WOLVES" ||
+        (state.phase === "NIGHT_RELAY_PRIMARY" &&
+          state.relayState?.queue[state.relayState.currentIndex] === playerId);
+
+      if (isWolfTurn) {
         allowedActions.push("WOLF_VOTE");
+      }
+
+      // Both in multi-phone NIGHT_WOLVES and one-phone NIGHT_RELAY_PRIMARY:
+      // Wolves can see the current votes cast by pack members!
+      if (state.phase === "NIGHT_WOLVES" || state.phase === "NIGHT_RELAY_PRIMARY") {
         privateData.currentWolfVotes = state.wolfVotes;
         privateData.myWolfVote = state.wolfVotes[playerId];
       }
@@ -987,16 +1021,20 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
           allowedActions.push("RELAY_UNLOCK");
         } else {
           allowedActions.push("RELAY_FINISH_TURN");
-          if (state.relayState.pass === "PRIMARY") {
+          if (state.phase === "NIGHT_RELAY_PRIMARY" && state.relayState.pass === "PRIMARY") {
             if (player.role === "wolf" && player.isAlive) {
               allowedActions.push("WOLF_VOTE");
             } else if (player.role === "seer" && player.isAlive && !state.seerCurrentInspection) {
               allowedActions.push("SEER_INSPECT");
             }
-          } else if (state.relayState.pass === "WITCH") {
+          } else if (state.phase === "NIGHT_RELAY_WITCH" && state.relayState.pass === "WITCH") {
             if (player.role === "witch" && player.isAlive && !state.witchActionDone) {
               allowedActions.push("WITCH_ACTION");
             }
+          } else if (state.phase === "DAY_VOTE" && player.isAlive) {
+            allowedActions.push("DAY_VOTE");
+          } else if (state.phase === "RUNOFF" && player.isAlive) {
+            allowedActions.push("RUNOFF_VOTE");
           }
         }
       }
@@ -1318,6 +1356,9 @@ function advancePhase(state: DibState, settings: DibSettings): TransitionResult<
     // 7. DISCUSSION -> DAY_VOTE
     // ---------------------------------------------------------------
     case "DISCUSSION": {
+      const isOnePhone = settings.interactionMode === "ONE_PHONE";
+      const queue = isOnePhone ? buildSeatingRelayQueue(state.playerStates) : undefined;
+
       return {
         success: true,
         newState: {
@@ -1325,6 +1366,15 @@ function advancePhase(state: DibState, settings: DibSettings): TransitionResult<
           phase: "DAY_VOTE",
           dayVotes: {},
           narrationKey: "dib.dayVote",
+          relayState: queue
+            ? {
+                pass: "PRIMARY",
+                queue,
+                currentIndex: 0,
+                turnStartedAt: Date.now(),
+                privacyUnlocked: false,
+              }
+            : undefined,
           eventSequence: nextSeq,
         },
         newPhase: "DAY_VOTE",
@@ -1387,6 +1437,9 @@ function advancePhase(state: DibState, settings: DibSettings): TransitionResult<
       // If tie for top candidate
       if (topCandidates.length > 1 && topCount > 0) {
         if (settings.dayTieRule === "RUNOFF") {
+          const isOnePhone = settings.interactionMode === "ONE_PHONE";
+          const queue = isOnePhone ? buildSeatingRelayQueue(state.playerStates) : undefined;
+
           return {
             success: true,
             newState: {
@@ -1395,6 +1448,15 @@ function advancePhase(state: DibState, settings: DibSettings): TransitionResult<
               runoffCandidates: topCandidates,
               runoffVotes: {},
               narrationKey: "dib.runoff",
+              relayState: queue
+                ? {
+                    pass: "PRIMARY",
+                    queue,
+                    currentIndex: 0,
+                    turnStartedAt: Date.now(),
+                    privacyUnlocked: false,
+                  }
+                : undefined,
               eventSequence: nextSeq,
             },
             newPhase: "RUNOFF",

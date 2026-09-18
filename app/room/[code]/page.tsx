@@ -119,16 +119,43 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     };
   }, [roomCode, fetchState]);
 
-  // Sync active local player ID when devicePlayers are loaded or changed
+  // Auto-sync active local player ID when passing phone (Relay turn or Pass-The-Phone curtain)
   useEffect(() => {
-    if (gameState?.devicePlayers && gameState.devicePlayers.length > 0) {
-      if (!activeLocalPlayerId || !gameState.devicePlayers.some((p) => p.id === activeLocalPlayerId)) {
-        setActiveLocalPlayerId(gameState.devicePlayers[0].id);
+    const devPlayers = gameState?.devicePlayers || (gameState?.player ? [gameState.player] : []);
+
+    // 1. Check DIB One-Phone relay turn
+    const relayTurnId = (gameState?.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId;
+    if (relayTurnId && devPlayers.some((p) => p.id === relayTurnId)) {
+      if (activeLocalPlayerId !== relayTurnId) {
+        setActiveLocalPlayerId(relayTurnId);
+      }
+      return;
+    }
+
+    // 2. Check passThePhone turn (e.g. ROLE_REVEAL)
+    const passPlayerId = gameState?.passThePhone?.currentPlayerId;
+    if (passPlayerId && devPlayers.some((p) => p.id === passPlayerId)) {
+      if (activeLocalPlayerId !== passPlayerId) {
+        setActiveLocalPlayerId(passPlayerId);
+      }
+      return;
+    }
+
+    // 3. Fallback: ensure activeLocalPlayerId is valid
+    if (devPlayers.length > 0) {
+      if (!activeLocalPlayerId || !devPlayers.some((p) => p.id === activeLocalPlayerId)) {
+        setActiveLocalPlayerId(devPlayers[0].id);
       }
     } else if (gameState?.player && !activeLocalPlayerId) {
       setActiveLocalPlayerId(gameState.player.id);
     }
-  }, [gameState, activeLocalPlayerId]);
+  }, [
+    (gameState?.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId,
+    gameState?.passThePhone?.currentPlayerId,
+    gameState?.devicePlayers,
+    gameState?.player,
+    activeLocalPlayerId,
+  ]);
 
   // Sync custom roles initial state with room settings or player count
   useEffect(() => {
@@ -295,7 +322,26 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const myDevicePlayers: DevicePlayerInfo[] =
     gameState.devicePlayers ||
     (player ? [{ ...player, privateView: gameState.privateView }] : []);
-  const activeLocalPlayer = myDevicePlayers.find((p) => p.id === activeLocalPlayerId) || myDevicePlayers[0];
+
+  // In One-Phone mode (relay or passThePhone), automatically focus the player whose turn it is
+  const relayTurnPlayerId = (gameState.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId;
+  const passCurtainPlayerId = gameState.passThePhone?.currentPlayerId;
+  const activeTurnPlayerId =
+    (relayTurnPlayerId && myDevicePlayers.some((p) => p.id === relayTurnPlayerId))
+      ? relayTurnPlayerId
+      : (passCurtainPlayerId && myDevicePlayers.some((p) => p.id === passCurtainPlayerId))
+      ? passCurtainPlayerId
+      : null;
+
+  const currentActivePlayerId =
+    (isOnePhone && activeTurnPlayerId)
+      ? activeTurnPlayerId
+      : (activeLocalPlayerId && myDevicePlayers.some((p) => p.id === activeLocalPlayerId)
+          ? activeLocalPlayerId
+          : myDevicePlayers[0]?.id);
+
+  const activeLocalPlayer =
+    myDevicePlayers.find((p) => p.id === currentActivePlayerId) || myDevicePlayers[0];
   const activePlayerView = activeLocalPlayer?.privateView || gameState.privateView;
 
   return (
@@ -359,7 +405,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             </div>
             <div className="flex items-center gap-1.5 overflow-x-auto max-w-full">
               {myDevicePlayers.map((dp) => {
-                const isActive = (activeLocalPlayer?.id || activeLocalPlayerId) === dp.id;
+                const isActive = dp.id === currentActivePlayerId;
                 return (
                   <button
                     key={dp.id}
@@ -520,8 +566,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             {isOnePhone && passThePhone && (
               <PassThePhoneCurtain
                 currentPlayerNickname={passThePhone.currentPlayerNickname}
+                currentPlayerId={passThePhone.currentPlayerId}
                 isRevealed={passThePhone.isRevealed}
                 onStep={handlePassStep}
+                onSelectPlayer={setActiveLocalPlayerId}
               >
                 {renderActiveGameView(
                   room.selectedGameId,
@@ -532,7 +580,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   isHost,
                   handleGameAction,
                   room.players,
-                  activeLocalPlayer?.id
+                  activeLocalPlayer?.id,
+                  myDevicePlayers,
+                  setActiveLocalPlayerId
                 )}
               </PassThePhoneCurtain>
             )}
@@ -548,7 +598,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 isHost,
                 handleGameAction,
                 room.players,
-                activeLocalPlayer?.id
+                activeLocalPlayer?.id,
+                myDevicePlayers,
+                setActiveLocalPlayerId
               )}
           </div>
         )}
@@ -829,7 +881,9 @@ function renderActiveGameView(
   isHost: boolean,
   onAction: (action: any, targetPlayerId?: string) => void,
   players: any[],
-  activePlayerId?: string
+  activePlayerId?: string,
+  devicePlayers?: DevicePlayerInfo[],
+  onSelectPlayer?: (playerId: string) => void
 ) {
   switch (gameId) {
     case "dib":
@@ -842,6 +896,8 @@ function renderActiveGameView(
           onAction={onAction}
           players={players}
           activePlayerId={activePlayerId}
+          devicePlayers={devicePlayers}
+          onSelectPlayer={onSelectPlayer}
         />
       );
     case "intrus":

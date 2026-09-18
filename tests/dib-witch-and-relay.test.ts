@@ -573,4 +573,119 @@ describe("DIB: Classic Rules Configuration", () => {
     expect(tieAdvanceB.newPhase).toBe("RUNOFF");
     expect(tieAdvanceB.newState.runoffCandidates).toEqual(expect.arrayContaining(["p_2", "p_3"]));
   });
+
+  it("Test 11: One-Phone Night Relay: wolf 2 sees wolf 1's vote in currentWolfVotes to coordinate kill", () => {
+    const players8 = makePlayers(8);
+    const roleMap8: Record<string, "villager" | "wolf" | "seer" | "witch" | "hunter"> = {
+      p_1: "wolf",
+      p_2: "wolf",
+      p_3: "seer",
+      p_4: "witch",
+      p_5: "hunter",
+      p_6: "villager",
+      p_7: "villager",
+      p_8: "villager",
+    };
+    const state = makeControlledState(players8, roleMap8);
+    state.phase = "NIGHT_INTRO";
+    const ctx = {
+      roomId: "ROOM_TEST",
+      players: players8,
+      state,
+      settings: { ...DibEngine.defaultSettings, interactionMode: "ONE_PHONE" as const },
+      round: 1,
+      phase: state.phase,
+      stateVersion: 1,
+    };
+
+    // 1. Advance to Pass A (NIGHT_RELAY_PRIMARY)
+    const toPassA = dispatch(ctx, "p_1", { type: "NEXT_PHASE" });
+    expect(toPassA.newPhase).toBe("NIGHT_RELAY_PRIMARY");
+    expect(ctx.state.relayState?.queue).toEqual(["p_1", "p_2", "p_3", "p_4", "p_5", "p_6", "p_7", "p_8"]);
+
+    // Turn 1: Wolf 1 (p_1)
+    dispatch(ctx, "p_1", { type: "RELAY_UNLOCK" });
+    const wolf1View = DibEngine.getPlayerView(ctx, "p_1");
+    expect(wolf1View.allowedActions).toContain("WOLF_VOTE");
+    // Wolf 1 votes to kill villager p_6
+    dispatch(ctx, "p_1", { type: "WOLF_VOTE", targetPlayerId: "p_6" });
+    expect(ctx.state.wolfVotes["p_1"]).toBe("p_6");
+    dispatch(ctx, "p_1", { type: "RELAY_FINISH_TURN" });
+
+    // Turn 2: Wolf 2 (p_2)
+    expect(ctx.state.relayState?.currentIndex).toBe(1);
+    expect(ctx.state.relayState?.queue[1]).toBe("p_2");
+
+    // Wolf 2 view BEFORE unlocking
+    const wolf2LockedView = DibEngine.getPlayerView(ctx, "p_2");
+    expect(wolf2LockedView.privateData.relay.privacyUnlocked).toBe(false);
+    expect(wolf2LockedView.privateData.currentWolfVotes).toEqual({ p_1: "p_6" });
+
+    // Wolf 2 unlocks and sees Wolf 1's vote!
+    dispatch(ctx, "p_2", { type: "RELAY_UNLOCK" });
+    const wolf2View = DibEngine.getPlayerView(ctx, "p_2");
+    expect(wolf2View.allowedActions).toContain("WOLF_VOTE");
+    expect(wolf2View.privateData.currentWolfVotes).toEqual({ p_1: "p_6" });
+    expect(wolf2View.privateData.myWolfVote).toBeUndefined();
+
+    // Wolf 2 coordinates with Wolf 1 and votes for p_6 as well!
+    dispatch(ctx, "p_2", { type: "WOLF_VOTE", targetPlayerId: "p_6" });
+    expect(ctx.state.wolfVotes["p_2"]).toBe("p_6");
+    dispatch(ctx, "p_2", { type: "RELAY_FINISH_TURN" });
+  });
+
+  it("Test 12: One-Phone Day Voting Relay: players pass phone, votes are private, and final finish resolves elimination", () => {
+    const players8 = makePlayers(8);
+    const roleMap8: Record<string, "villager" | "wolf" | "seer" | "witch" | "hunter"> = {
+      p_1: "wolf",
+      p_2: "wolf",
+      p_3: "seer",
+      p_4: "witch",
+      p_5: "hunter",
+      p_6: "villager",
+      p_7: "villager",
+      p_8: "villager",
+    };
+    const state = makeControlledState(players8, roleMap8);
+    state.phase = "DISCUSSION";
+    const ctx = {
+      roomId: "ROOM_TEST",
+      players: players8,
+      state,
+      settings: { ...DibEngine.defaultSettings, interactionMode: "ONE_PHONE" as const },
+      round: 1,
+      phase: state.phase,
+      stateVersion: 1,
+    };
+
+    // Transition from DISCUSSION to DAY_VOTE
+    const toDayVote = dispatch(ctx, "p_1", { type: "NEXT_PHASE" });
+    expect(toDayVote.newPhase).toBe("DAY_VOTE");
+    expect(ctx.state.relayState).toBeDefined();
+    expect(ctx.state.relayState?.queue).toEqual(["p_1", "p_2", "p_3", "p_4", "p_5", "p_6", "p_7", "p_8"]);
+
+    const queue = [...ctx.state.relayState!.queue];
+    for (let i = 0; i < queue.length; i++) {
+      const pid = queue[i];
+      // Turn player unlocks
+      dispatch(ctx, pid, { type: "RELAY_UNLOCK" });
+      const pView = DibEngine.getPlayerView(ctx, pid);
+      expect(pView.allowedActions).toContain("DAY_VOTE");
+
+      // Players vote: p_1, p_2, p_3, p_4 vote to execute wolf p_1!
+      if (i < 5) {
+        dispatch(ctx, pid, { type: "DAY_VOTE", targetPlayerId: "p_1" });
+      } else {
+        dispatch(ctx, pid, { type: "DAY_VOTE", targetPlayerId: "p_6" });
+      }
+
+      dispatch(ctx, pid, { type: "RELAY_FINISH_TURN" });
+    }
+
+    // After last player in relay finishes, advancePhase automatically triggered!
+    // Votes counted: 5 votes for p_1 => p_1 is eliminated!
+    expect(ctx.state.phase).toBe("NIGHT_INTRO");
+    expect(ctx.state.playerStates["p_1"].isAlive).toBe(false);
+    expect(ctx.state.lastResolution?.deaths[0]?.playerId).toBe("p_1");
+  });
 });

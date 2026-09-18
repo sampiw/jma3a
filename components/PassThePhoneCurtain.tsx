@@ -6,19 +6,26 @@ import { sound } from "@/lib/sound";
 
 interface PassThePhoneCurtainProps {
   currentPlayerNickname: string;
+  currentPlayerId?: string;
   isRevealed: boolean;
   onStep: () => void;
+  onSelectPlayer?: (playerId: string) => void;
   children: React.ReactNode;
 }
 
 export function PassThePhoneCurtain({
   currentPlayerNickname,
+  currentPlayerId,
   isRevealed,
   onStep,
+  onSelectPlayer,
   children,
 }: PassThePhoneCurtainProps) {
   const handleAction = () => {
     sound.playCardFlip();
+    if (!isRevealed && currentPlayerId && onSelectPlayer) {
+      onSelectPlayer(currentPlayerId);
+    }
     onStep();
   };
 
