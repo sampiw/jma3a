@@ -11,6 +11,7 @@ import { ChkonFinaGameView } from "@/components/games/ChkonFinaGameView";
 import { MettelhaGameView } from "@/components/games/MettelhaGameView";
 import { Mamnou3GameView } from "@/components/games/Mamnou3GameView";
 import { MissionSirriyaGameView } from "@/components/games/MissionSirriyaGameView";
+import { getRecommendedRoleDistribution } from "@/games/dib/engine";
 import { sound } from "@/lib/sound";
 import {
   QrCode,
@@ -142,11 +143,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         });
       } else {
         const count = gameState.room.players.length;
+        const dist = getRecommendedRoleDistribution(count);
         setCustomRoles({
-          wolf: count <= 6 ? 1 : count <= 11 ? 2 : 3,
-          seer: 1,
-          witch: count >= 6 ? 1 : 0,
-          hunter: count >= 7 ? 1 : 0,
+          wolf: dist.wolf,
+          seer: dist.seer,
+          witch: dist.witch,
+          hunter: dist.hunter,
         });
       }
     }
@@ -894,6 +896,7 @@ function renderActiveGameView(
           isHost={isHost}
           onAction={onAction}
           players={players}
+          activePlayerId={activePlayerId}
         />
       );
     default:

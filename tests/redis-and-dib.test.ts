@@ -13,13 +13,15 @@ describe("RoomStore Persistence & DIB Pass Mode", () => {
     await store1.addLocalPlayer(room.code, token1, "Player 2");
     await store1.addLocalPlayer(room.code, token1, "Player 3");
     await store1.addLocalPlayer(room.code, token1, "Player 4");
+    await store1.addLocalPlayer(room.code, token1, "Player 5");
+    await store1.addLocalPlayer(room.code, token1, "Player 6");
 
     // 2. Store2 (simulating a separate Vercel lambda instance)
     const store2 = new RoomStore();
     const retrievedRoom = await store2.getRoom(room.code);
     expect(retrievedRoom).toBeDefined();
     expect(retrievedRoom?.code).toBe(room.code);
-    expect(retrievedRoom?.players.length).toBe(4);
+    expect(retrievedRoom?.players.length).toBe(6);
 
     // 3. Start DIB game
     const startRes = await store1.startGame(room.code, token1);
@@ -30,19 +32,23 @@ describe("RoomStore Persistence & DIB Pass Mode", () => {
     expect(state?.room.gameView?.publicData.phase).toBe("ROLE_REVEAL");
     expect(state?.passThePhone).toBeDefined();
 
-    // 4. Host clicks "الكل شاف دوره؟ بدا الليل 🌙" (NEXT_PHASE)
-    const actionRes = await store1.dispatchAction(room.code, token1, { type: "NEXT_PHASE" });
-    expect(actionRes.success).toBe(true);
+    // 4. Host advances to NIGHT_INTRO (NEXT_PHASE)
+    const introRes = await store1.dispatchAction(room.code, token1, { type: "NEXT_PHASE" });
+    expect(introRes.success).toBe(true);
+    const introState = await store2.getAuthorizedState(room.code, token1);
+    expect(introState?.room.gameView?.publicData.phase).toBe("NIGHT_INTRO");
 
-    // 5. Verify phase transitioned to NIGHT_SEER (Seer wakes up first in classic Loup-Garou)
+    // 5. Host advances to NIGHT_SEER
+    const seerRes = await store1.dispatchAction(room.code, token1, { type: "NEXT_PHASE" });
+    expect(seerRes.success).toBe(true);
     const seerState = await store2.getAuthorizedState(room.code, token1);
     expect(seerState?.room.gameView?.publicData.phase).toBe("NIGHT_SEER");
     expect(seerState?.passThePhone).toBeUndefined();
 
     // 6. Advance from Seer to Wolves
-    const seerDoneRes = await store1.dispatchAction(room.code, token1, { type: "NEXT_PHASE" });
-    expect(seerDoneRes.success).toBe(true);
+    const wolfRes = await store1.dispatchAction(room.code, token1, { type: "NEXT_PHASE" });
+    expect(wolfRes.success).toBe(true);
     const wolfState = await store2.getAuthorizedState(room.code, token1);
-    expect(wolfState?.room.gameView?.publicData.phase).toBe("NIGHT_WOLF");
+    expect(wolfState?.room.gameView?.publicData.phase).toBe("NIGHT_WOLVES");
   }, 25000);
 });

@@ -27,20 +27,21 @@ describe("1. DIB Engine (Werewolf)", () => {
     const dist = getRecommendedRoleDistribution(6);
     expect(dist.wolf).toBe(2);
     expect(dist.seer).toBe(1);
-    expect(dist.witch).toBe(1);
-    expect(dist.villager).toBe(2);
+    expect(dist.witch).toBe(0);
+    expect(dist.hunter).toBe(0);
+    expect(dist.villager).toBe(3);
   });
 
   it("strictly hides other players' roles in playerView during active game", () => {
-    const players = createMockPlayers(5);
+    const players = createMockPlayers(6);
     const state = DibEngine.createInitialState(players, DibEngine.defaultSettings);
     const ctx = {
       roomId: "JM-TEST",
       players,
-      state,
+      state: { ...state, phase: "NIGHT_WOLVES" as const },
       settings: DibEngine.defaultSettings,
       round: 1,
-      phase: "NIGHT_WOLF",
+      phase: "NIGHT_WOLVES",
       stateVersion: 1,
     };
 
@@ -62,10 +63,10 @@ describe("1. DIB Engine (Werewolf)", () => {
     const ctx = {
       roomId: "JM-TEST",
       players,
-      state: { ...state, phase: "NIGHT_WOLF" as const },
+      state: { ...state, phase: "NIGHT_WOLVES" as const },
       settings: DibEngine.defaultSettings,
       round: 1,
-      phase: "NIGHT_WOLF",
+      phase: "NIGHT_WOLVES",
       stateVersion: 1,
     };
 
@@ -188,25 +189,32 @@ describe("5. MAMNOU3 Engine", () => {
 });
 
 describe("6. MISSION SIRRIYA Engine", () => {
-  it("assigns unique secret missions and handles completion claim", () => {
+  it("assigns secret missions and handles ambient claim", () => {
     const players = createMockPlayers(3);
     const state = MissionSirriyaEngine.createInitialState(players, MissionSirriyaEngine.defaultSettings);
 
-    const assignedIds = Object.values(state.playerMissions).map((m) => m.missionId);
-    expect(new Set(assignedIds).size).toBe(3);
+    expect(state.players["player_1"].assignments.length).toBeGreaterThanOrEqual(1);
+    const allAssignments = Object.values(state.players).flatMap((p) => p.assignments);
+    expect(allAssignments.length).toBeGreaterThanOrEqual(3);
 
     const ctx = {
       roomId: "JM-TEST",
       players,
-      state: { ...state, phase: "ACTIVE_MISSIONS" as const },
+      state: { ...state, phase: "ACTIVE" as const },
       settings: MissionSirriyaEngine.defaultSettings,
       round: 1,
-      phase: "ACTIVE_MISSIONS",
+      phase: "ACTIVE",
       stateVersion: 1,
     };
 
-    const claimRes = MissionSirriyaEngine.handleAction(ctx, "player_1", { type: "CLAIM_COMPLETION" });
-    expect(claimRes.newPhase).toBe("CONFIRMATION");
-    expect(claimRes.newState.currentClaimPlayerId).toBe("player_1");
+    const asg = state.players["player_1"].assignments[0];
+    const claimRes = MissionSirriyaEngine.handleAction(ctx, "player_1", {
+      type: "CLAIM_MISSION",
+      assignmentId: asg.assignmentId,
+      targetPlayerId: "player_2",
+    });
+    expect(claimRes.success).toBe(true);
+    expect(claimRes.newState.pendingClaims.length).toBe(1);
+    expect(claimRes.newState.pendingClaims[0].claimantId).toBe("player_1");
   });
 });
