@@ -220,7 +220,7 @@ describe("DIB Production Engine & Edge Cases", () => {
       roomId: "TEST",
       players,
       state,
-      settings: DibEngine.defaultSettings,
+      settings: { ...DibEngine.defaultSettings, dayTieRule: "RUNOFF" as const },
       round: 1,
       phase: state.phase,
       stateVersion: 1,

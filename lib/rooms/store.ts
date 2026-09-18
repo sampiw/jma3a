@@ -491,7 +491,11 @@ export class RoomStore {
       roomId: room.code,
       players: room.players,
       state: session.state,
-      settings: (room.settings.gameSettings as any) || gameDef.defaultSettings,
+      settings: {
+        ...gameDef.defaultSettings,
+        interactionMode: room.settings.interactionMode,
+        ...(room.settings.gameSettings || {}),
+      },
       round: session.round,
       phase: session.phase,
       stateVersion: session.stateVersion,
@@ -585,11 +589,17 @@ export class RoomStore {
     const gameDef = getGameDefinition(room.selectedGameId);
 
     if (session && gameDef) {
+      const mergedGameSettings = {
+        ...gameDef.defaultSettings,
+        interactionMode: room.settings.interactionMode,
+        ...(room.settings.gameSettings || {}),
+      };
+
       const ctx = {
         roomId: room.code,
         players: room.players,
         state: session.state,
-        settings: (room.settings.gameSettings as any) || gameDef.defaultSettings,
+        settings: mergedGameSettings,
         round: session.round,
         phase: session.phase,
         stateVersion: session.stateVersion,
@@ -609,11 +619,16 @@ export class RoomStore {
     const devicePlayers: DevicePlayerInfo[] = myDevicePlayers.map((p) => {
       let pView = undefined;
       if (session && gameDef) {
+        const mergedGameSettings = {
+          ...gameDef.defaultSettings,
+          interactionMode: room.settings.interactionMode,
+          ...(room.settings.gameSettings || {}),
+        };
         const ctx = {
           roomId: room.code,
           players: room.players,
           state: session.state,
-          settings: (room.settings.gameSettings as any) || gameDef.defaultSettings,
+          settings: mergedGameSettings,
           round: session.round,
           phase: session.phase,
           stateVersion: session.stateVersion,

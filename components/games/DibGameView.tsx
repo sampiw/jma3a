@@ -15,8 +15,13 @@ import {
   Heart,
   Crosshair,
   Scale,
+  Lock,
+  Unlock,
+  PhoneOff,
+  ArrowRight,
 } from "lucide-react";
 import { sound } from "@/lib/sound";
+import { narrator } from "@/lib/narrator";
 import confetti from "canvas-confetti";
 
 interface DibGameViewProps {
@@ -74,6 +79,13 @@ export function DibGameView({
       confetti({ particleCount: 100, spread: 80, origin: { y: 0.6 } });
     }
   }, [publicData.winner]);
+
+  // Dawn chime audio cue
+  useEffect(() => {
+    if (publicData.phase === "DAY_ANNOUNCEMENT") {
+      narrator.playCue("day_announcement");
+    }
+  }, [publicData.phase]);
 
   const currentPhase = publicData.phase || (publicData.winner ? "GAME_OVER" : "ROLE_REVEAL");
 
@@ -175,6 +187,383 @@ export function DibGameView({
             متابعة الليل ⏩
           </button>
         )}
+      </div>
+    );
+  }
+
+  // -----------------------------------------------------------------
+  // 2.5. ONE-PHONE PRIVACY RELAY: NIGHT_RELAY_PRIMARY & NIGHT_RELAY_WITCH
+  // -----------------------------------------------------------------
+  if (currentPhase === "NIGHT_RELAY_PRIMARY" || currentPhase === "NIGHT_RELAY_WITCH") {
+    const relay = privateData?.relay || publicData?.relay;
+    const isUnlocked = Boolean(relay?.privacyUnlocked);
+    const turnPlayerId = relay?.currentTurnPlayerId || activePlayerId;
+    const turnNickname =
+      relay?.currentTurnNickname ||
+      players.find((p) => p.id === turnPlayerId)?.nickname ||
+      "اللاعب التالي";
+    const pass = relay?.pass || (currentPhase === "NIGHT_RELAY_PRIMARY" ? "PRIMARY" : "WITCH");
+    const turnIndex = (relay?.turnIndex ?? 0) + 1;
+    const totalTurns = relay?.totalTurns ?? alivePlayers.length;
+
+    // Dispatch helper for relay actor
+    const relayDispatch = (action: any) => {
+      onAction(action, turnPlayerId);
+    };
+
+    if (!isUnlocked) {
+      // PRIVACY CURTAIN / HANDOFF SCREEN
+      return (
+        <div className="flex flex-col items-center justify-center max-w-md mx-auto p-6 text-center animate-fade-in">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-950/80 border border-indigo-500/40 text-xs text-indigo-300 font-semibold mb-4">
+            <Moon className="w-3.5 h-3.5" />
+            <span>نظام تمرير الهاتف (One-Phone Relay)</span>
+          </div>
+
+          <div className="w-20 h-20 rounded-3xl bg-indigo-950/80 border border-indigo-500/40 flex items-center justify-center mb-4 shadow-2xl">
+            <Lock className="w-10 h-10 text-indigo-400 animate-pulse" />
+          </div>
+
+          <span className="text-xs text-jma3a-muted uppercase tracking-wider mb-1">
+            الدور {turnIndex} من أصل {totalTurns} &bull; {pass === "PRIMARY" ? "الجولة الأولى 🌙" : "الجولة الثانية 🧪"}
+          </span>
+
+          <h2 className="text-xl font-bold text-jma3a-sand mb-2">
+            دوز التلفون فصمت لـ:
+          </h2>
+
+          <div className="my-4 py-4 px-6 rounded-2xl bg-gradient-to-r from-jma3a-surface via-indigo-950/60 to-jma3a-surface border border-indigo-500/30 shadow-inner">
+            <span className="text-3xl font-black text-jma3a-gold tracking-wide">
+              {turnNickname}
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-black/40 border border-amber-500/30 text-xs text-amber-200/90 leading-relaxed mb-6">
+            <span className="font-bold block mb-1">⚠️ تنبيه لسرية اللعبة:</span>
+            ما تنطقش باسم اللاعب، مده ليه فصمت وبلا صوت باش ما يعيق حد بالدور ديالو!
+          </div>
+
+          <button
+            onClick={() => {
+              sound.playCardFlip();
+              relayDispatch({ type: "RELAY_UNLOCK" });
+            }}
+            className="w-full py-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 text-white font-black text-base shadow-xl shadow-indigo-900/40 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
+          >
+            <Unlock className="w-5 h-5" />
+            <span>أنا هو {turnNickname} - فتح شاشتي 🔓</span>
+          </button>
+        </div>
+      );
+    }
+
+    // PRIVACY UNLOCKED - PRIVATE TURN
+    const roleKey = myRole || "villager";
+
+    return (
+      <div className="flex flex-col items-center justify-center max-w-md mx-auto p-4 text-center animate-fade-in">
+        <div className="w-full flex items-center justify-between mb-4 px-2">
+          <span className="text-xs px-2.5 py-1 rounded-full bg-indigo-950 border border-indigo-500/30 text-indigo-300 font-bold flex items-center gap-1.5">
+            <Unlock className="w-3.5 h-3.5 text-emerald-400" />
+            <span>شاشة سرية خاصة بـ: {turnNickname}</span>
+          </span>
+          <span className="text-xs text-jma3a-muted">
+            {pass === "PRIMARY" ? "جولة الكشوفات 🌙" : "جولة السحر 🧪"}
+          </span>
+        </div>
+
+        {/* PASS A: PRIMARY RELAY */}
+        {pass === "PRIMARY" && (
+          <div className="w-full">
+            {roleKey === "seer" ? (
+              /* SEER VIEW IN RELAY */
+              <div className="p-4 rounded-2xl bg-jma3a-card border border-indigo-500/40 text-right shadow-xl">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="w-5 h-5 text-indigo-400 animate-pulse" />
+                  <h3 className="text-base font-bold text-indigo-300">أنتِ هي الشوافة 🔮 - كشفي سر لاعب:</h3>
+                </div>
+
+                {privateData?.seerCurrentInspection ? (
+                  <div className="p-4 rounded-xl bg-indigo-950/80 border border-indigo-400 text-center my-3 animate-fade-in">
+                    <span className="text-xs text-indigo-300 block mb-1">نتيجة كشفك لهاد الليلة:</span>
+                    <p className="text-lg font-bold text-jma3a-sand">
+                      {players.find((p) => p.id === privateData.seerCurrentInspection.targetId)?.nickname}
+                    </p>
+                    <div className="mt-2 text-xl font-black">
+                      {privateData.seerCurrentInspection.alignment === "WOLF" ? (
+                        <span className="text-rose-400 flex items-center justify-center gap-1">
+                          <span>ذيب متنكر! 🐺🚨</span>
+                        </span>
+                      ) : (
+                        <span className="text-emerald-400 flex items-center justify-center gap-1">
+                          <span>بريء من أهل الحومة 🕊️✨</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 my-3">
+                    {alivePlayers
+                      .filter((p) => p.id !== turnPlayerId)
+                      .map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => {
+                            sound.playCardFlip();
+                            relayDispatch({ type: "SEER_INSPECT", targetPlayerId: p.id });
+                          }}
+                          className="p-3 rounded-xl bg-jma3a-surface hover:bg-indigo-600/30 border border-jma3a-border hover:border-indigo-400 text-sm font-semibold text-jma3a-sand transition-all active:scale-95"
+                        >
+                          {p.nickname}
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+            ) : roleKey === "wolf" ? (
+              /* WOLF VIEW IN RELAY */
+              <div className="p-4 rounded-2xl bg-jma3a-card border border-rose-500/40 text-right shadow-xl">
+                <div className="flex items-center gap-2 mb-3">
+                  <DibWolfIcon className="w-5 h-5 text-rose-500 animate-pulse" />
+                  <h3 className="text-base font-bold text-rose-400">أنت ذيب 🐺 - صوت على ضحية الليلة:</h3>
+                </div>
+
+                {privateData?.packMembers && (
+                  <div className="mb-3 p-2 rounded-xl bg-black/40 border border-rose-500/20 text-xs text-rose-300">
+                    <span className="font-bold block mb-1">عصابة الذيابة 🐺:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {privateData.packMembers.map((id: string) => (
+                        <span key={id} className="px-2 py-0.5 rounded bg-rose-950 border border-rose-800 text-[11px]">
+                          {players.find((x) => x.id === id)?.nickname || id}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  {alivePlayers
+                    .filter((p) => !privateData?.packMembers?.includes(p.id))
+                    .map((p) => {
+                      const isSelected = selectedTarget === p.id || privateData?.myWolfVote === p.id;
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => {
+                            setSelectedTarget(p.id);
+                            sound.playCardFlip();
+                            relayDispatch({ type: "WOLF_VOTE", targetPlayerId: p.id });
+                          }}
+                          className={`p-3 rounded-xl border text-sm font-semibold transition-all ${
+                            isSelected
+                              ? "bg-rose-600 text-white border-rose-400 shadow-md"
+                              : "bg-jma3a-surface text-jma3a-sand border-jma3a-border hover:border-rose-400"
+                          }`}
+                        >
+                          {p.nickname}
+                        </button>
+                      );
+                    })}
+                </div>
+                {privateData?.myWolfVote && (
+                  <p className="text-xs text-center text-rose-400 font-bold mb-2">
+                    تم تسجيل تصويتك لـ: {players.find((p) => p.id === privateData.myWolfVote)?.nickname}
+                  </p>
+                )}
+              </div>
+            ) : roleKey === "witch" ? (
+              /* WITCH PASS A VIEW */
+              <div className="p-6 rounded-2xl bg-jma3a-card border border-emerald-500/30 text-center shadow-xl">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-950/60 border border-emerald-500/40 flex items-center justify-center mx-auto mb-3">
+                  <Sparkles className="w-7 h-7 text-emerald-400 animate-pulse" />
+                </div>
+                <h3 className="text-lg font-bold text-emerald-300 mb-2">أنتِ هي السحارة 🧪</h3>
+                <p className="text-xs text-jma3a-sand/80 leading-relaxed mb-4">
+                  كتوجدي الأعشاب والبخور... فاش يرجع ليك التلفون فالجولة الموالية غادي تشوفي ضحية هجوم الذيابة وتقرري واش تعتقيها بالجرعة أو تستعملي السم!
+                </p>
+                <span className="text-[11px] px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-700/40 text-emerald-400 font-semibold">
+                  رتاحي دابا حتى تجي نوبتك فالجولة 2 🕯️
+                </span>
+              </div>
+            ) : (
+              /* VILLAGER / HUNTER SLEEP VIEW */
+              <div className="p-6 rounded-2xl bg-jma3a-card border border-jma3a-border text-center shadow-xl">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-950/60 border border-indigo-500/30 flex items-center justify-center mx-auto mb-3">
+                  <Moon className="w-7 h-7 text-indigo-400/70" />
+                </div>
+                <h3 className="text-lg font-bold text-jma3a-sand mb-2">
+                  {roleKey === "hunter" ? "أنت هو الصياد 🎯" : "أنت قروي من أهل الحومة 👨‍🌾"}
+                </h3>
+                <p className="text-xs text-jma3a-muted leading-relaxed mb-4">
+                  الحومة ناعسة فهدوء تام... ما عندك حتى حركة خاصة بالليل دابا. رتاح حتى يطلع الصباح ودافع على راسك وحومتك فالنقاش!
+                </p>
+                <span className="text-[11px] px-3 py-1 rounded-full bg-jma3a-surface border border-jma3a-border text-jma3a-sand/70 font-semibold">
+                  ليلة هادئة 😴
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* PASS B: WITCH DUAL-POTION RELAY */}
+        {pass === "WITCH" && (
+          <div className="w-full">
+            {roleKey === "witch" ? (
+              /* WITCH ACTION CARD IN PASS B */
+              <div className="p-4 rounded-2xl bg-jma3a-card border border-emerald-500/40 text-right shadow-xl">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="w-5 h-5 text-emerald-400 animate-pulse" />
+                  <h3 className="text-base font-bold text-emerald-300">أنتِ هي السحارة 🧪 - وقت طقوس السحر:</h3>
+                </div>
+
+                {/* Wolf attack disclosure */}
+                <div className="p-3 rounded-xl bg-black/40 border border-emerald-500/30 mb-4 text-center">
+                  <span className="text-xs text-emerald-300 block mb-1">نتيجة هجوم الذيابة:</span>
+                  {privateData?.wolfAttack?.status === "TARGETED" ? (
+                    <p className="text-base font-bold text-rose-400 flex items-center justify-center gap-1.5">
+                      <Skull className="w-4 h-4 text-rose-500" />
+                      <span>{privateData.wolfAttack.victim.nickname} معرض للموت!</span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-emerald-300 font-semibold">
+                      🕊️ الذيابة ما اتفقوش على حتى ضحية هاد الليلة!
+                    </p>
+                  )}
+                </div>
+
+                {/* Potions controls */}
+                <div className="space-y-3 mb-4">
+                  {/* Heal potion */}
+                  {privateData?.witchHealAvailable ? (
+                    <button
+                      onClick={() => setWitchHealToggle(!witchHealToggle)}
+                      disabled={privateData?.wolfAttack?.status !== "TARGETED"}
+                      className={`w-full py-3 px-3.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all ${
+                        privateData?.wolfAttack?.status !== "TARGETED"
+                          ? "opacity-40 border-gray-700 bg-gray-900 text-gray-500 cursor-not-allowed"
+                          : witchHealToggle
+                          ? "bg-emerald-600 text-white border-emerald-400"
+                          : "bg-emerald-950/40 text-emerald-300 border-emerald-500/40"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Heart className="w-4 h-4 text-emerald-400" />
+                        <span>جرعة الحياة: عتق {privateData?.wolfAttack?.status === "TARGETED" ? privateData.wolfAttack.victim.nickname : "الضحية"}</span>
+                      </span>
+                      <span>{witchHealToggle ? "مفعلة ✅" : "صالحة مرة 1"}</span>
+                    </button>
+                  ) : (
+                    <div className="p-2 rounded-xl bg-black/30 text-center text-xs text-jma3a-muted border border-white/5">
+                      جرعة الحياة مستهلكة مسبقاً
+                    </div>
+                  )}
+
+                  {/* Poison potion */}
+                  {privateData?.witchPoisonAvailable ? (
+                    <div>
+                      <button
+                        onClick={() => setShowPoisonGrid(!showPoisonGrid)}
+                        className={`w-full py-3 px-3.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all ${
+                          witchPoisonTarget
+                            ? "bg-purple-700 text-white border-purple-400"
+                            : "bg-purple-950/40 text-purple-300 border-purple-500/40"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <Skull className="w-4 h-4 text-purple-400" />
+                          <span>
+                            جرعة السم: {witchPoisonTarget ? `سمم ${players.find((x) => x.id === witchPoisonTarget)?.nickname}` : "سمم لاعب"}
+                          </span>
+                        </span>
+                        <span>{witchPoisonTarget ? "محددة 🧪" : "صالحة مرة 1"}</span>
+                      </button>
+
+                      {showPoisonGrid && (
+                        <div className="grid grid-cols-2 gap-2 mt-2 p-2 rounded-xl bg-black/40">
+                          {alivePlayers
+                            .filter((p) => p.id !== turnPlayerId)
+                            .map((p) => (
+                              <button
+                                key={p.id}
+                                onClick={() => {
+                                  sound.playCardFlip();
+                                  setWitchPoisonTarget(witchPoisonTarget === p.id ? "" : p.id);
+                                }}
+                                className={`p-2 rounded-lg text-xs font-semibold border ${
+                                  witchPoisonTarget === p.id
+                                    ? "bg-purple-700 text-white border-purple-400"
+                                    : "bg-jma3a-surface text-purple-200 border-purple-500/30"
+                                }`}
+                              >
+                                {p.nickname}
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-2 rounded-xl bg-black/30 text-center text-xs text-jma3a-muted border border-white/5">
+                      جرعة السم مستهلكة مسبقاً
+                    </div>
+                  )}
+
+                  {/* Submit potion decisions */}
+                  {!privateData?.witchActionDone && (
+                    <button
+                      onClick={() => {
+                        sound.playCardFlip();
+                        relayDispatch({
+                          type: "WITCH_ACTION",
+                          healWolfVictim: witchHealToggle,
+                          poisonTargetId: witchPoisonTarget || undefined,
+                        });
+                      }}
+                      className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-xs shadow-lg active:scale-95 transition-all"
+                    >
+                      تأكيد قرارات السحارة 🧪✨
+                    </button>
+                  )}
+
+                  {privateData?.witchActionDone && (
+                    <div className="text-center text-xs text-emerald-400 font-bold flex items-center justify-center gap-1">
+                      <CheckCircle className="w-4 h-4" />
+                      <span>تم تسجيل قراراتك بنجاح لهاته الليلة!</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* DECOY SCREEN FOR ALL NON-WITCH PLAYERS IN PASS B */
+              <div className="p-6 rounded-2xl bg-jma3a-card border border-jma3a-border text-center shadow-xl">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-950/60 border border-indigo-500/30 flex items-center justify-center mx-auto mb-3">
+                  <Moon className="w-7 h-7 text-indigo-400/70" />
+                </div>
+                <h3 className="text-lg font-bold text-jma3a-sand mb-2">القرية ما زال ناعسة فهدوء 🌙</h3>
+                <p className="text-xs text-jma3a-muted leading-relaxed mb-4">
+                  حتى حد ما كيشوف شنو كيطرا فهاد اللحظة... خلي التلفون مستور، وكليكي على الزر باش تدوزو للاعب الموالي فصمت تام.
+                </p>
+                <span className="text-[11px] px-3 py-1 rounded-full bg-jma3a-surface border border-jma3a-border text-jma3a-sand/70 font-semibold">
+                  سكون تام فالقرية 🤫
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* FINISH TURN BUTTON (Always present for every player!) */}
+        <button
+          onClick={() => {
+            sound.playCardFlip();
+            setSelectedTarget("");
+            setWitchPoisonTarget("");
+            setWitchHealToggle(false);
+            setShowPoisonGrid(false);
+            relayDispatch({ type: "RELAY_FINISH_TURN" });
+          }}
+          className="w-full mt-5 py-4 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold text-sm shadow-xl shadow-jma3a-terracotta/30 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
+        >
+          <span>سالي دورك ودوز التلفون فصمت ➡️</span>
+        </button>
       </div>
     );
   }
@@ -389,13 +778,18 @@ export function DibGameView({
             {/* Victim display */}
             <div className="p-3 rounded-xl bg-black/40 border border-emerald-500/20 mb-4 text-center">
               <span className="text-xs text-emerald-300 block mb-1">ضحية هجوم الذيابة:</span>
-              {livingWolfVictim ? (
+              {privateData?.wolfAttack?.status === "TARGETED" ? (
+                <p className="text-lg font-bold text-rose-400 flex items-center justify-center gap-1.5">
+                  <Skull className="w-5 h-5 text-rose-500" />
+                  <span>{privateData.wolfAttack.victim.nickname} معرض للموت!</span>
+                </p>
+              ) : livingWolfVictim ? (
                 <p className="text-lg font-bold text-rose-400 flex items-center justify-center gap-1.5">
                   <Skull className="w-5 h-5 text-rose-500" />
                   <span>{livingWolfVictim.nickname} معرض للموت!</span>
                 </p>
               ) : (
-                <p className="text-sm text-jma3a-sand/70">ما كاين حتى ضحية للذيابة (تعادلو أو ما صوتوش)</p>
+                <p className="text-sm text-emerald-300">الدياب ما اتفقوش على حتى حد هاد الليلة 🕊️</p>
               )}
             </div>
 
@@ -408,9 +802,9 @@ export function DibGameView({
                     sound.playCardFlip();
                     setWitchHealToggle(!witchHealToggle);
                   }}
-                  disabled={!livingWolfVictim}
+                  disabled={privateData?.wolfAttack?.status !== "TARGETED" && !livingWolfVictim}
                   className={`w-full py-3 px-4 rounded-xl border text-sm font-bold flex items-center justify-between transition-all ${
-                    !livingWolfVictim
+                    privateData?.wolfAttack?.status !== "TARGETED" && !livingWolfVictim
                       ? "opacity-50 border-gray-700 bg-gray-900 text-gray-500 cursor-not-allowed"
                       : witchHealToggle
                       ? "bg-emerald-600 text-white border-emerald-400 shadow-md"
@@ -419,7 +813,14 @@ export function DibGameView({
                 >
                   <span className="flex items-center gap-2">
                     <Heart className="w-4 h-4 text-emerald-400" />
-                    <span>جرعة الحياة: عتق {livingWolfVictim ? livingWolfVictim.nickname : "الضحية"}</span>
+                    <span>
+                      جرعة الحياة: عتق{" "}
+                      {privateData?.wolfAttack?.status === "TARGETED"
+                        ? privateData.wolfAttack.victim.nickname
+                        : livingWolfVictim
+                        ? livingWolfVictim.nickname
+                        : "الضحية"}
+                    </span>
                   </span>
                   <span className="text-xs">{witchHealToggle ? "مفعّلة ✅" : "صالحة مرة واحدة"}</span>
                 </button>
@@ -682,6 +1083,19 @@ export function DibGameView({
           ? "كل واحد يصوت على المشتبه فيه لي باغي ينفيه من الحومة!"
           : "ناقشو الشكوك بيناتكم وتوصلو للحقيقة قبل ما يبدا التصويت!"}
       </p>
+
+      {/* Phones Down Banner during Discussion */}
+      {!isVoting && !isRunoff && (
+        <div className="w-full mb-5 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-center animate-fade-in shadow-lg">
+          <div className="flex items-center justify-center gap-2 text-base font-bold text-amber-300 mb-1.5">
+            <PhoneOff className="w-5 h-5 text-amber-400 animate-pulse" />
+            <span>📵 حطو التلفونات وبداو النقاش وجهاً لوجه!</span>
+          </div>
+          <p className="text-xs text-amber-100/80 leading-relaxed">
+            النقاش شفهي ومباشر بين الجميع... شكون حسيتو بيه مرتبك، كان ساكت بزاف، أو كيدافع على شي حد بلا سبب؟
+          </p>
+        </div>
+      )}
 
       {/* Voting Ballot */}
       {(isVoting || isRunoff) && isAlive && (
