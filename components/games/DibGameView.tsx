@@ -34,6 +34,7 @@ interface DibGameViewProps {
   activePlayerId?: string;
   devicePlayers?: any[];
   onSelectPlayer?: (playerId: string) => void;
+  isPassThePhoneActive?: boolean;
 }
 
 export function DibGameView({
@@ -46,6 +47,7 @@ export function DibGameView({
   activePlayerId,
   devicePlayers,
   onSelectPlayer,
+  isPassThePhoneActive,
 }: DibGameViewProps) {
   const [selectedTarget, setSelectedTarget] = useState<string>("");
   const [witchHealToggle, setWitchHealToggle] = useState<boolean>(false);
@@ -159,13 +161,76 @@ export function DibGameView({
           }
         />
 
-        {isHost && (
+        {isHost && !isPassThePhoneActive && (
           <button
             onClick={() => dispatch({ type: "NEXT_PHASE" })}
             className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold shadow-lg shadow-jma3a-terracotta/30 hover:brightness-110 active:scale-95 transition-all"
           >
             الكل شاف دوره؟ سد الليل 🌙
           </button>
+        )}
+      </div>
+    );
+  }
+
+  // Spectator View for Dead Players:
+  const isSpectator =
+    !isAlive &&
+    currentPhase !== "ROLE_REVEAL" &&
+    currentPhase !== "GAME_OVER" &&
+    currentPhase !== "DAY_ANNOUNCEMENT" &&
+    currentPhase !== "DAY_RESOLUTION" &&
+    !(currentPhase === "REACTION_QUEUE" && activePlayerId === publicData.currentShooterId);
+
+  if (isSpectator) {
+    const currentDevicePlayer = devicePlayers?.find((p) => p.id === activePlayerId);
+    const roleKey = currentDevicePlayer?.privateView?.myRole || myRole || "villager";
+
+    return (
+      <div className="flex flex-col items-center justify-center max-w-md mx-auto p-6 text-center animate-fade-in">
+        <div className="w-20 h-20 rounded-3xl bg-rose-950/60 border border-rose-500/40 flex items-center justify-center mb-4 shadow-2xl shadow-rose-950/50">
+          <Skull className="w-10 h-10 text-rose-500 animate-pulse" />
+        </div>
+
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-950/80 border border-rose-600/40 text-rose-300 text-xs font-bold mb-3">
+          <span>أنت مقصى من اللعبة 💀</span>
+        </div>
+
+        <h2 className="text-2xl font-black text-jma3a-sand mb-2">
+          خرجتي من اللعبة!
+        </h2>
+        <p className="text-xs text-jma3a-muted mb-6 leading-relaxed max-w-xs">
+          تم إقصاؤك من الحومة. يمكنك متابعة أطوار اللعبة كمشاهد وملاحظ فصمت تام بلا ما تكشف دور حتى واحد 🤫
+        </p>
+
+        <div className="w-full p-4 rounded-2xl bg-jma3a-card/70 border border-jma3a-border mb-4 text-center">
+          <span className="text-xs text-jma3a-muted block mb-1">دورك قبل الإقصاء:</span>
+          <div className="text-lg font-bold text-jma3a-gold flex items-center justify-center gap-2">
+            <span>
+              {roleKey === "wolf"
+                ? "🐺"
+                : roleKey === "seer"
+                ? "🔮"
+                : roleKey === "witch"
+                ? "🧪"
+                : roleKey === "hunter"
+                ? "🎯"
+                : "👨‍🌾"}
+            </span>
+            <span>{roleTitles[roleKey] || roleKey}</span>
+          </div>
+        </div>
+
+        {isHost && (
+          <div className="w-full mt-4 p-3 rounded-xl bg-jma3a-surface/80 border border-jma3a-border">
+            <span className="text-[11px] text-jma3a-sand/70 block mb-2 font-semibold">تحكم مول اللعبة (Host):</span>
+            <button
+              onClick={() => dispatch({ type: "NEXT_PHASE" })}
+              className="w-full py-2.5 rounded-xl bg-jma3a-terracotta/90 hover:bg-jma3a-terracotta text-white font-bold text-xs transition-all active:scale-95"
+            >
+              تقديم المرحلة الموالية ⏩
+            </button>
+          </div>
         )}
       </div>
     );
@@ -1100,6 +1165,90 @@ export function DibGameView({
             className="w-full py-4 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-black text-base shadow-xl shadow-jma3a-terracotta/30 hover:brightness-110 active:scale-95 transition-all"
           >
             بدا النقاش فالحومة 🗣️
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // -----------------------------------------------------------------
+  // 7.8. PHASE: DAY_RESOLUTION (Court verdict & Execution announcement)
+  // -----------------------------------------------------------------
+  if (currentPhase === "DAY_RESOLUTION") {
+    const resolution = publicData.lastResolution;
+    const hasDeaths = resolution?.deaths && resolution.deaths.length > 0;
+
+    return (
+      <div className="flex flex-col items-center justify-center max-w-md mx-auto p-4 text-center animate-fade-in">
+        <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center mb-3 shadow-lg shadow-amber-900/20">
+          <Scale className="w-9 h-9 text-amber-400 animate-pulse" />
+        </div>
+
+        <h2 className="text-3xl font-black text-jma3a-sand mb-1">حكم المحكمة وقرار الحومة! ⚖️</h2>
+        <p className="text-xs text-jma3a-muted mb-5">نتيجة تصويت القرية بعد نقاش ومحاكمة عادلة</p>
+
+        <div className="w-full p-6 rounded-3xl bg-gradient-to-b from-jma3a-card to-jma3a-surface border border-jma3a-border shadow-2xl mb-6">
+          {hasDeaths ? (
+            <div className="space-y-4">
+              <div className="w-12 h-12 rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center mx-auto">
+                <Skull className="w-6 h-6 text-rose-500" />
+              </div>
+              <h3 className="text-xl font-bold text-rose-400">قرار الإعدام ونفي المشتبه فيه!</h3>
+              <div className="space-y-3">
+                {resolution.deaths.map((d: any, idx: number) => {
+                  const victim = players.find((p) => p.id === d.playerId);
+                  return (
+                    <div
+                      key={idx}
+                      className="p-4 rounded-2xl bg-rose-950/60 border border-rose-600/40 text-center space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-lg font-black text-rose-200">@{victim?.nickname}</span>
+                        <span className="text-xs px-2.5 py-0.5 rounded-full bg-rose-900 text-rose-100 font-bold">
+                          تم إعدامه ⚖️💀
+                        </span>
+                      </div>
+                      {d.revealedRole && (
+                        <div className="mt-2 p-2.5 rounded-xl bg-black/40 border border-white/10 text-sm">
+                          <span className="text-xs text-jma3a-muted block mb-1">حقيقة دوره المكشوفة:</span>
+                          <span
+                            className={`font-black ${
+                              d.revealedRole === "wolf" ? "text-rose-400" : "text-emerald-400"
+                            }`}
+                          >
+                            {d.revealedRole === "wolf"
+                              ? "طلع ذيب متنكر! 🐺🚨 (ضربة معلم للحومة)"
+                              : "طلع بريء من أهل الحومة! 🕊️ (خطأ فادح)"}
+                          </span>
+                        </div>
+                      )}
+                      <p className="text-[11px] text-rose-300/80">
+                        * هذا اللاعب أصبح مقصى رسمياً ولن يشارك في الجولات ولا التصويت القادم.
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="w-12 h-12 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center mx-auto">
+                <Scale className="w-6 h-6 text-amber-400" />
+              </div>
+              <h3 className="text-xl font-bold text-amber-400">تعادل أو أصوات غير كافية! 🕊️</h3>
+              <p className="text-xs text-jma3a-sand/80 leading-relaxed bg-black/30 p-3 rounded-xl border border-white/5">
+                ما تافقاتش الحومة على إعدام حتى واحد هاد النهار! كلشي باقي عايش ومستمر فالمعركة.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {isHost && (
+          <button
+            onClick={() => dispatch({ type: "NEXT_PHASE" })}
+            className="w-full py-4 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-black text-base shadow-xl shadow-jma3a-terracotta/30 hover:brightness-110 active:scale-95 transition-all"
+          >
+            سدو الليل ونامو فصمت 🌙
           </button>
         )}
       </div>

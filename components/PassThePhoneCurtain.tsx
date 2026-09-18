@@ -10,6 +10,8 @@ interface PassThePhoneCurtainProps {
   isRevealed: boolean;
   onStep: () => void;
   onSelectPlayer?: (playerId: string) => void;
+  isHost?: boolean;
+  onStartNight?: () => void;
   children: React.ReactNode;
 }
 
@@ -19,6 +21,8 @@ export function PassThePhoneCurtain({
   isRevealed,
   onStep,
   onSelectPlayer,
+  isHost,
+  onStartNight,
   children,
 }: PassThePhoneCurtainProps) {
   const handleAction = () => {
@@ -43,7 +47,7 @@ export function PassThePhoneCurtain({
         {/* The Secret Content */}
         <div className="w-full my-auto">{children}</div>
 
-        {/* Hide and Pass CTA */}
+        {/* Hide and Pass CTA - Primary button right under the secret card */}
         <button
           onClick={handleAction}
           className="w-full py-4 mt-6 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold text-lg shadow-xl shadow-jma3a-terracotta/40 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
@@ -51,6 +55,21 @@ export function PassThePhoneCurtain({
           <EyeOff className="w-5 h-5" />
           <span>خبي وكمل ودوز التليفون 🤫</span>
         </button>
+
+        {/* Host bypass button at the VERY BOTTOM so no one misclicks it! */}
+        {isHost && onStartNight && (
+          <div className="w-full mt-4 pt-3 border-t border-white/10">
+            <button
+              onClick={() => {
+                sound.playCardFlip();
+                onStartNight();
+              }}
+              className="w-full py-2.5 rounded-xl bg-jma3a-surface/60 hover:bg-jma3a-surface border border-jma3a-border/60 text-xs font-semibold text-jma3a-muted hover:text-jma3a-sand transition-all"
+            >
+              🌙 الكل شاف دوره؟ سد الليل دابا (تخطي باقي اللاعبين)
+            </button>
+          </div>
+        )}
       </div>
     );
   }

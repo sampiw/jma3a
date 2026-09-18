@@ -406,6 +406,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             <div className="flex items-center gap-1.5 overflow-x-auto max-w-full">
               {myDevicePlayers.map((dp) => {
                 const isActive = dp.id === currentActivePlayerId;
+                const pubAlive = (room.gameView?.publicData as any)?.alivePlayerIds as string[] | undefined;
+                const isAlive =
+                  dp.privateView?.privateData?.isAlive !== false &&
+                  (!pubAlive || pubAlive.includes(dp.id));
+
                 return (
                   <button
                     key={dp.id}
@@ -419,13 +424,22 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                       }
                     }}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                      isActive
+                      !isAlive
+                        ? isActive
+                          ? "bg-rose-950/80 text-rose-300 border border-rose-500/50 shadow-md"
+                          : "bg-rose-950/30 text-rose-300/60 hover:bg-rose-950/50 border border-rose-900/30 line-through"
+                        : isActive
                         ? "bg-jma3a-gold text-jma3a-dark shadow-md"
                         : "bg-jma3a-surface/80 text-jma3a-sand hover:bg-jma3a-border border border-jma3a-border"
                     }`}
                   >
-                    <span>{dp.nickname}</span>
-                    {isActive && <span className="text-[10px]">👈 نوبتك دابا</span>}
+                    {!isAlive && <span>💀</span>}
+                    <span className={!isAlive ? "line-through" : ""}>{dp.nickname}</span>
+                    {isActive && (
+                      <span className="text-[10px]">
+                        {isAlive ? "👈 نوبتك دابا" : "(مقصى 💀)"}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -570,6 +584,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 isRevealed={passThePhone.isRevealed}
                 onStep={handlePassStep}
                 onSelectPlayer={setActiveLocalPlayerId}
+                isHost={isHost}
+                onStartNight={() => handleGameAction({ type: "NEXT_PHASE" })}
               >
                 {renderActiveGameView(
                   room.selectedGameId,
@@ -582,7 +598,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   room.players,
                   activeLocalPlayer?.id,
                   myDevicePlayers,
-                  setActiveLocalPlayerId
+                  setActiveLocalPlayerId,
+                  true
                 )}
               </PassThePhoneCurtain>
             )}
@@ -600,7 +617,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 room.players,
                 activeLocalPlayer?.id,
                 myDevicePlayers,
-                setActiveLocalPlayerId
+                setActiveLocalPlayerId,
+                false
               )}
           </div>
         )}
@@ -883,7 +901,8 @@ function renderActiveGameView(
   players: any[],
   activePlayerId?: string,
   devicePlayers?: DevicePlayerInfo[],
-  onSelectPlayer?: (playerId: string) => void
+  onSelectPlayer?: (playerId: string) => void,
+  isPassThePhoneActive?: boolean
 ) {
   switch (gameId) {
     case "dib":
@@ -898,6 +917,7 @@ function renderActiveGameView(
           activePlayerId={activePlayerId}
           devicePlayers={devicePlayers}
           onSelectPlayer={onSelectPlayer}
+          isPassThePhoneActive={isPassThePhoneActive}
         />
       );
     case "intrus":

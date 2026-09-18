@@ -1400,8 +1400,7 @@ function advancePhase(state: DibState, settings: DibSettings): TransitionResult<
           success: true,
           newState: {
             ...state,
-            phase: "NIGHT_INTRO",
-            round: state.round + 1,
+            phase: "DAY_RESOLUTION",
             narrationKey: "dib.noQuorumNightIntro",
             lastResolution: {
               deaths: [],
@@ -1409,8 +1408,7 @@ function advancePhase(state: DibState, settings: DibSettings): TransitionResult<
             },
             eventSequence: nextSeq,
           },
-          newPhase: "NIGHT_INTRO",
-          timerDurationMs: 6000,
+          newPhase: "DAY_RESOLUTION",
         };
       }
 
@@ -1468,8 +1466,7 @@ function advancePhase(state: DibState, settings: DibSettings): TransitionResult<
             success: true,
             newState: {
               ...state,
-              phase: "NIGHT_INTRO",
-              round: state.round + 1,
+              phase: "DAY_RESOLUTION",
               narrationKey: "dib.dayTieNoElimination",
               lastResolution: {
                 deaths: [],
@@ -1477,8 +1474,7 @@ function advancePhase(state: DibState, settings: DibSettings): TransitionResult<
               },
               eventSequence: nextSeq,
             },
-            newPhase: "NIGHT_INTRO",
-            timerDurationMs: 6000,
+            newPhase: "DAY_RESOLUTION",
           };
         }
       }
@@ -1489,17 +1485,15 @@ function advancePhase(state: DibState, settings: DibSettings): TransitionResult<
           success: true,
           newState: {
             ...state,
-            phase: "NIGHT_INTRO",
-            round: state.round + 1,
-            narrationKey: "dib.nightIntro",
+            phase: "DAY_RESOLUTION",
+            narrationKey: "dib.dayTieNoElimination",
             lastResolution: {
               deaths: [],
               survivors: livingPlayers.map((p) => p.playerId),
             },
             eventSequence: nextSeq,
           },
-          newPhase: "NIGHT_INTRO",
-          timerDurationMs: 6000,
+          newPhase: "DAY_RESOLUTION",
         };
       }
 
@@ -1541,8 +1535,7 @@ function advancePhase(state: DibState, settings: DibSettings): TransitionResult<
           success: true,
           newState: {
             ...state,
-            phase: "NIGHT_INTRO",
-            round: state.round + 1,
+            phase: "DAY_RESOLUTION",
             narrationKey: "dib.runoffTieNoElimination",
             lastResolution: {
               deaths: [],
@@ -1552,13 +1545,30 @@ function advancePhase(state: DibState, settings: DibSettings): TransitionResult<
             runoffVotes: undefined,
             eventSequence: nextSeq,
           },
-          newPhase: "NIGHT_INTRO",
-          timerDurationMs: 6000,
+          newPhase: "DAY_RESOLUTION",
         };
       }
 
       // Unique runoff winner eliminated!
       return resolveElimination(state, settings, topCandidates[0], nextSeq);
+    }
+
+    // ---------------------------------------------------------------
+    // 10. DAY_RESOLUTION -> NIGHT_INTRO
+    // ---------------------------------------------------------------
+    case "DAY_RESOLUTION": {
+      return {
+        success: true,
+        newState: {
+          ...state,
+          phase: "NIGHT_INTRO",
+          round: state.round + 1,
+          narrationKey: "dib.nightIntro",
+          eventSequence: nextSeq,
+        },
+        newPhase: "NIGHT_INTRO",
+        timerDurationMs: 6000,
+      };
     }
 
     default:
@@ -1626,7 +1636,7 @@ function resolveElimination(
             actorPlayerId: eliminatedPlayerId,
           },
         ],
-        reactionReturnPhase: "NIGHT_INTRO",
+        reactionReturnPhase: "DAY_RESOLUTION",
         lastResolution: resolutionSummary,
         narrationKey: "dib.hunterRevenge",
         runoffCandidates: undefined,
@@ -1657,21 +1667,19 @@ function resolveElimination(
     };
   }
 
-  // Advance to next night
+  // Advance to DAY_RESOLUTION (shows who died from the voting!)
   return {
     success: true,
     newState: {
       ...state,
       playerStates: nextPlayerStates,
-      phase: "NIGHT_INTRO",
-      round: state.round + 1,
+      phase: "DAY_RESOLUTION",
       lastResolution: resolutionSummary,
       runoffCandidates: undefined,
       runoffVotes: undefined,
-      narrationKey: "dib.nightIntro",
+      narrationKey: "dib.dayResolution",
       eventSequence: seq + 1,
     },
-    newPhase: "NIGHT_INTRO",
-    timerDurationMs: 6000,
+    newPhase: "DAY_RESOLUTION",
   };
 }

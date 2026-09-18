@@ -241,11 +241,19 @@ describe("DIB Production Engine & Edge Cases", () => {
       p_4: "p_6",
     };
 
-    // Advance runoff => NO ELIMINATION on second tie!
+    // Advance runoff => NO ELIMINATION on second tie! Transitions to DAY_RESOLUTION
     const resRunoffAdv = DibEngine.handleAction(ctxRunoff, players[0].id, { type: "NEXT_PHASE" });
     expect(resRunoffAdv.success).toBe(true);
-    expect(resRunoffAdv.newPhase).toBe("NIGHT_INTRO");
+    expect(resRunoffAdv.newPhase).toBe("DAY_RESOLUTION");
     expect(resRunoffAdv.newState.lastResolution?.deaths.length).toBe(0);
+
+    // Advancing from DAY_RESOLUTION moves into NIGHT_INTRO
+    const resNight = DibEngine.handleAction(
+      { ...ctxRunoff, state: resRunoffAdv.newState, phase: resRunoffAdv.newPhase },
+      players[0].id,
+      { type: "NEXT_PHASE" }
+    );
+    expect(resNight.newPhase).toBe("NIGHT_INTRO");
   });
 
   it("evaluates win conditions correctly behind resolution barrier", () => {

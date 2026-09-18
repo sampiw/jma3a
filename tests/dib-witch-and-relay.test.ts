@@ -547,9 +547,12 @@ describe("DIB: Classic Rules Configuration", () => {
     dispatch(ctxA, "p_4", { type: "DAY_VOTE", targetPlayerId: "p_3" });
 
     const tieAdvanceA = dispatch(ctxA, "p_1", { type: "NEXT_PHASE" });
-    // Advances straight to NIGHT_INTRO with NO elimination!
-    expect(tieAdvanceA.newPhase).toBe("NIGHT_INTRO");
+    // Advances to DAY_RESOLUTION with NO elimination!
+    expect(tieAdvanceA.newPhase).toBe("DAY_RESOLUTION");
     expect(tieAdvanceA.newState.lastResolution?.deaths).toHaveLength(0);
+
+    const tieToNightA = dispatch(ctxA, "p_1", { type: "NEXT_PHASE" });
+    expect(tieToNightA.newPhase).toBe("NIGHT_INTRO");
 
     // Mode B: RUNOFF
     const stateB = makeControlledState(players, roleMap);
@@ -683,9 +686,13 @@ describe("DIB: Classic Rules Configuration", () => {
     }
 
     // After last player in relay finishes, advancePhase automatically triggered!
-    // Votes counted: 5 votes for p_1 => p_1 is eliminated!
-    expect(ctx.state.phase).toBe("NIGHT_INTRO");
+    // Votes counted: 5 votes for p_1 => p_1 is eliminated, phase transitions to DAY_RESOLUTION!
+    expect(ctx.state.phase).toBe("DAY_RESOLUTION");
     expect(ctx.state.playerStates["p_1"].isAlive).toBe(false);
     expect(ctx.state.lastResolution?.deaths[0]?.playerId).toBe("p_1");
+
+    // Advancing from DAY_RESOLUTION moves to NIGHT_INTRO
+    const toNight = dispatch(ctx, "p_1", { type: "NEXT_PHASE" });
+    expect(toNight.newPhase).toBe("NIGHT_INTRO");
   });
 });
