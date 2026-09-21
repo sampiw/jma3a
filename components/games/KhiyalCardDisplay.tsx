@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { KhiyalCard } from "@/games/khiyal/types";
+import { getCardImageUrl } from "@/games/khiyal/cards";
 import { Sparkles, Eye, Check, Crown } from "lucide-react";
 
 interface KhiyalCardDisplayProps {
@@ -9,6 +10,7 @@ interface KhiyalCardDisplayProps {
   indexLabel?: number | string;
   isSelected?: boolean;
   isStorytellerCard?: boolean;
+  isMyCard?: boolean;
   ownerNickname?: string;
   votesCount?: number;
   voterNicknames?: string[];
@@ -24,6 +26,7 @@ export function KhiyalCardDisplay({
   indexLabel,
   isSelected,
   isStorytellerCard,
+  isMyCard,
   ownerNickname,
   votesCount,
   voterNicknames,
@@ -33,52 +36,84 @@ export function KhiyalCardDisplay({
   onClick,
   onInspect,
 }: KhiyalCardDisplayProps) {
+  const [imgError, setImgError] = useState(false);
+  const imageUrl = card.imageUrl || getCardImageUrl(card.id);
+
   const sizeClasses = {
-    sm: "w-28 h-40 text-[11px]",
-    md: "w-36 h-52 text-xs sm:w-44 sm:h-64",
-    lg: "w-64 h-92 sm:w-72 sm:h-[420px] text-sm",
+    sm: "w-full max-w-[110px] aspect-[2/3] text-[10px]",
+    md: "w-full max-w-[170px] sm:max-w-[200px] aspect-[2/3] text-xs",
+    lg: "w-full max-w-[280px] sm:max-w-[340px] aspect-[2/3] text-sm",
   };
 
+  const containerMaxWidth =
+    size === "lg" ? "max-w-[280px] sm:max-w-[340px]" : size === "sm" ? "max-w-[110px]" : "max-w-[170px] sm:max-w-[200px]";
+
   return (
-    <div className="relative group select-none flex flex-col items-center">
-      {/* Index Badge */}
+    <div className={`relative group select-none flex flex-col items-center w-full ${containerMaxWidth}`}>
+      {/* Index Badge during Voting */}
       {indexLabel !== undefined && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 w-7 h-7 rounded-full bg-jma3a-gold text-jma3a-dark font-black text-xs flex items-center justify-center shadow-lg border-2 border-jma3a-dark">
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 w-8 h-8 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-400 text-jma3a-dark font-black text-sm flex items-center justify-center shadow-xl border-2 border-jma3a-dark ring-2 ring-yellow-300/50">
           {indexLabel}
         </div>
       )}
 
-      {/* Storyteller Crown Badge */}
+      {/* Storyteller Crown Badge during Resolution */}
       {isStorytellerCard && (
-        <div className="absolute -top-3.5 right-2 z-20 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 text-jma3a-dark font-black text-[10px] flex items-center gap-1 shadow-xl border border-yellow-200 animate-pulse">
-          <Crown className="w-3 h-3 fill-jma3a-dark" />
-          <span>الحكواتي</span>
+        <div className="absolute -top-3.5 right-2 z-20 px-2.5 py-1 rounded-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-jma3a-dark font-black text-[11px] flex items-center gap-1 shadow-2xl border border-yellow-100 animate-bounce">
+          <Crown className="w-3.5 h-3.5 fill-jma3a-dark" />
+          <span>مول الحجاية</span>
         </div>
       )}
 
-      {/* Card Body */}
+      {/* My Card Tag */}
+      {isMyCard && !isStorytellerCard && (
+        <div className="absolute -top-3 right-2 z-20 px-2 py-0.5 rounded-full bg-black/80 text-white/90 font-bold text-[10px] border border-white/20 shadow-md">
+          بطاقتك 🃏
+        </div>
+      )}
+
+      {/* Card Body - REAL DIXIT ART STYLE */}
       <div
         onClick={() => {
           if (!disabled && onClick) onClick();
         }}
-        className={`relative rounded-2xl overflow-hidden border-2 transition-all duration-300 flex flex-col justify-between p-3 ${
+        className={`relative rounded-2xl overflow-hidden border-2 transition-all duration-300 flex flex-col justify-between ${
           sizeClasses[size]
         } ${
           disabled
-            ? "opacity-50 cursor-not-allowed border-white/10"
+            ? "opacity-45 cursor-not-allowed border-white/10 grayscale-[30%]"
             : isSelected
-            ? "border-jma3a-gold shadow-xl shadow-jma3a-gold/30 scale-[1.03] cursor-pointer ring-2 ring-jma3a-gold/60"
-            : "border-white/20 hover:border-jma3a-gold/70 hover:scale-[1.02] cursor-pointer shadow-lg"
+            ? "border-jma3a-gold shadow-2xl shadow-jma3a-gold/50 scale-[1.04] cursor-pointer ring-4 ring-jma3a-gold/70"
+            : "border-white/20 hover:border-jma3a-gold/80 hover:scale-[1.02] cursor-pointer shadow-xl"
         } bg-gradient-to-br ${card.fallbackGradient}`}
       >
-        {/* Background Texture & Vignette */}
-        <div className="absolute inset-0 bg-black/30 backdrop-blur-[0.5px]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-white/20 via-transparent to-black/60 pointer-events-none" />
+        {/* Real Artwork Image */}
+        {!imgError && imageUrl ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={imageUrl}
+            alt={card.title}
+            onError={() => setImgError(true)}
+            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            loading="lazy"
+          />
+        ) : (
+          /* High quality artistic SVG fallback */
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-950">
+            <div className="w-16 h-16 rounded-full bg-white/10 border border-white/20 flex items-center justify-center mb-2 shadow-inner backdrop-blur-sm">
+              <Sparkles className="w-8 h-8 text-jma3a-gold animate-pulse" />
+            </div>
+            <span className="text-xs font-bold text-amber-200">{card.title}</span>
+          </div>
+        )}
 
-        {/* Top Header: Title & Inspect Icon */}
-        <div className="relative z-10 flex items-start justify-between gap-1">
-          <span className="font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] line-clamp-1 leading-tight">
-            {card.title}
+        {/* Cinematic Vignette Overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/30 pointer-events-none" />
+
+        {/* Top Floating Action: Inspect Icon */}
+        <div className="relative z-10 p-2 flex items-center justify-between">
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-md text-white/70 border border-white/10 font-mono">
+            #{card.visualTheme}
           </span>
           {onInspect && (
             <button
@@ -87,45 +122,41 @@ export function KhiyalCardDisplay({
                 e.stopPropagation();
                 onInspect();
               }}
-              className="p-1 rounded-lg bg-black/40 hover:bg-black/70 text-white/80 hover:text-white transition-colors"
-              title="تكبير البطاقة"
+              className="p-1.5 rounded-xl bg-black/60 hover:bg-black/90 text-white/90 hover:text-white transition-all backdrop-blur-md border border-white/20 shadow-md"
+              title="تكبير وتأمل البطاقة"
             >
               <Eye className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
 
-        {/* Center Artwork Scene */}
-        <div className="relative z-10 my-auto text-center flex flex-col items-center justify-center py-2">
-          <div className="w-12 h-12 rounded-full bg-white/10 border border-white/20 flex items-center justify-center mb-2 shadow-inner backdrop-blur-sm group-hover:scale-110 transition-transform">
-            <Sparkles className="w-6 h-6 text-jma3a-gold" />
+        {/* Bottom Floating Title Pill (No wall of text!) */}
+        <div className="relative z-10 p-2 text-center mt-auto">
+          <div className="px-2.5 py-1 rounded-xl bg-black/65 backdrop-blur-md border border-white/20 shadow-lg inline-flex items-center justify-center gap-1 max-w-full">
+            <span className="font-black text-amber-200 text-xs truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+              {card.title}
+            </span>
+            {isSelected && (
+              <Check className="w-3.5 h-3.5 text-jma3a-gold stroke-[3] shrink-0" />
+            )}
           </div>
-          <p className="text-[11px] leading-relaxed text-white/90 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] line-clamp-3 px-1 text-center font-medium">
-            {card.description}
-          </p>
-        </div>
 
-        {/* Bottom Bar */}
-        <div className="relative z-10 pt-2 border-t border-white/10 flex items-center justify-between text-[10px]">
-          <span className="text-white/60 font-semibold capitalize">#{card.visualTheme}</span>
-
-          {isSelected && (
-            <span className="w-5 h-5 rounded-full bg-jma3a-gold text-jma3a-dark flex items-center justify-center font-bold">
-              <Check className="w-3.5 h-3.5 stroke-[3]" />
-            </span>
-          )}
-
+          {/* Votes Count Pill in Resolution */}
           {votesCount !== undefined && votesCount > 0 && (
-            <span className="px-2 py-0.5 rounded-full bg-indigo-950/90 text-indigo-200 border border-indigo-500/40 font-bold">
-              {votesCount} {votesCount === 1 ? "صوت" : "أصوات"} 🗳️
-            </span>
+            <div className="mt-1">
+              <span className="px-2 py-0.5 rounded-full bg-amber-500 text-jma3a-dark font-black text-[10px] shadow-md border border-yellow-200">
+                {votesCount} {votesCount === 1 ? "صوت" : "أصوات"} 🗳️
+              </span>
+            </div>
           )}
         </div>
 
         {/* Disabled Overlay text */}
         {disabled && disabledReason && (
-          <div className="absolute inset-0 z-30 bg-black/75 flex items-center justify-center p-2 text-center">
-            <span className="text-xs font-bold text-rose-300">{disabledReason}</span>
+          <div className="absolute inset-0 z-30 bg-black/75 backdrop-blur-sm flex items-center justify-center p-2 text-center">
+            <span className="text-xs font-black text-rose-300 bg-rose-950/80 px-2.5 py-1 rounded-xl border border-rose-500/40">
+              {disabledReason}
+            </span>
           </div>
         )}
       </div>
@@ -133,12 +164,12 @@ export function KhiyalCardDisplay({
       {/* Owner tag in resolution */}
       {ownerNickname && (
         <div className="mt-1.5 text-center">
-          <span className="text-[11px] font-bold text-jma3a-sand bg-black/40 px-2.5 py-0.5 rounded-full border border-white/10">
+          <span className="text-[11px] font-black text-jma3a-sand bg-black/60 px-3 py-0.5 rounded-full border border-white/10 shadow-sm">
             @{ownerNickname}
           </span>
           {voterNicknames && voterNicknames.length > 0 && (
-            <p className="text-[10px] text-jma3a-muted mt-0.5">
-              صوّت له: {voterNicknames.join("، ")}
+            <p className="text-[10px] text-amber-300 font-semibold mt-0.5">
+              صوّتو ليه: {voterNicknames.join("، ")}
             </p>
           )}
         </div>

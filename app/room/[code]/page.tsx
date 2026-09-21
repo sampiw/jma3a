@@ -32,6 +32,8 @@ import {
   Lock,
   Eye,
   Trash2,
+  Maximize,
+  Minimize,
 } from "lucide-react";
 
 // Only Khiyal (Dixit) and DIB are active!
@@ -81,6 +83,44 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     witch: 0,
     hunter: 0,
   });
+
+  // Fullscreen Mode for mobile & web
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    sound.playCardFlip();
+    try {
+      if (!document.fullscreenElement) {
+        const docEl = document.documentElement as any;
+        if (docEl.requestFullscreen) {
+          await docEl.requestFullscreen();
+        } else if (docEl.webkitRequestFullscreen) {
+          await docEl.webkitRequestFullscreen();
+        }
+      } else {
+        const doc = document as any;
+        if (doc.exitFullscreen) {
+          await doc.exitFullscreen();
+        } else if (doc.webkitExitFullscreen) {
+          await doc.webkitExitFullscreen();
+        }
+      }
+    } catch (err) {
+      console.warn("Fullscreen toggle failed:", err);
+    }
+  };
 
   const fetchState = useCallback(async () => {
     try {
@@ -388,6 +428,18 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             </button>
 
             <button
+              onClick={toggleFullscreen}
+              className="p-2 rounded-xl bg-jma3a-surface hover:bg-jma3a-border text-jma3a-sand border border-jma3a-border transition-colors"
+              title={isFullscreen ? "الخروج من ملء الشاشة" : "ملء الشاشة 📱⚡"}
+            >
+              {isFullscreen ? (
+                <Minimize className="w-4 h-4 text-jma3a-gold" />
+              ) : (
+                <Maximize className="w-4 h-4 text-jma3a-gold" />
+              )}
+            </button>
+
+            <button
               onClick={toggleSound}
               className="p-2 rounded-xl bg-jma3a-surface hover:bg-jma3a-border text-jma3a-sand border border-jma3a-border"
             >
@@ -590,7 +642,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 onStep={handlePassStep}
                 onSelectPlayer={setActiveLocalPlayerId}
                 isHost={isHost}
-                onStartNight={() => handleGameAction({ type: "NEXT_PHASE" })}
+                onStartNight={room.selectedGameId === "dib" ? () => handleGameAction({ type: "NEXT_PHASE" }) : undefined}
               >
                 {renderActiveGameView(
                   room.selectedGameId,

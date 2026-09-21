@@ -110,7 +110,7 @@ export const KhiyalEngine: GameDefinition<KhiyalState, KhiyalAction, KhiyalSetti
         }
 
         if (actorPlayerId !== state.storytellerId) {
-          return { success: false, newState: state, newPhase: state.phase, error: "فقط الحكواتي من يمكنه تقديم التلميح" };
+          return { success: false, newState: state, newPhase: state.phase, error: "فقط مول الحجاية من يمكنه تقديم الحجاية" };
         }
 
         const hand = state.playerHands[actorPlayerId] || [];
@@ -119,7 +119,7 @@ export const KhiyalEngine: GameDefinition<KhiyalState, KhiyalAction, KhiyalSetti
         }
 
         if (!action.clue || !action.clue.trim()) {
-          return { success: false, newState: state, newPhase: state.phase, error: "يجب كتابة تلميح للبطاقة" };
+          return { success: false, newState: state, newPhase: state.phase, error: "يجب كتابة حجاية للبطاقة" };
         }
 
         // Remove card from storyteller's hand and put into submittedCards
@@ -158,7 +158,7 @@ export const KhiyalEngine: GameDefinition<KhiyalState, KhiyalAction, KhiyalSetti
         }
 
         if (actorPlayerId === state.storytellerId) {
-          return { success: false, newState: state, newPhase: state.phase, error: "الحكواتي قدم بطاقته مسبقاً" };
+          return { success: false, newState: state, newPhase: state.phase, error: "مول الحجاية حط بطاقته مسبقاً" };
         }
 
         const requiredCount = players.length === 3 ? 2 : 1;
@@ -244,7 +244,7 @@ export const KhiyalEngine: GameDefinition<KhiyalState, KhiyalAction, KhiyalSetti
         }
 
         if (actorPlayerId === state.storytellerId) {
-          return { success: false, newState: state, newPhase: state.phase, error: "الحكواتي لا يصوت في جولته" };
+          return { success: false, newState: state, newPhase: state.phase, error: "مول الحجاية لا يصوت في جولته" };
         }
 
         // A player cannot vote for their own submitted card!
@@ -583,7 +583,7 @@ function resolveRound(
     for (const p of nonStorytellers) {
       pointsDelta[p.id] += 2;
     }
-    explanation = "التلميح كان مفضوح بزاف! الكل عاق ببطاقة الحكواتي (الحكواتي: 0 نقط، والآخرون: نقطتان لكل واحد).";
+    explanation = "الحجاية كانت مفضوحة بزاف! الكل عاق ببطاقة مول الحجاية (مول الحجاية: 0 نقط، والآخرون: نقطتان لكل واحد).";
   } else if (correctVoters.length === 0) {
     caseType = "NONE_CORRECT";
     // Storyteller gets 0, all others get 2
@@ -591,7 +591,7 @@ function resolveRound(
     for (const p of nonStorytellers) {
       pointsDelta[p.id] += 2;
     }
-    explanation = "التلميح كان غامض ومستحيل! حتى حد ما عاق ببطاقة الحكواتي (الحكواتي: 0 نقط، والآخرون: نقطتان لكل واحد).";
+    explanation = "الحجاية كانت غامضة ومستحيلة! حتى حد ما عاق ببطاقة مول الحجاية (مول الحجاية: 0 نقط، والآخرون: نقطتان لكل واحد).";
   } else {
     // CASE 2: Balanced clue! Storyteller gets 3, correct guessers get 3
     caseType = "BALANCED";
@@ -599,7 +599,7 @@ function resolveRound(
     for (const voterId of correctVoters) {
       pointsDelta[voterId] += 3;
     }
-    explanation = `ضربة معلم للحكواتي! تلميح متوازن عاقو بيه ${correctVoters.length} من أصل ${totalNonStorytellers} (الحكواتي والمخمنون: 3 نقط لكل واحد).`;
+    explanation = `ضربة معلم لمول الحجاية! حجاية متوازنة عاقو بيها ${correctVoters.length} من أصل ${totalNonStorytellers} (مول الحجاية والمخمنون: 3 نقط لكل واحد).`;
   }
 
   // DECOY BONUS: Every non-storyteller earns +1 point for each vote cast on their submitted card(s)

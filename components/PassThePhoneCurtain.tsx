@@ -12,6 +12,8 @@ interface PassThePhoneCurtainProps {
   onSelectPlayer?: (playerId: string) => void;
   isHost?: boolean;
   onStartNight?: () => void;
+  onBypass?: () => void;
+  bypassLabel?: string;
   children: React.ReactNode;
 }
 
@@ -23,6 +25,8 @@ export function PassThePhoneCurtain({
   onSelectPlayer,
   isHost,
   onStartNight,
+  onBypass,
+  bypassLabel,
   children,
 }: PassThePhoneCurtainProps) {
   const handleAction = () => {
@@ -32,6 +36,8 @@ export function PassThePhoneCurtain({
     }
     onStep();
   };
+
+  const handleBypass = onBypass || onStartNight;
 
   if (isRevealed) {
     return (
@@ -57,16 +63,16 @@ export function PassThePhoneCurtain({
         </button>
 
         {/* Host bypass button at the VERY BOTTOM so no one misclicks it! */}
-        {isHost && onStartNight && (
+        {isHost && handleBypass && (
           <div className="w-full mt-4 pt-3 border-t border-white/10">
             <button
               onClick={() => {
                 sound.playCardFlip();
-                onStartNight();
+                handleBypass();
               }}
               className="w-full py-2.5 rounded-xl bg-jma3a-surface/60 hover:bg-jma3a-surface border border-jma3a-border/60 text-xs font-semibold text-jma3a-muted hover:text-jma3a-sand transition-all"
             >
-              🌙 الكل شاف دوره؟ سد الليل دابا (تخطي باقي اللاعبين)
+              {bypassLabel || "🌙 الكل شاف دوره؟ سد الليل دابا (تخطي باقي اللاعبين)"}
             </button>
           </div>
         )}

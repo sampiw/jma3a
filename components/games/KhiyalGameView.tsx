@@ -163,7 +163,7 @@ export function KhiyalGameView({
         {/* Storyteller Tag */}
         <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300 px-3 py-1 rounded-xl bg-amber-950/60 border border-amber-500/30">
           <Crown className="w-3.5 h-3.5 text-jma3a-gold" />
-          <span>الحكواتي: {storytellerPlayer?.nickname}</span>
+          <span>مول الحجاية: {storytellerPlayer?.nickname}</span>
         </div>
 
         {/* Quick Scores preview */}
@@ -179,7 +179,7 @@ export function KhiyalGameView({
       {publicData.currentClue && (
         <div className="w-full mb-6 p-4 rounded-3xl bg-gradient-to-r from-indigo-950/80 via-purple-900/60 to-indigo-950/80 border border-purple-500/40 text-center shadow-xl animate-fade-in">
           <span className="text-[11px] uppercase tracking-wider text-purple-300 font-bold block mb-1">
-            تلميح الحكواتي لهاد الجولة:
+            حجاية مول النوبة لهاد الجولة:
           </span>
           <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-jma3a-gold via-yellow-200 to-amber-300 tracking-wide">
             &ldquo;{publicData.currentClue}&rdquo;
@@ -199,17 +199,17 @@ export function KhiyalGameView({
                   <Crown className="w-7 h-7 text-jma3a-gold animate-bounce" />
                 </div>
                 <h3 className="text-xl font-black text-jma3a-sand mb-1">
-                  أنت هو الحكواتي لهاد الجولة! 🎨
+                  نوبتك دابا! أنت هو مول الحجاية 📜🎨
                 </h3>
                 <p className="text-xs text-jma3a-muted max-w-sm mx-auto leading-relaxed">
-                  عزل بطاقة واحدة من يدك واكتب عليها تلميح ذكي (مثل، أغنية، فكرة، أو إحساس).
+                  عزل بطاقة واحدة من يدك وحجي عليها بحجاية ذكية (مثل، أغنية، فكرة، أو إحساس).
                 </p>
               </div>
 
               {/* Clue Input */}
               <div className="mb-4">
                 <label className="text-xs font-bold text-jma3a-sand block mb-2">
-                  اكتب التلميح ديالك هنا:
+                  اكتب الحجاية ديالك هنا:
                 </label>
                 <div className="relative">
                   <input
@@ -245,9 +245,9 @@ export function KhiyalGameView({
               {/* Select Card From Hand */}
               <div className="mb-5">
                 <span className="text-xs font-bold text-jma3a-sand block mb-2">
-                  عزل البطاقة لي كتمثل هاد التلميح (انقر على البطاقة):
+                  عزل البطاقة لي كتمثل هاد الحجاية (انقر على البطاقة):
                 </span>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5 justify-items-center">
                   {myHand.map((cardId) => {
                     const c = getCardById(cardId);
                     if (!c) return null;
@@ -270,7 +270,7 @@ export function KhiyalGameView({
               {/* Golden Rule Tip */}
               <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200/90 leading-relaxed mb-5">
                 <span className="font-bold block mb-0.5">⚠️ تذكير بالقانون الذهبي:</span>
-                إيلا كلشي عاق ببطاقتك (ساهلة بزاف) أو حتى حد ما عاق (صعيبة بزاف) كتاخد 0 نقط! خاصك تلميح متوازن.
+                إيلا كلشي عاق ببطاقتك (ساهلة بزاف) أو حتى حد ما عاق (صعيبة بزاف) كتاخد 0 نقط! خاصك حجاية متوازنة وفنانة.
               </div>
 
               {/* Submit CTA */}
@@ -292,7 +292,7 @@ export function KhiyalGameView({
                 }`}
               >
                 <Send className="w-5 h-5" />
-                <span>تأكيد البطاقة والتلميح 🚀</span>
+                <span>تأكيد البطاقة والحجاية 🚀</span>
               </button>
             </div>
           ) : (
@@ -301,10 +301,10 @@ export function KhiyalGameView({
                 <Clock className="w-7 h-7 text-indigo-400 animate-spin-slow" />
               </div>
               <h3 className="text-xl font-bold text-jma3a-sand mb-2">
-                كنتسناو الحكواتي: @{storytellerPlayer?.nickname}
+                كنتسناو مول الحجاية: @{storytellerPlayer?.nickname}
               </h3>
               <p className="text-xs text-jma3a-muted mb-6 leading-relaxed max-w-sm mx-auto">
-                الحكواتي كيتأمل فبطاقاته وكيوجد ليكم تلميح سريالي فنان... ركز فبطاقات يدك لتحت!
+                مول الحجاية كيتأمل فبطاقاته وكيوجد ليكم حجاية سريالية واعرة... ركز فبطاقات يدك لتحت!
               </p>
 
               {/* Hand preview while waiting */}
@@ -312,7 +312,7 @@ export function KhiyalGameView({
                 <span className="text-xs font-bold text-jma3a-sand block mb-3">
                   بطاقات يدك (Hand):
                 </span>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5 justify-items-center">
                   {myHand.map((cardId) => {
                     const c = getCardById(cardId);
                     if (!c) return null;
@@ -345,7 +345,7 @@ export function KhiyalGameView({
                 اللاعبون كيعزلو بطاقاتهم التضليلية 🃏
               </h3>
               <p className="text-xs text-jma3a-muted mb-4">
-                كل واحد كيقلب فبطاقاتو على أقرب كارتة للتلميح ديالك باش يدوخ الجماعة!
+                كل واحد كيقلب فبطاقاتو على أقرب كارتة للحجاية ديالك باش يدوخ الجماعة!
               </p>
 
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-jma3a-surface border border-white/10 text-sm font-bold text-jma3a-gold">
@@ -373,10 +373,10 @@ export function KhiyalGameView({
                 عزل {requiredCards} {requiredCards === 2 ? "بطاقتين" : "بطاقة واحدة"} من يدك:
               </h3>
               <p className="text-xs text-jma3a-muted mb-4 leading-relaxed">
-                اختار البطاقة لي كتحس أنها كتشبه لتلميح الحكواتي (&ldquo;{publicData.currentClue}&rdquo;) باش الناس يغلطو ويصوتو عليها وتربح نقاط إضافية!
+                اختار البطاقة لي كتحس أنها كتشبه لحجاية مول النوبة (&ldquo;{publicData.currentClue}&rdquo;) باش الناس يغلطو ويصوتو عليها وتربح نقاط إضافية!
               </p>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5 justify-items-center mb-5">
                 {myHand.map((cardId) => {
                   const c = getCardById(cardId);
                   if (!c) return null;
@@ -444,7 +444,7 @@ export function KhiyalGameView({
                 البطاقات معروضة والناس كيصوتو دابا! 👀
               </h3>
               <p className="text-xs text-jma3a-muted mb-4">
-                واش تلميحك كان ذكي بما يكفي؟ كنتسناو نتائج التصويت...
+                واش حجايتك كانت ذكية بما يكفي؟ كنتسناو نتائج التصويت...
               </p>
 
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-jma3a-surface border border-white/10 text-sm font-bold text-jma3a-gold">
@@ -469,14 +469,14 @@ export function KhiyalGameView({
           ) : (
             <div className="w-full p-4 sm:p-6 rounded-3xl bg-jma3a-card border border-jma3a-border text-right shadow-xl">
               <h3 className="text-lg font-black text-jma3a-sand mb-1">
-                شكون هي بطاقة الحكواتي؟ 🗳️
+                شكون هي بطاقة مول الحجاية؟ 🗳️
               </h3>
               <p className="text-xs text-jma3a-muted mb-4">
-                تأمل فالبطاقات وصوت على البطاقة الأصلية ديال التلميح &ldquo;{publicData.currentClue}&rdquo;! (ممنوع تصوت على كارتتك).
+                تأمل فالبطاقات وصوت على البطاقة الأصلية ديال مول الحجاية &ldquo;{publicData.currentClue}&rdquo;! (ممنوع تصوت على كارتتك).
               </p>
 
               {/* Table Cards Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5 justify-items-center mb-5">
                 {(publicData.tableCards || []).map((tc: any) => {
                   const c = getCardById(tc.cardId);
                   if (!c) return null;
@@ -545,10 +545,10 @@ export function KhiyalGameView({
             </div>
             <h3 className="text-xl font-black mb-1">
               {publicData.lastRoundResult.caseType === "BALANCED"
-                ? "ضربة معلم للحكواتي! 🎯"
+                ? "ضربة معلم لمول الحجاية! 🎯"
                 : publicData.lastRoundResult.caseType === "ALL_CORRECT"
-                ? "التلميح كان مفضوح بزاف! 🙈"
-                : "التلميح كان غامض ومستحيل! 🌫️"}
+                ? "الحجاية كانت مفضوحة وساهلة بزاف! 🙈"
+                : "الحجاية كانت غامضة ومستحيلة! 🌫️"}
             </h3>
             <p className="text-xs leading-relaxed max-w-md mx-auto">
               {publicData.lastRoundResult.explanation}
@@ -560,7 +560,7 @@ export function KhiyalGameView({
             <h4 className="text-xs font-bold text-jma3a-sand mb-3">
               كشف أصحاب البطاقات والأصوات:
             </h4>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5 justify-items-center">
               {(publicData.lastRoundResult.cardsOnTable || []).map((cardInfo: any, idx: number) => {
                 const c = getCardById(cardInfo.cardId);
                 if (!c) return null;
@@ -583,7 +583,7 @@ export function KhiyalGameView({
                     <div className="mt-1">
                       {cardInfo.isStoryteller ? (
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-jma3a-gold/20 text-jma3a-gold font-bold border border-jma3a-gold/30">
-                          +{cardInfo.pointsEarned} نقط للحكواتي
+                          +{cardInfo.pointsEarned} نقط لمول الحجاية
                         </span>
                       ) : cardInfo.decoyBonus > 0 ? (
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 font-bold border border-indigo-500/30">
@@ -644,21 +644,39 @@ export function KhiyalGameView({
       {/* --------------------------------------------------------------- */}
       {inspectingCard && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fadeIn"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-fadeIn"
           onClick={() => setInspectingCardId(null)}
         >
           <div
-            className="relative max-w-sm w-full"
+            className="relative max-w-sm w-full flex flex-col items-center max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              onClick={() => setInspectingCardId(null)}
-              className="absolute -top-12 left-0 p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-            >
-              <X className="w-6 h-6" />
-            </button>
+            <div className="w-full flex justify-end mb-2">
+              <button
+                onClick={() => setInspectingCardId(null)}
+                className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                title="إغلاق"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
             <KhiyalCardDisplay card={inspectingCard} size="lg" />
+
+            {/* Poetic Darija artistic story & theme */}
+            <div className="w-full mt-3 p-3.5 rounded-2xl bg-black/75 border border-white/15 backdrop-blur-md text-right shadow-2xl">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-black text-amber-300">
+                  {inspectingCard.title}
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/75 font-mono">
+                  #{inspectingCard.visualTheme}
+                </span>
+              </div>
+              <p className="text-xs text-jma3a-sand/90 leading-relaxed font-medium">
+                {inspectingCard.description}
+              </p>
+            </div>
           </div>
         </div>
       )}

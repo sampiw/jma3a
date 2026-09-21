@@ -262,3 +262,23 @@ export function getCardById(id: string): KhiyalCard | undefined {
 export function getAllCardIds(): string[] {
   return KHIYAL_CARDS.map((c) => c.id);
 }
+
+const AVAILABLE_ARTWORKS: Record<string, string> = {
+  khiyal_01: "/cards/khiyal/khiyal_01.jpg",
+  khiyal_02: "/cards/khiyal/khiyal_02.jpg",
+  khiyal_03: "/cards/khiyal/khiyal_03.jpg",
+  khiyal_04: "/cards/khiyal/khiyal_04.jpg",
+  khiyal_05: "/cards/khiyal/khiyal_05.jpg",
+  khiyal_06: "/cards/khiyal/khiyal_06.jpg",
+  khiyal_10: "/cards/khiyal/khiyal_10.jpg",
+};
+
+const ARTWORK_POOL = Object.values(AVAILABLE_ARTWORKS);
+
+export function getCardImageUrl(cardId: string): string {
+  if (AVAILABLE_ARTWORKS[cardId]) {
+    return AVAILABLE_ARTWORKS[cardId];
+  }
+  const num = parseInt(cardId.replace(/\D/g, ""), 10) || 1;
+  return ARTWORK_POOL[(num - 1) % ARTWORK_POOL.length];
+}

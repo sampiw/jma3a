@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { KhiyalEngine } from "@/games/khiyal/engine";
+import { getCardImageUrl, KHIYAL_CARDS } from "@/games/khiyal/cards";
 import { Player } from "@/lib/types";
 import { KhiyalSettings, KhiyalState } from "@/games/khiyal/types";
 
@@ -324,4 +325,29 @@ describe("Khiyal (Dixit) Game Engine", () => {
     expect(finished?.isFinished).toBe(true);
     expect(finished?.winner?.players).toContain("p_2");
   });
+
+  it("maps every Khiyal card to a valid artwork URL from public/cards/khiyal", () => {
+    expect(KHIYAL_CARDS.length).toBeGreaterThanOrEqual(30);
+    for (const card of KHIYAL_CARDS) {
+      const url = getCardImageUrl(card.id);
+      expect(url).toBeDefined();
+      expect(url).toMatch(/^\/cards\/khiyal\/khiyal_\d+\.jpg$/);
+    }
+  });
+
+  it("ensures authentic Moroccan Darija terminology (مول الحجاية) is used without الحكواتي", () => {
+    const players = makePlayers(4);
+    const ctx = makeContext(players);
+
+    // Non-storyteller trying to submit clue
+    const illegalClue = KhiyalEngine.handleAction(ctx, "p_2", {
+      type: "SUBMIT_CLUE",
+      cardId: "khiyal_01",
+      clue: "test",
+    });
+    expect(illegalClue.success).toBe(false);
+    expect(illegalClue.error).toContain("مول الحجاية");
+    expect(illegalClue.error).not.toContain("الحكواتي");
+  });
 });
+
