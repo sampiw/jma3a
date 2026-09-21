@@ -11,6 +11,7 @@ import { ChkonFinaGameView } from "@/components/games/ChkonFinaGameView";
 import { MettelhaGameView } from "@/components/games/MettelhaGameView";
 import { Mamnou3GameView } from "@/components/games/Mamnou3GameView";
 import { MissionSirriyaGameView } from "@/components/games/MissionSirriyaGameView";
+import { KhiyalGameView } from "@/components/games/KhiyalGameView";
 import { getRecommendedRoleDistribution } from "@/games/dib/engine";
 import { sound } from "@/lib/sound";
 import {
@@ -33,8 +34,12 @@ import {
   Trash2,
 } from "lucide-react";
 
+// Only Khiyal (Dixit) and DIB are active!
+const ACTIVE_GAMES: GameId[] = ["khiyal", "dib"];
+
 const GAME_NAMES: Record<GameId, string> = {
-  dib: "الذيب (DIB)",
+  khiyal: "خيال (Dixit) 🎨✨",
+  dib: "الذيب (DIB) 🐺",
   intrus: "الدخيل (L'Intrus)",
   "chkon-fina": "شكون فينا؟",
   mettelha: "مثلها (Mettelha)",
@@ -669,7 +674,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             </p>
 
             <div className="space-y-2">
-              {(Object.keys(GAME_NAMES) as GameId[]).map((gId) => (
+              {ACTIVE_GAMES.map((gId) => (
                 <button
                   key={gId}
                   onClick={() => handleSwitchGame(gId)}
@@ -905,6 +910,20 @@ function renderActiveGameView(
   isPassThePhoneActive?: boolean
 ) {
   switch (gameId) {
+    case "khiyal":
+      return (
+        <KhiyalGameView
+          publicData={publicData}
+          privateData={privateData}
+          isHost={isHost}
+          onAction={onAction}
+          players={players}
+          activePlayerId={activePlayerId}
+          devicePlayers={devicePlayers}
+          onSelectPlayer={onSelectPlayer}
+          isPassThePhoneActive={isPassThePhoneActive}
+        />
+      );
     case "dib":
       return (
         <DibGameView

@@ -5,8 +5,10 @@ import { ChkonFinaEngine } from "./chkon-fina/engine";
 import { MettelhaEngine } from "./mettelha/engine";
 import { Mamnou3Engine } from "./mamnou3/engine";
 import { MissionSirriyaEngine } from "./mission-sirriya/engine";
+import { KhiyalEngine } from "./khiyal/engine";
 
-// Register all 6 V1 production games
+// Register all production games
+registerGame(KhiyalEngine);
 registerGame(DibEngine);
 registerGame(IntrusEngine);
 registerGame(ChkonFinaEngine);
@@ -17,6 +19,7 @@ registerGame(MissionSirriyaEngine);
 export {
   getGameDefinition,
   getAllGameDefinitions,
+  KhiyalEngine,
   DibEngine,
   IntrusEngine,
   ChkonFinaEngine,

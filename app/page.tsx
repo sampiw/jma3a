@@ -4,11 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { sound } from "@/lib/sound";
 import { DibWolfIcon } from "@/components/icons/DibWolfIcon";
-import { IntrusEyeIcon } from "@/components/icons/IntrusEyeIcon";
-import { ChkonFinaIcon } from "@/components/icons/ChkonFinaIcon";
-import { MettelhaIcon } from "@/components/icons/MettelhaIcon";
-import { Mamnou3Icon } from "@/components/icons/Mamnou3Icon";
-import { MissionIcon } from "@/components/icons/MissionIcon";
+import { KhiyalIcon } from "@/components/icons/KhiyalIcon";
 import {
   Volume2,
   VolumeX,
@@ -37,70 +33,26 @@ interface GameInfo {
 
 const GAMES: GameInfo[] = [
   {
+    id: "khiyal",
+    title: "خيال (Dixit)",
+    tagline: "لعبة التلميح السريالي والخيال الراقي 🎨✨",
+    description: "عزل بطاقة فنية وعطي تلميح ذكي: لا مفضوح بزاف لا غامض بزاف! صوت ودوخ صحابك فالخيال.",
+    players: "3-12 لاعب",
+    duration: "15-25 دقيقة",
+    modes: ["كل واحد بتليفونو", "تليفون واحد"],
+    icon: <KhiyalIcon className="w-14 h-14" />,
+    badgeColor: "from-purple-600/30 to-indigo-950/40 border-purple-500/40 text-purple-300",
+  },
+  {
     id: "dib",
     title: "الذيب (DIB)",
-    tagline: "لعبة الذئب البشري والمكر",
+    tagline: "لعبة الذئب البشري والمكر 🐺",
     description: "الذيابة كياكلو بالليل، والقرية خاصها تكتاشفهم بالنهار قبل ما يقضيو على كولشي!",
     players: "4-18 لاعب",
     duration: "15-30 دقيقة",
     modes: ["كل واحد بتليفونو", "تليفون واحد"],
     icon: <DibWolfIcon className="w-14 h-14" />,
     badgeColor: "from-rose-600/30 to-rose-950/40 border-rose-500/40 text-rose-300",
-  },
-  {
-    id: "intrus",
-    title: "الدخيل (L'Intrus)",
-    tagline: "كلمة سرية ودخيل كيتصنت",
-    description: "الكل عندو نفس الكلمة من غير واحد 'دخيل'. قولو تلميحات ذكية باش تفرشوه بلا ما تعطيوه الكلمة!",
-    players: "3-16 لاعب",
-    duration: "10-20 دقيقة",
-    modes: ["كل واحد بتليفونو", "تليفون واحد"],
-    icon: <IntrusEyeIcon className="w-14 h-14" />,
-    badgeColor: "from-emerald-600/30 to-emerald-950/40 border-emerald-500/40 text-emerald-300",
-  },
-  {
-    id: "chkon-fina",
-    title: "شكون فينا؟",
-    tagline: "أكثر واحد قادر يديرها",
-    description: "سؤال كيبين شكون فالمجموعة عندو هاد الصفة. صوتو فسرية وشوفو النتائج الصادمة!",
-    players: "3-20 لاعب",
-    duration: "10-15 دقيقة",
-    modes: ["كل واحد بتليفونو", "تليفون واحد"],
-    icon: <ChkonFinaIcon className="w-14 h-14" />,
-    badgeColor: "from-amber-600/30 to-amber-950/40 border-amber-500/40 text-amber-300",
-  },
-  {
-    id: "mettelha",
-    title: "مثلها (Mettelha)",
-    tagline: "شخصيات ومواقف بالحركات فقط",
-    description: "مثل الكلمة ولا الموقف لفرقتك بلا ما تنطق بحتى حرف. السرعة والنقاط كيحسمو!",
-    players: "2-20 لاعب",
-    duration: "15-25 دقيقة",
-    modes: ["تليفون واحد", "فرق"],
-    icon: <MettelhaIcon className="w-14 h-14" />,
-    badgeColor: "from-orange-600/30 to-orange-950/40 border-orange-500/40 text-orange-300",
-  },
-  {
-    id: "mamnou3",
-    title: "ممنوع (Mamnou3)",
-    tagline: "شرح الكلمة بلا ما تنطق بالممنوعات",
-    description: "خلي فرقتك تعيق بالكلمة الرئيسية، ولكن حذاري من الكلمات الممنوعة فالكارتة!",
-    players: "2-20 لاعب",
-    duration: "15-25 دقيقة",
-    modes: ["تليفون واحد", "فرق"],
-    icon: <Mamnou3Icon className="w-14 h-14" />,
-    badgeColor: "from-red-600/30 to-red-950/40 border-red-500/40 text-red-300",
-  },
-  {
-    id: "mission-sirriya",
-    title: "مهمة سرية",
-    tagline: "تحديات خفية وسط الجماعة",
-    description: "كل لاعب كياخد مهمة اجتماعية سرية خاصة ينفذها فالجلسة بلا ما يعيق بيه حد!",
-    players: "3-20 لاعب",
-    duration: "15-30 دقيقة",
-    modes: ["كل واحد بتليفونو", "تليفون واحد"],
-    icon: <MissionIcon className="w-14 h-14" />,
-    badgeColor: "from-indigo-600/30 to-indigo-950/40 border-indigo-500/40 text-indigo-300",
   },
 ];
 
@@ -112,7 +64,7 @@ export default function HomePage() {
 
   // Create room modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<GameId>("dib");
+  const [selectedGame, setSelectedGame] = useState<GameId>("khiyal");
   const [hostNickname, setHostNickname] = useState("");
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("MULTI_PHONE");
   const [isCreating, setIsCreating] = useState(false);
