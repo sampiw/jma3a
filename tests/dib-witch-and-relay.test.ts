@@ -621,7 +621,7 @@ describe("DIB: Classic Rules Configuration", () => {
 
     // Wolf 2 view BEFORE unlocking
     const wolf2LockedView = DibEngine.getPlayerView(ctx, "p_2");
-    expect(wolf2LockedView.privateData.relay.privacyUnlocked).toBe(false);
+    expect(wolf2LockedView.privateData.relay).toMatchObject({ privacyUnlocked: false });
     expect(wolf2LockedView.privateData.currentWolfVotes).toEqual({ p_1: "p_6" });
 
     // Wolf 2 unlocks and sees Wolf 1's vote!

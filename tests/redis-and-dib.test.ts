@@ -44,8 +44,7 @@ describe("RoomStore Persistence & DIB Pass Mode", () => {
     const relayState = await store2.getAuthorizedState(room.code, token1);
     expect(relayState?.room.gameView?.publicData.phase).toBe("NIGHT_RELAY_PRIMARY");
     expect(relayState?.room.gameView?.publicData.relay).toBeDefined();
-    expect(relayState?.room.gameView?.publicData.relay?.pass).toBe("PRIMARY");
-    expect(relayState?.room.gameView?.publicData.relay?.turnIndex).toBe(0);
+    expect(relayState?.room.gameView?.publicData.relay).toMatchObject({ pass: "PRIMARY", turnIndex: 0 });
 
     // 6. Unlock turn and advance in relay
     const unlockRes = await store1.dispatchAction(room.code, token1, { type: "RELAY_UNLOCK" });
@@ -53,6 +52,6 @@ describe("RoomStore Persistence & DIB Pass Mode", () => {
     const finishRes = await store1.dispatchAction(room.code, token1, { type: "RELAY_FINISH_TURN" });
     expect(finishRes.success).toBe(true);
     const nextTurnState = await store2.getAuthorizedState(room.code, token1);
-    expect(nextTurnState?.room.gameView?.publicData.relay?.turnIndex).toBe(1);
+    expect(nextTurnState?.room.gameView?.publicData.relay).toMatchObject({ turnIndex: 1 });
   }, 60000);
 });

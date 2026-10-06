@@ -6,12 +6,12 @@ import { AuthorizedGameState, GameId, DevicePlayerInfo } from "@/lib/types";
 import { QRCodeModal } from "@/components/QRCodeModal";
 import { PassThePhoneCurtain } from "@/components/PassThePhoneCurtain";
 import { DibGameView } from "@/components/games/DibGameView";
+import { DibNightTimer } from "@/components/games/DibNightTimer";
 import { IntrusGameView } from "@/components/games/IntrusGameView";
 import { ChkonFinaGameView } from "@/components/games/ChkonFinaGameView";
 import { MettelhaGameView } from "@/components/games/MettelhaGameView";
 import { Mamnou3GameView } from "@/components/games/Mamnou3GameView";
 import { MissionSirriyaGameView } from "@/components/games/MissionSirriyaGameView";
-import { KhiyalGameView } from "@/components/games/KhiyalGameView";
 import { getRecommendedRoleDistribution } from "@/games/dib/engine";
 import { sound } from "@/lib/sound";
 import {
@@ -36,11 +36,10 @@ import {
   Minimize,
 } from "lucide-react";
 
-// Only Khiyal (Dixit) and DIB are active!
-const ACTIVE_GAMES: GameId[] = ["khiyal", "dib"];
+// Only DIB is active!
+const ACTIVE_GAMES: GameId[] = ["dib"];
 
 const GAME_NAMES: Record<GameId, string> = {
-  khiyal: "خيال (Dixit) 🎨✨",
   dib: "الذيب (DIB) 🐺",
   intrus: "الدخيل (L'Intrus)",
   "chkon-fina": "شكون فينا؟",
@@ -64,6 +63,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [switchModalOpen, setSwitchModalOpen] = useState(false);
   const [addLocalModalOpen, setAddLocalModalOpen] = useState(false);
   const [rolesModalOpen, setRolesModalOpen] = useState(false);
+  const [savingRoles, setSavingRoles] = useState(false);
+  const [rolesError, setRolesError] = useState("");
   const [localPlayerNick, setLocalPlayerNick] = useState("");
   const [actionError, setActionError] = useState("");
 
@@ -168,6 +169,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   useEffect(() => {
     const devPlayers = gameState?.devicePlayers || (gameState?.player ? [gameState.player] : []);
 
+    const gameData = gameState?.room?.gameView?.publicData;
+    const shooterId = gameData?.phase === "REACTION_QUEUE" ? gameData.currentShooterId : undefined;
+    if (typeof shooterId === "string" && devPlayers.some((p) => p.id === shooterId)) {
+      if (activeLocalPlayerId !== shooterId) setActiveLocalPlayerId(shooterId);
+      return;
+    }
+
     // 1. Check DIB One-Phone relay turn
     const relayTurnId = (gameState?.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId;
     if (relayTurnId && devPlayers.some((p) => p.id === relayTurnId)) {
@@ -195,6 +203,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       setActiveLocalPlayerId(gameState.player.id);
     }
   }, [
+    gameState?.room?.gameView?.publicData.phase,
+    gameState?.room?.gameView?.publicData.currentShooterId,
     (gameState?.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId,
     gameState?.passThePhone?.currentPlayerId,
     gameState?.devicePlayers,
@@ -202,8 +212,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     activeLocalPlayerId,
   ]);
 
-  // Sync custom roles initial state with room settings or player count
-  useEffect(() => {
+  // Take a snapshot when opening: polling must never overwrite an in-progress draft.
+  const handleOpenCustomRoles = () => {
     if (gameState?.room) {
       const currentSettings = (gameState.room.settings.gameSettings as any)?.customRoles;
       if (currentSettings) {
@@ -224,7 +234,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         });
       }
     }
-  }, [gameState?.room?.players.length, gameState?.room?.settings]);
+    setRolesError("");
+    setRolesModalOpen(true);
+  };
 
   const toggleSound = () => {
     sound.isMuted = !isMuted;
@@ -311,10 +323,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   };
 
   const handleSaveCustomRoles = async () => {
+    if (savingRoles) return;
     sound.playCardFlip();
-    setRolesModalOpen(false);
+    setSavingRoles(true);
+    setRolesError("");
     try {
-      await fetch(`/api/rooms/${roomCode}/settings`, {
+      const res = await fetch(`/api/rooms/${roomCode}/settings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -323,21 +337,44 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           },
         }),
       });
-      fetchState();
-    } catch {}
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setRolesError(data.error || "تعذر حفظ التشكيلة");
+        return;
+      }
+      await fetchState();
+      setRolesModalOpen(false);
+    } catch {
+      setRolesError("خطأ فالشبكة. حاول تحفظ مرة أخرى.");
+    } finally {
+      setSavingRoles(false);
+    }
   };
 
   const handleGameAction = async (action: any, targetPlayerId?: string) => {
-    sound.playCardFlip();
+    if (action.type !== "NIGHT_TIMER_EXPIRED") sound.playCardFlip();
     const actorId = targetPlayerId || activeLocalPlayerId || gameState?.player?.id;
     try {
-      await fetch(`/api/rooms/${roomCode}/action`, {
+      const res = await fetch(`/api/rooms/${roomCode}/action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, targetPlayerId: actorId }),
       });
-      fetchState();
-    } catch {}
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        if (action.type !== "NIGHT_TIMER_EXPIRED") {
+          setActionError(data.error || "تعذر تنفيذ الحركة");
+        }
+        await fetchState();
+        return false;
+      }
+      setActionError("");
+      await fetchState();
+      return true;
+    } catch {
+      if (action.type !== "NIGHT_TIMER_EXPIRED") setActionError("خطأ فالشبكة. حاول مرة أخرى.");
+      return false;
+    }
   };
 
   const handlePassStep = async () => {
@@ -371,8 +408,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   // In One-Phone mode (relay or passThePhone), automatically focus the player whose turn it is
   const relayTurnPlayerId = (gameState.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId;
   const passCurtainPlayerId = gameState.passThePhone?.currentPlayerId;
+  const hunterTurnPlayerId = room.gameView?.phase === "REACTION_QUEUE"
+    ? room.gameView.publicData.currentShooterId : undefined;
   const activeTurnPlayerId =
-    (relayTurnPlayerId && myDevicePlayers.some((p) => p.id === relayTurnPlayerId))
+    (typeof hunterTurnPlayerId === "string" && myDevicePlayers.some((p) => p.id === hunterTurnPlayerId))
+      ? hunterTurnPlayerId
+      : (relayTurnPlayerId && myDevicePlayers.some((p) => p.id === relayTurnPlayerId))
       ? relayTurnPlayerId
       : (passCurtainPlayerId && myDevicePlayers.some((p) => p.id === passCurtainPlayerId))
       ? passCurtainPlayerId
@@ -513,7 +554,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               <h2 className="text-2xl font-black text-jma3a-gold mb-3">{GAME_NAMES[room.selectedGameId]}</h2>
 
               <div className="flex flex-wrap justify-center gap-2">
-                {isHost && (
+                {isHost && ACTIVE_GAMES.length > 1 && (
                   <button
                     onClick={() => setSwitchModalOpen(true)}
                     className="px-3.5 py-2 rounded-xl bg-jma3a-surface hover:bg-jma3a-border border border-jma3a-border text-xs font-bold text-jma3a-sand flex items-center gap-1.5 transition-all"
@@ -526,7 +567,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 {/* DIB Custom Characters Button */}
                 {isHost && room.selectedGameId === "dib" && (
                   <button
-                    onClick={() => setRolesModalOpen(true)}
+                    onClick={handleOpenCustomRoles}
                     className="px-3.5 py-2 rounded-xl bg-jma3a-surface hover:bg-jma3a-border border border-jma3a-border text-xs font-bold text-jma3a-sand flex items-center gap-1.5 transition-all"
                   >
                     <Settings2 className="w-3.5 h-3.5 text-jma3a-gold" />
@@ -633,6 +674,19 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         {/* VIEW 2: ACTIVE GAME */}
         {!isLobby && room.gameView && (
           <div className="w-full py-2 flex-1">
+            {actionError && (
+              <div role="alert" className="mx-auto mb-3 max-w-md rounded-xl border border-rose-500/40 bg-rose-950/40 p-3 text-sm text-rose-300">
+                {actionError}
+              </div>
+            )}
+            {room.selectedGameId === "dib" && (
+              <DibNightTimer
+                phase={room.gameView.phase}
+                timer={room.gameView.timer}
+                isHost={isHost}
+                onElapsed={handleGameAction}
+              />
+            )}
             {/* If ONE_PHONE mode and private step is active: Wrap in curtain! */}
             {isOnePhone && passThePhone && (
               <PassThePhoneCurtain
@@ -786,6 +840,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           <div className="relative w-full max-w-sm rounded-3xl border border-jma3a-border bg-jma3a-card p-6 shadow-2xl text-right">
             <button
               onClick={() => setRolesModalOpen(false)}
+              disabled={savingRoles}
               className="absolute top-4 left-4 p-2 rounded-full text-jma3a-muted hover:text-white bg-jma3a-surface"
             >
               <X className="w-5 h-5" />
@@ -907,11 +962,15 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               </div>
             </div>
 
+            {rolesError && (
+              <p role="alert" className="mb-3 text-sm text-rose-300">{rolesError}</p>
+            )}
             <button
               onClick={handleSaveCustomRoles}
-              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold text-sm shadow-md active:scale-95 transition-all"
+              disabled={savingRoles}
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold text-sm shadow-md active:scale-95 transition-all disabled:opacity-50"
             >
-              حفظ التشكيلة
+              {savingRoles ? "جاري الحفظ..." : "حفظ التشكيلة"}
             </button>
           </div>
         </div>
@@ -962,20 +1021,6 @@ function renderActiveGameView(
   isPassThePhoneActive?: boolean
 ) {
   switch (gameId) {
-    case "khiyal":
-      return (
-        <KhiyalGameView
-          publicData={publicData}
-          privateData={privateData}
-          isHost={isHost}
-          onAction={onAction}
-          players={players}
-          activePlayerId={activePlayerId}
-          devicePlayers={devicePlayers}
-          onSelectPlayer={onSelectPlayer}
-          isPassThePhoneActive={isPassThePhoneActive}
-        />
-      );
     case "dib":
       return (
         <DibGameView

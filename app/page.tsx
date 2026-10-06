@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { sound } from "@/lib/sound";
 import { DibWolfIcon } from "@/components/icons/DibWolfIcon";
-import { KhiyalIcon } from "@/components/icons/KhiyalIcon";
 import {
   Volume2,
   VolumeX,
@@ -33,17 +32,6 @@ interface GameInfo {
 
 const GAMES: GameInfo[] = [
   {
-    id: "khiyal",
-    title: "خيال (Dixit)",
-    tagline: "لعبة التلميح السريالي والخيال الراقي 🎨✨",
-    description: "عزل بطاقة فنية وعطي تلميح ذكي: لا مفضوح بزاف لا غامض بزاف! صوت ودوخ صحابك فالخيال.",
-    players: "3-12 لاعب",
-    duration: "15-25 دقيقة",
-    modes: ["كل واحد بتليفونو", "تليفون واحد"],
-    icon: <KhiyalIcon className="w-14 h-14" />,
-    badgeColor: "from-purple-600/30 to-indigo-950/40 border-purple-500/40 text-purple-300",
-  },
-  {
     id: "dib",
     title: "الذيب (DIB)",
     tagline: "لعبة الذئب البشري والمكر 🐺",
@@ -64,7 +52,7 @@ export default function HomePage() {
 
   // Create room modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<GameId>("khiyal");
+  const [selectedGame, setSelectedGame] = useState<GameId>("dib");
   const [hostNickname, setHostNickname] = useState("");
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("MULTI_PHONE");
   const [isCreating, setIsCreating] = useState(false);
@@ -212,11 +200,11 @@ export default function HomePage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-2xl font-black text-jma3a-sand">شنو غادي نلعبو اليوم؟</h2>
-            <p className="text-xs text-jma3a-muted">6 ألعاب جماعية أصلية واجدة للعب مباشرة</p>
+            <p className="text-xs text-jma3a-muted">لعبة الذئب البشري والمكر للأصدقاء والعائلة</p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="max-w-xl mx-auto">
           {GAMES.map((game) => (
             <div
               key={game.id}

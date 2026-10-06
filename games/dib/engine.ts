@@ -1079,6 +1079,10 @@ export const DibEngine: GameDefinition<DibState, DibAction, DibSettings> = {
   },
 
   checkFinished(ctx: GameContext<DibState, DibSettings>): GameEndResult | null {
+    // A dying hunter can still change the winner, including chained shots.
+    if (ctx.state.phase === "REACTION_QUEUE" || ctx.state.pendingReactions.length > 0) {
+      return null;
+    }
     const winner = determineWinner(ctx.state.playerStates);
     if (winner) {
       return {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { RoomStore } from "@/lib/rooms/store";
+import type { ResolutionSummary } from "@/games/dib/engine";
 
 describe("DIB v2 Features & Hybrid Multi-Device Logic", () => {
   it("allows non-host to add local players, isolates device secrets, supports custom roles and player removal", async () => {
@@ -111,7 +112,8 @@ describe("DIB v2 Features & Hybrid Multi-Device Logic", () => {
     await store.dispatchAction(room.code, hostToken, { type: "NEXT_PHASE" });
     const dayAnnounceState = await store.getAuthorizedState(room.code, hostToken);
     expect(dayAnnounceState?.room.gameView?.publicData.phase).toBe("DAY_ANNOUNCEMENT");
-    expect(dayAnnounceState?.room.gameView?.publicData.lastResolution?.deaths.length).toBe(1);
-    expect(dayAnnounceState?.room.gameView?.publicData.lastResolution?.deaths[0].playerId).toBe(nonWolf.playerId);
+    const resolution = dayAnnounceState?.room.gameView?.publicData.lastResolution as ResolutionSummary | undefined;
+    expect(resolution?.deaths.length).toBe(1);
+    expect(resolution?.deaths[0].playerId).toBe(nonWolf.playerId);
   }, 45000);
 });

@@ -487,6 +487,24 @@ export class RoomStore {
 
     if (!actor) return { success: false, error: "Player not authorized" };
 
+    if (action.type === "NIGHT_TIMER_EXPIRED") {
+      const host = room.players.find((p) => p.id === room.hostPlayerId);
+      if (host?.deviceSessionId !== sessionToken) {
+        return { success: false, error: "Only host can advance the night timer" };
+      }
+      if (
+        session.gameId !== "dib" ||
+        !["NIGHT_INTRO", "NIGHT_SEER", "NIGHT_WOLVES", "NIGHT_WITCH"].includes(session.phase) ||
+        action.phase !== session.phase ||
+        !session.timer || session.timer.isPaused ||
+        action.endsAt !== session.timer.endsAt ||
+        Date.now() < session.timer.endsAt
+      ) {
+        return { success: false, error: "Night timer is not ready or has changed" };
+      }
+      action = { type: "NEXT_PHASE" };
+    }
+
     const ctx = {
       roomId: room.code,
       players: room.players,
@@ -523,9 +541,17 @@ export class RoomStore {
         durationMs: result.timerDurationMs,
         isPaused: false,
       };
+    } else if (result.newPhase !== ctx.phase) {
+      session.timer = undefined;
     }
 
-    const endCheck = gameDef.checkFinished(ctx);
+    const endCheck = gameDef.checkFinished({
+      ...ctx,
+      state: session.state,
+      phase: session.phase,
+      round: session.round,
+      stateVersion: session.stateVersion,
+    });
     if (endCheck?.isFinished) {
       room.status = "FINISHED";
     }

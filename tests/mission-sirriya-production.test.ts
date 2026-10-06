@@ -142,7 +142,7 @@ describe("Mission Sirriya Ambient Engine & Production Features", () => {
       players,
       state,
       settings: {
-        preset: "quick",
+        preset: "quick" as const,
         missionsPerPlayer: 3,
         successesToWin: 2,
         initialChallengeTokens: 1,
