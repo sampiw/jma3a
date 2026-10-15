@@ -7,7 +7,7 @@ import { QRCodeModal } from "@/components/QRCodeModal";
 import { PassThePhoneCurtain } from "@/components/PassThePhoneCurtain";
 import { DibGameView } from "@/components/games/DibGameView";
 import { DibNightTimer } from "@/components/games/DibNightTimer";
-import { MawjaGameView } from "@/components/games/MawjaGameView";
+import { GhammadaGameView } from "@/components/games/GhammadaGameView";
 import { IntrusGameView } from "@/components/games/IntrusGameView";
 import { ChkonFinaGameView } from "@/components/games/ChkonFinaGameView";
 import { MettelhaGameView } from "@/components/games/MettelhaGameView";
@@ -37,11 +37,11 @@ import {
   Minimize,
 } from "lucide-react";
 
-// Active flagship games: Mawja & DIB
-const ACTIVE_GAMES: GameId[] = ["mawja", "dib"];
+// Active flagship games: Ghammada 3D & DIB
+const ACTIVE_GAMES: GameId[] = ["ghammada", "dib"];
 
 const GAME_NAMES: Record<GameId, string> = {
-  mawja: "موجة (MAWJA) 📡",
+  ghammada: "غمّيضة 3D (Prop Hunt) 📦🔨",
   dib: "الذيب (DIB) 🐺",
   intrus: "الدخيل (L'Intrus)",
   "chkon-fina": "شكون فينا؟",
@@ -158,8 +158,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       eventSource.addEventListener("SETTINGS_UPDATED", () => fetchState());
     } catch {}
 
-    // Polling fallback every 3s
-    const pollInterval = setInterval(fetchState, 3000);
+    // Fast polling fallback every 1s for smooth 3D & realtime sync
+    const pollInterval = setInterval(fetchState, 1000);
 
     return () => {
       clearInterval(pollInterval);
@@ -1023,9 +1023,9 @@ function renderActiveGameView(
   isPassThePhoneActive?: boolean
 ) {
   switch (gameId) {
-    case "mawja":
+    case "ghammada":
       return (
-        <MawjaGameView
+        <GhammadaGameView
           publicData={publicData}
           privateData={privateData}
           isHost={isHost}

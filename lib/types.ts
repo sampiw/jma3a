@@ -28,7 +28,7 @@ export interface DeviceSession {
   lastSeenAt: number;
 }
 
-export type GameId = 'mawja' | 'dib' | 'intrus' | 'chkon-fina' | 'mettelha' | 'mamnou3' | 'mission-sirriya';
+export type GameId = 'ghammada' | 'dib' | 'intrus' | 'chkon-fina' | 'mettelha' | 'mamnou3' | 'mission-sirriya';
 
 export type GameCapability =
   | 'MULTI_PHONE'

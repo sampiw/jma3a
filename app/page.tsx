@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { sound } from "@/lib/sound";
 import { DibWolfIcon } from "@/components/icons/DibWolfIcon";
-import { MawjaIcon } from "@/components/icons/MawjaIcon";
+import { GhammadaIcon } from "@/components/icons/GhammadaIcon";
 import {
   Volume2,
   VolumeX,
@@ -33,16 +33,16 @@ interface GameInfo {
 
 const GAMES: GameInfo[] = [
   {
-    id: "mawja",
-    title: "موجة (MAWJA)",
-    tagline: "قراءة العقول والترددات 📡🧠",
+    id: "ghammada",
+    title: "غمّيضة 3D (Prop Hunt)",
+    tagline: "أكشن وتخبية ثلاثية الأبعاد 📦🔨",
     description:
-      "واحد كيبثّ إشارة سرية بين قطبين متناقضين، وكل واحد من تليفونو كيحاول يشدّ التردد بالميليمتر ويضوبل الرهان!",
+      "تحرّك بالجويستيك فـ الرياض المغربي 3D! تحوّل لطاجين، براد أتاي، أو بوطاغاز وتخبّى وسط الديكور قبل ما يكشفك الصياد بالمطرقة!",
     players: "2-16 لاعب",
-    duration: "10-20 دقيقة",
+    duration: "10-15 دقيقة",
     modes: ["كل واحد بتليفونو 📱"],
-    icon: <MawjaIcon className="w-14 h-14" />,
-    badgeColor: "from-cyan-500/30 to-purple-950/50 border-cyan-400/50 text-cyan-300",
+    icon: <GhammadaIcon className="w-14 h-14" />,
+    badgeColor: "from-amber-500/30 to-emerald-950/50 border-amber-400/50 text-amber-300",
   },
   {
     id: "dib",
@@ -65,7 +65,7 @@ export default function HomePage() {
 
   // Create room modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<GameId>("mawja");
+  const [selectedGame, setSelectedGame] = useState<GameId>("ghammada");
   const [hostNickname, setHostNickname] = useState("");
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("MULTI_PHONE");
   const [isCreating, setIsCreating] = useState(false);
@@ -88,7 +88,7 @@ export default function HomePage() {
   const openCreateForGame = (gameId: GameId) => {
     sound.playCardFlip();
     setSelectedGame(gameId);
-    if (gameId === "mawja") {
+    if (gameId === "ghammada") {
       setInteractionMode("MULTI_PHONE");
     }
     setCreateModalOpen(true);
