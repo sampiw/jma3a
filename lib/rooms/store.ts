@@ -442,10 +442,13 @@ export class RoomStore {
       phase: (initialState as any).phase || "STARTED",
       round: (initialState as any).round || 1,
       stateVersion: 1,
-      passThePhone: {
-        currentPlayerIndex: 0,
-        isRevealed: false,
-      },
+      passThePhone:
+        room.selectedGameId === "dib"
+          ? {
+              currentPlayerIndex: 0,
+              isRevealed: false,
+            }
+          : undefined,
     };
 
     room.activeSessionId = sessionId;

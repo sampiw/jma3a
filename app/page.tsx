@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { sound } from "@/lib/sound";
 import { DibWolfIcon } from "@/components/icons/DibWolfIcon";
+import { MawjaIcon } from "@/components/icons/MawjaIcon";
 import {
   Volume2,
   VolumeX,
@@ -32,6 +33,18 @@ interface GameInfo {
 
 const GAMES: GameInfo[] = [
   {
+    id: "mawja",
+    title: "موجة (MAWJA)",
+    tagline: "قراءة العقول والترددات 📡🧠",
+    description:
+      "واحد كيبثّ إشارة سرية بين قطبين متناقضين، وكل واحد من تليفونو كيحاول يشدّ التردد بالميليمتر ويضوبل الرهان!",
+    players: "2-16 لاعب",
+    duration: "10-20 دقيقة",
+    modes: ["كل واحد بتليفونو 📱"],
+    icon: <MawjaIcon className="w-14 h-14" />,
+    badgeColor: "from-cyan-500/30 to-purple-950/50 border-cyan-400/50 text-cyan-300",
+  },
+  {
     id: "dib",
     title: "الذيب (DIB)",
     tagline: "لعبة الذئب البشري والمكر 🐺",
@@ -52,7 +65,7 @@ export default function HomePage() {
 
   // Create room modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<GameId>("dib");
+  const [selectedGame, setSelectedGame] = useState<GameId>("mawja");
   const [hostNickname, setHostNickname] = useState("");
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("MULTI_PHONE");
   const [isCreating, setIsCreating] = useState(false);
@@ -75,6 +88,9 @@ export default function HomePage() {
   const openCreateForGame = (gameId: GameId) => {
     sound.playCardFlip();
     setSelectedGame(gameId);
+    if (gameId === "mawja") {
+      setInteractionMode("MULTI_PHONE");
+    }
     setCreateModalOpen(true);
   };
 
@@ -200,11 +216,11 @@ export default function HomePage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-2xl font-black text-jma3a-sand">شنو غادي نلعبو اليوم؟</h2>
-            <p className="text-xs text-jma3a-muted">لعبة الذئب البشري والمكر للأصدقاء والعائلة</p>
+            <p className="text-xs text-jma3a-muted">ألعاب جماعية ذكية بالتليفونات للأصدقاء والسهرات</p>
           </div>
         </div>
 
-        <div className="max-w-xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
           {GAMES.map((game) => (
             <div
               key={game.id}

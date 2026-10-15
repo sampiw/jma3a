@@ -7,6 +7,7 @@ import { QRCodeModal } from "@/components/QRCodeModal";
 import { PassThePhoneCurtain } from "@/components/PassThePhoneCurtain";
 import { DibGameView } from "@/components/games/DibGameView";
 import { DibNightTimer } from "@/components/games/DibNightTimer";
+import { MawjaGameView } from "@/components/games/MawjaGameView";
 import { IntrusGameView } from "@/components/games/IntrusGameView";
 import { ChkonFinaGameView } from "@/components/games/ChkonFinaGameView";
 import { MettelhaGameView } from "@/components/games/MettelhaGameView";
@@ -36,10 +37,11 @@ import {
   Minimize,
 } from "lucide-react";
 
-// Only DIB is active!
-const ACTIVE_GAMES: GameId[] = ["dib"];
+// Active flagship games: Mawja & DIB
+const ACTIVE_GAMES: GameId[] = ["mawja", "dib"];
 
 const GAME_NAMES: Record<GameId, string> = {
+  mawja: "موجة (MAWJA) 📡",
   dib: "الذيب (DIB) 🐺",
   intrus: "الدخيل (L'Intrus)",
   "chkon-fina": "شكون فينا؟",
@@ -1021,6 +1023,17 @@ function renderActiveGameView(
   isPassThePhoneActive?: boolean
 ) {
   switch (gameId) {
+    case "mawja":
+      return (
+        <MawjaGameView
+          publicData={publicData}
+          privateData={privateData}
+          isHost={isHost}
+          onAction={onAction}
+          players={players}
+          activePlayerId={activePlayerId}
+        />
+      );
     case "dib":
       return (
         <DibGameView
