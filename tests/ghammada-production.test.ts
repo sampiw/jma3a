@@ -149,4 +149,30 @@ describe("Ghammada 3D (غمّيضة 3D — Prop Hunt) Engine", () => {
     expect(state.phase).toBe("ROUND_END");
     expect(state.roundWinner).toBe("HUNTERS");
   });
+
+  it("prevents duplicate TIME_UP packets from skipping HUNT_PHASE", () => {
+    let state = GhammadaEngine.createInitialState(mockPlayers, GhammadaEngine.defaultSettings);
+    // Simulate HIDE_PHASE timer expiring
+    state.phaseEndsAt = Date.now() - 100;
+
+    // First TIME_UP transitions from HIDE_PHASE -> HUNT_PHASE
+    state = GhammadaEngine.handleAction(makeCtx(state), "p1", {
+      type: "TIME_UP",
+      forPhase: "HIDE_PHASE",
+    }).newState;
+    expect(state.phase).toBe("HUNT_PHASE");
+
+    // Duplicate TIME_UP arriving 350ms later MUST NOT skip HUNT_PHASE!
+    state = GhammadaEngine.handleAction(makeCtx(state), "p1", {
+      type: "TIME_UP",
+      forPhase: "HIDE_PHASE",
+    }).newState;
+    expect(state.phase).toBe("HUNT_PHASE");
+
+    // Even a TIME_UP without forPhase must not end HUNT_PHASE before its 75s timer expires
+    state = GhammadaEngine.handleAction(makeCtx(state), "p1", {
+      type: "TIME_UP",
+    }).newState;
+    expect(state.phase).toBe("HUNT_PHASE");
+  });
 });

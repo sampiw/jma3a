@@ -111,34 +111,56 @@ export function GhammadaGameView({
   const [isLockedUI, setIsLockedUI] = useState<boolean>(Boolean(myEntity?.isLocked));
   const [secondsLeft, setSecondsLeft] = useState<number>(18);
   const [sonarDistance, setSonarDistance] = useState<number | null>(null);
+  const lastTimeUpSentRef = useRef<{ key: string; at: number }>({ key: "", at: 0 });
 
-  // Sync initial spawn coordinates when round or phase resets
+  // Sync initial spawn coordinates when round resets
   useEffect(() => {
     if (myEntity) {
       localPosRef.current.x = myEntity.x;
       localPosRef.current.z = myEntity.z;
       localPosRef.current.rotY = myEntity.rotY;
       localPosRef.current.propId = myEntity.propId;
-      localPosRef.current.isLocked = myEntity.isLocked;
+      localPosRef.current.isLocked = myEntity.role === "HUNTER" ? false : myEntity.isLocked;
       setSelectedProp(myEntity.propId);
-      setIsLockedUI(myEntity.isLocked);
+      setIsLockedUI(myEntity.role === "HUNTER" ? false : myEntity.isLocked);
     }
   }, [round, myId]);
 
-  // Countdown timer & automatic phase transition trigger
+  // Ensure Hunter is unlocked and play alert sound when HUNT_PHASE starts
+  useEffect(() => {
+    if (phase === "HUNT_PHASE") {
+      sound.playDawnChime();
+      if (isHunter) {
+        localPosRef.current.isLocked = false;
+        setIsLockedUI(false);
+      }
+    }
+  }, [phase, isHunter]);
+
+  // Countdown timer & debounced phase transition trigger
   useEffect(() => {
     if (phase !== "HIDE_PHASE" && phase !== "HUNT_PHASE") return;
 
-    const interval = setInterval(() => {
-      const rem = Math.max(0, Math.ceil((phaseEndsAt - Date.now()) / 1000));
+    const updateClock = () => {
+      const now = Date.now();
+      const rem = Math.max(0, Math.ceil((phaseEndsAt - now) / 1000));
       setSecondsLeft(rem);
-      if (rem <= 0 && isHost) {
-        onAction({ type: "TIME_UP" });
+
+      if (rem <= 0) {
+        const phaseKey = `${round}_${phase}`;
+        const prev = lastTimeUpSentRef.current;
+        if (prev.key !== phaseKey || now - prev.at > 2500) {
+          lastTimeUpSentRef.current = { key: phaseKey, at: now };
+          onAction({ type: "TIME_UP", forPhase: phase });
+        }
       }
-    }, 350);
+    };
+
+    updateClock();
+    const interval = setInterval(updateClock, 350);
 
     return () => clearInterval(interval);
-  }, [phase, phaseEndsAt, isHost, onAction]);
+  }, [phase, round, phaseEndsAt, onAction]);
 
   // Celebratory confetti on ROUND_END or GAME_OVER
   useEffect(() => {
@@ -403,14 +425,26 @@ export function GhammadaGameView({
 
             {/* Hunter Blindfold Banner during HIDE_PHASE */}
             {isHunter && phase === "HIDE_PHASE" && (
-              <div className="absolute inset-x-4 bottom-4 p-4 rounded-2xl bg-rose-950/90 backdrop-blur-md border-2 border-rose-500/60 text-center shadow-2xl z-20">
-                <div className="flex items-center justify-center gap-2 text-rose-300 font-black text-base mb-1">
+              <div className="absolute inset-x-4 bottom-4 p-4 rounded-2xl bg-rose-950/90 backdrop-blur-md border-2 border-rose-500/60 text-center shadow-2xl z-20 space-y-2">
+                <div className="flex items-center justify-center gap-2 text-rose-300 font-black text-base">
                   <EyeOff className="w-5 h-5 animate-bounce" />
                   <span>قفص الصياد مسدود لـ {secondsLeft} ثانية!</span>
                 </div>
                 <p className="text-xs text-rose-200/90">
                   صحابك كيتحولو لطواجن، برادا، وصنادق وكيتخباو فـ الرياض... وجّد المطرقة ديالك! 🔨
                 </p>
+                {(secondsLeft <= 2 || isHost) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playCardFlip();
+                      onAction({ type: "START_HUNT" });
+                    }}
+                    className="mt-1 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg active:scale-95 transition-all"
+                  >
+                    {secondsLeft <= 0 ? "افتح القفص وبدا الصيد دابا! 🔨" : "كلشي تخبّى؟ افتح القفص دابا 🔓"}
+                  </button>
+                )}
               </div>
             )}
 

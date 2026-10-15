@@ -94,7 +94,7 @@ function createRoundEntities(
   players.forEach((p, idx) => {
     const isHunter = hunterIds.includes(p.id);
     const angle = (idx / Math.max(1, players.length)) * Math.PI * 2;
-    const spawnRadius = isHunter ? 1.5 : 5.5 + rand() * 3.0;
+    const spawnRadius = isHunter ? 3.4 : 6.5 + rand() * 3.0;
     const startProp: GhammadaPropId = ALL_PROP_IDS[idx % ALL_PROP_IDS.length];
 
     entities[p.id] = {
@@ -261,10 +261,25 @@ export const GhammadaEngine: GameDefinition<GhammadaState, GhammadaAction, Ghamm
       }
 
       case "TIME_UP": {
+        // Ignore stale duplicate TIME_UP packets meant for an earlier phase!
+        if (action.forPhase && action.forPhase !== state.phase) {
+          return { success: true, newState: state, newPhase: state.phase };
+        }
+        // Also ensure the current phase's timer has actually elapsed (allow 1.5s clock skew tolerance)
+        if (now < state.phaseEndsAt - 1500) {
+          return { success: true, newState: state, newPhase: state.phase };
+        }
+
         if (state.phase === "HIDE_PHASE") {
           state.phase = "HUNT_PHASE";
           state.phaseStartedAt = now;
           state.phaseEndsAt = now + (ctx.settings.huntDurationSec || 75) * 1000;
+          state.feed.unshift({
+            id: "hunt_" + now,
+            timestamp: now,
+            text: "🔨 تفتح القفص! الصياد خرج كيقلّب فـ الرياض!",
+            type: "CATCH",
+          });
           return { success: true, newState: state, newPhase: "HUNT_PHASE" };
         }
         if (state.phase === "HUNT_PHASE") {

@@ -141,7 +141,7 @@ export type GhammadaAction =
   | { type: "TAUNT_WHISTLE"; x: number; z: number }
   | { type: "HUNTER_STRIKE"; x: number; z: number; rotY: number }
   | { type: "START_HUNT" }
-  | { type: "TIME_UP" }
+  | { type: "TIME_UP"; forPhase?: GhammadaPhase }
   | { type: "NEXT_ROUND" }
   | { type: "RESTART_GAME" };
 
