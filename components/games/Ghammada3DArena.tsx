@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import {
   GhammadaPhase,
   GhammadaPlayerEntity,
@@ -126,11 +127,15 @@ export function Ghammada3DArena({
     // 1. Initialize Scene, Camera & Renderer
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x131c31);
-    scene.fog = new THREE.FogExp2(0x131c31, 0.014);
+    scene.fog = new THREE.FogExp2(0x131c31, 0.013);
+
+    const initAspect = container.clientWidth / Math.max(1, container.clientHeight);
+    const computeFov = (aspect: number) =>
+      aspect < 1 ? Math.min(76, 52 / Math.max(0.56, aspect)) : 55;
 
     const camera = new THREE.PerspectiveCamera(
-      55,
-      container.clientWidth / Math.max(1, container.clientHeight),
+      computeFov(initAspect),
+      initAspect,
       0.15,
       110
     );
@@ -144,9 +149,15 @@ export function Ghammada3DArena({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.toneMappingExposure = 1.15;
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
+
+    // Warm PMREM environment so silver/brass props (berrad, fanar, butagaz) reflect warm light instead of black
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const envTarget = pmremGenerator.fromScene(new RoomEnvironment(), 0.04);
+    scene.environment = envTarget.texture;
+    pmremGenerator.dispose();
 
     // 2. Warm Moroccan Golden-Hour Lighting
     const hemiLight = new THREE.HemisphereLight(0xffe8c2, 0x1e293b, 0.85);
@@ -426,6 +437,7 @@ export function Ghammada3DArena({
       const w = Math.max(1, container.clientWidth);
       const h = Math.max(1, container.clientHeight);
       camera.aspect = w / h;
+      camera.fov = computeFov(camera.aspect);
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
     };
@@ -770,7 +782,7 @@ export function Ghammada3DArena({
 
       // E. Over-the-Shoulder 3rd-Person Follow Camera (synchronized with controlsMath!)
       const camYaw = localPosRef.current.camYaw;
-      const camPitch = localPosRef.current.camPitch ?? 0.42;
+      const camPitch = localPosRef.current.camPitch ?? 0.52;
       const focusX = localPosRef.current.x;
       const focusZ = localPosRef.current.z;
 
@@ -786,8 +798,8 @@ export function Ghammada3DArena({
       } else {
         const isHunterRole = myServerEnt?.role === "HUNTER";
         const isLockedHider = !isHunterRole && localPosRef.current.isLocked;
-        const baseDist = isHunterRole ? 4.9 : isLockedHider ? 5.8 : 4.5;
-        const focusY = isHunterRole ? 1.35 : 0.85;
+        const baseDist = isHunterRole ? 5.6 : isLockedHider ? 6.4 : 5.2;
+        const focusY = isHunterRole ? 1.35 : 0.95;
 
         // Camera sits BEHIND the player along -cameraForward(camYaw) = (-sin(yaw), -cos(yaw))
         const backDirX = -Math.sin(camYaw);
@@ -801,11 +813,11 @@ export function Ghammada3DArena({
           desiredHorizDist
         );
         const distRatio = clampedHorizDist / Math.max(0.01, desiredHorizDist);
-        const vertDist = baseDist * Math.sin(camPitch) * Math.max(0.55, distRatio);
+        const vertDist = baseDist * Math.sin(camPitch) * Math.max(0.6, distRatio);
 
         const desiredCamX = focusX + backDirX * clampedHorizDist;
         const desiredCamZ = focusZ + backDirZ * clampedHorizDist;
-        const desiredCamY = Math.max(0.7, focusY + vertDist);
+        const desiredCamY = Math.max(0.85, focusY + vertDist);
 
         const camBlend = damp(16, dt);
         camera.position.x += (desiredCamX - camera.position.x) * camBlend;
@@ -834,6 +846,7 @@ export function Ghammada3DArena({
       window.removeEventListener("pointerup", onPointerUpOrCancel);
       window.removeEventListener("pointercancel", onPointerUpOrCancel);
       window.removeEventListener("resize", handleResize);
+      envTarget.dispose();
       effects.dispose();
       renderer.dispose();
     };

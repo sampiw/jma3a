@@ -183,25 +183,28 @@ export function createHunterRig(assets: GhammadaAssets | null): HunterRig {
   let headBone: THREE.Object3D | null = null;
 
   if (assets?.hunter) {
+    // RobotExpressive.glb has a native height of 4.79m with feet at y=0.
+    // Do NOT call Box3.setFromObject on SkeletonUtils.clone before matrix update (it double-applies the 100x armature scale).
+    assets.hunter.scene.updateMatrixWorld(true);
     const cloned = SkeletonUtils.clone(assets.hunter.scene);
-    const box = new THREE.Box3().setFromObject(cloned);
-    const h = box.max.y - box.min.y;
-    const s = h > 1e-4 ? HUNTER_HEIGHT / h : 1;
-    cloned.scale.multiplyScalar(s);
-    cloned.position.y -= box.min.y * s;
-    // Warm Moroccan outfit colors
+    const s = HUNTER_HEIGHT / 4.79;
+    cloned.scale.setScalar(s);
+    cloned.position.set(0, 0, 0);
+    // Warm Moroccan outfit colors & disable frustum culling on animated bone meshes
     cloned.traverse((child) => {
       const mesh = child as THREE.Mesh;
       if (mesh.isMesh) {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
+        mesh.frustumCulled = false;
         const mat = mesh.material as THREE.MeshStandardMaterial;
         if (mat && "color" in mat) {
           const m = mat.clone();
           const name = (m.name || "").toLowerCase();
-          if (name.includes("main")) m.color.set(0xb91c1c);
-          else if (name.includes("grey") || name.includes("gray")) m.color.set(0x3f2a1d);
+          if (name.includes("main")) m.color.set(0xd97706);
+          else if (name.includes("grey") || name.includes("gray")) m.color.set(0x7c2d12);
           m.metalness = Math.min(m.metalness ?? 0, 0.2);
+          m.roughness = 0.55;
           mesh.material = m;
         }
       }
@@ -248,7 +251,7 @@ export function createHunterRig(assets: GhammadaAssets | null): HunterRig {
   handle.position.y = 0.38;
   hammerPivot.add(handle);
   const headMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.6 });
-  const bandMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.7, roughness: 0.3 });
+  const bandMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.4, roughness: 0.3 });
   const hammerHead = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.5, 18), headMat);
   hammerHead.rotation.z = Math.PI / 2;
   hammerHead.position.y = 0.9;
@@ -301,7 +304,7 @@ export function updateHunterFez(rig: HunterRig) {
   if (!rig.headBone) return;
   rig.headBone.getWorldPosition(tmpVec);
   rig.root.worldToLocal(tmpVec);
-  rig.fez.position.set(tmpVec.x, tmpVec.y + 0.42, tmpVec.z);
+  rig.fez.position.set(tmpVec.x, tmpVec.y + 0.56, tmpVec.z);
 }
 
 function buildFallbackHunterBody(): THREE.Object3D {
@@ -344,9 +347,21 @@ export function buildProceduralProp(propId: GhammadaPropId): THREE.Object3D {
 
   switch (propId) {
     case "berrad": {
-      // Moroccan silver teapot
-      const silver = new THREE.MeshStandardMaterial({ color: 0xd9dee6, metalness: 0.85, roughness: 0.22 });
-      const gold = new THREE.MeshStandardMaterial({ color: 0xe0b14a, metalness: 0.8, roughness: 0.3 });
+      // Moroccan silver teapot (bright polished silver so it never looks dark without an envMap)
+      const silver = new THREE.MeshStandardMaterial({
+        color: 0xf1f5f9,
+        metalness: 0.38,
+        roughness: 0.25,
+        emissive: 0x334155,
+        emissiveIntensity: 0.22,
+      });
+      const gold = new THREE.MeshStandardMaterial({
+        color: 0xfbbf24,
+        metalness: 0.45,
+        roughness: 0.28,
+        emissive: 0x78350f,
+        emissiveIntensity: 0.18,
+      });
       const body = new THREE.Mesh(
         lathe([
           [0.0, 0.0],

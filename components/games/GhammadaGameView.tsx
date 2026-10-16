@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useParams } from "next/navigation";
 import confetti from "canvas-confetti";
 import { Ghammada3DArena, LocalPlayerTransform } from "@/components/games/Ghammada3DArena";
@@ -39,7 +40,6 @@ import {
   ChevronLeft,
   Radio,
   EyeOff,
-  Sparkles,
   Maximize2,
   Minimize2,
   Smartphone,
@@ -115,7 +115,7 @@ export function GhammadaGameView({
     propId: myEntity?.propId ?? "tajine",
     isLocked: myEntity?.isLocked ?? false,
     camYaw: 0,
-    camPitch: 0.42,
+    camPitch: 0.52,
     isMoving: false,
   });
 
@@ -150,7 +150,8 @@ export function GhammadaGameView({
   const [secondsLeft, setSecondsLeft] = useState<number>(18);
   const [sonarDistance, setSonarDistance] = useState<number | null>(null);
 
-  // Full-bleed mobile viewport state (active by default during HIDE_PHASE & HUNT_PHASE)
+  // Full-bleed viewport state (rendered via createPortal to document.body so parent transforms never clip it!)
+  const [mounted, setMounted] = useState<boolean>(false);
   const [isImmersive, setIsImmersive] = useState<boolean>(true);
   const [browserFs, setBrowserFs] = useState<boolean>(false);
   const [iosHelpOpen, setIosHelpOpen] = useState<boolean>(false);
@@ -158,8 +159,8 @@ export function GhammadaGameView({
   const lastTimeUpSentRef = useRef<{ key: string; at: number }>({ key: "", at: 0 });
   const lastServerSyncAtRef = useRef<number>(0);
 
-  // Track browser fullscreen changes
   useEffect(() => {
+    setMounted(true);
     const syncFs = () => setBrowserFs(isFullscreenActive());
     document.addEventListener("fullscreenchange", syncFs);
     document.addEventListener("webkitfullscreenchange", syncFs);
@@ -179,7 +180,7 @@ export function GhammadaGameView({
       localPosRef.current.isLocked = myEntity.role === "HUNTER" ? false : myEntity.isLocked;
       // Aim camera towards the center of the courtyard on spawn
       localPosRef.current.camYaw = Math.atan2(-myEntity.x, -myEntity.z);
-      localPosRef.current.camPitch = 0.42;
+      localPosRef.current.camPitch = 0.52;
       setSelectedProp(myEntity.propId);
       setIsLockedUI(myEntity.role === "HUNTER" ? false : myEntity.isLocked);
       setSonarDistance(null);
@@ -284,7 +285,7 @@ export function GhammadaGameView({
     const rect = joyBaseRef.current.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
-    const maxR = Math.max(24, rect.width / 2 - 16);
+    const maxR = Math.max(20, rect.width / 2 - 14);
 
     let dx = clientX - cx;
     let dy = clientY - cy;
@@ -477,7 +478,6 @@ export function GhammadaGameView({
     fxQueueRef.current.push({ ...fx, i: myId });
     sendFx(fx);
 
-    // Collect live peer positions so server hit-detection matches what Hunter sees on screen
     const nowPerf = performance.now();
     const targets: Array<{ id: string; x: number; z: number }> = [];
     for (const ent of Object.values(entities)) {
@@ -520,395 +520,396 @@ export function GhammadaGameView({
 
   const isActivePhase = phase === "HIDE_PHASE" || phase === "HUNT_PHASE";
 
-  return (
-    <div className="max-w-4xl mx-auto w-full space-y-3 pb-6 text-right animate-fadeIn">
-      {/* ===================================================================== */}
-      {/* ACTIVE 3D GAMEPLAY VIEWPORT (FULL-BLEED MOBILE HUD OR EMBEDDED)       */}
-      {/* ===================================================================== */}
-      {isActivePhase && (
-        <div
-          className={
-            isImmersive
-              ? "fixed inset-0 z-50 w-screen h-[100dvh] bg-slate-950 overflow-hidden select-none"
-              : "relative w-full rounded-3xl overflow-hidden border-2 border-amber-500/40 shadow-2xl bg-slate-950 select-none h-[540px] sm:h-[600px]"
-          }
-        >
-          {/* Full-screen 3D Canvas */}
-          <Ghammada3DArena
-            phase={phase}
-            myPlayerId={myId}
-            entities={entities}
-            worldProps={worldProps}
-            playersMap={playersMap}
-            localPosRef={localPosRef}
-            joystickVecRef={joystickVecRef}
-            peersRef={peersRef}
-            fxQueueRef={fxQueueRef}
-            fullScreen={true}
-            onPositionTick={handlePositionTick}
-          />
+  const activeGameUI = isActivePhase ? (
+    <div
+      className={
+        isImmersive
+          ? "fixed inset-0 z-[100] w-screen h-[100dvh] bg-slate-950 overflow-hidden select-none"
+          : "relative w-full rounded-3xl overflow-hidden border-2 border-amber-500/40 shadow-2xl bg-slate-950 select-none h-[520px] sm:h-[600px]"
+      }
+    >
+      {/* Full-screen 3D Canvas */}
+      <Ghammada3DArena
+        phase={phase}
+        myPlayerId={myId}
+        entities={entities}
+        worldProps={worldProps}
+        playersMap={playersMap}
+        localPosRef={localPosRef}
+        joystickVecRef={joystickVecRef}
+        peersRef={peersRef}
+        fxQueueRef={fxQueueRef}
+        fullScreen={true}
+        onPositionTick={handlePositionTick}
+      />
 
-          {/* TOP COMPACT GLASSMORPHIC HUD BAR */}
-          <div
-            className="absolute top-2.5 inset-x-2.5 z-20 flex flex-wrap items-center justify-between gap-1.5 pointer-events-none"
-            dir="ltr"
+      {/* TOP SINGLE-ROW GLASSMORPHIC HUD BAR (Never wraps onto 2 lines!) */}
+      <div
+        className="absolute top-0 inset-x-0 px-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] z-20 flex items-center justify-between gap-1.5 pointer-events-none"
+        dir="ltr"
+      >
+        {/* Top-Left: Fullscreen + Minimize + Live Status */}
+        <div className="flex items-center gap-1 pointer-events-auto shrink-0">
+          <button
+            type="button"
+            onClick={handleToggleFullscreen}
+            className="px-2 py-1.5 rounded-xl bg-slate-900/85 hover:bg-slate-800 backdrop-blur-md border border-amber-400/40 text-amber-300 text-[11px] font-black flex items-center gap-1 shadow-lg active:scale-95"
           >
-            {/* Top-Left: Fullscreen / Minimize + Live Status */}
-            <div className="flex items-center gap-1.5 pointer-events-auto">
-              <button
-                type="button"
-                onClick={handleToggleFullscreen}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-900/85 hover:bg-slate-800 backdrop-blur-md border border-amber-400/40 text-amber-300 text-[11px] font-black flex items-center gap-1 shadow-lg active:scale-95"
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span>{browserFs ? "خروج" : "شاشة كاملة"}</span>
-              </button>
+            <Smartphone className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden xs:inline sm:inline">
+              {browserFs ? "خروج" : "شاشة كاملة"}
+            </span>
+          </button>
 
-              <button
-                type="button"
-                onClick={() => setIsImmersive((v) => !v)}
-                title={isImmersive ? "إظهار قائمة الغرفة" : "تكبير اللعبة"}
-                className="p-1.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 backdrop-blur-md border border-white/15 text-slate-200 shadow-lg active:scale-95"
-              >
-                {isImmersive ? (
-                  <Minimize2 className="w-3.5 h-3.5" />
-                ) : (
-                  <Maximize2 className="w-3.5 h-3.5" />
-                )}
-              </button>
-
-              <span
-                className={`px-2 py-1 rounded-xl text-[10px] font-black border backdrop-blur-md flex items-center gap-1 ${
-                  isLive
-                    ? "bg-emerald-950/85 border-emerald-500/40 text-emerald-300"
-                    : "bg-slate-900/80 border-slate-700 text-slate-300"
-                }`}
-              >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    isLive ? "bg-emerald-400 animate-ping" : "bg-amber-400"
-                  }`}
-                />
-                <span>{isLive ? "LIVE" : `R${round}/${maxRounds}`}</span>
-              </span>
-            </div>
-
-            {/* Top-Center: Phase Timer + Uncaught Hiders */}
-            <div className="flex items-center gap-1.5">
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-black border backdrop-blur-md shadow-lg flex items-center gap-1.5 ${
-                  phase === "HIDE_PHASE"
-                    ? "bg-amber-500/25 border-amber-400 text-amber-200"
-                    : "bg-rose-600/30 border-rose-400 text-rose-100"
-                }`}
-              >
-                <span>⏱️ {secondsLeft}s</span>
-                <span>•</span>
-                <span>{phase === "HIDE_PHASE" ? "تخبّاو 🙈" : "الصيد 🔨"}</span>
-              </span>
-
-              <span className="px-2.5 py-1 rounded-full bg-slate-900/85 backdrop-blur-md border border-emerald-500/40 text-emerald-300 text-xs font-black shadow-lg">
-                📦 {uncaughtHidersCount}
-              </span>
-            </div>
-
-            {/* Top-Right: Role & Hearts / Active Prop */}
-            <div className="flex items-center gap-1.5" dir="rtl">
-              {isHunter ? (
-                <span className="px-3 py-1 rounded-full bg-rose-950/90 backdrop-blur-md border border-rose-500/50 text-rose-200 text-xs font-black shadow-lg flex items-center gap-1">
-                  <span>🔨 صياد</span>
-                  <span className="tracking-tighter">
-                    {"❤️".repeat(Math.max(0, myEntity?.hearts ?? 5))}
-                  </span>
-                </span>
-              ) : (
-                <span className="px-3 py-1 rounded-full bg-cyan-950/90 backdrop-blur-md border border-cyan-400/50 text-cyan-200 text-xs font-black shadow-lg">
-                  {GHAMMADA_PROPS[selectedProp]?.emoji}{" "}
-                  {GHAMMADA_PROPS[selectedProp]?.name}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* LIVE KILL & TAUNT FEED (Top-Right below HUD bar) */}
-          <div className="absolute top-14 right-3 max-w-[230px] space-y-1 pointer-events-none z-10">
-            {feed.slice(0, 3).map((item) => (
-              <div
-                key={item.id}
-                className="px-2.5 py-1 rounded-xl bg-black/70 backdrop-blur-md border border-white/10 text-[11px] font-bold text-white shadow-md"
-              >
-                {item.text}
-              </div>
-            ))}
-          </div>
-
-          {/* HUNTER BLINDFOLD CAGE BANNER (HIDE_PHASE) */}
-          {isHunter && phase === "HIDE_PHASE" && (
-            <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 max-w-md mx-auto p-4 rounded-3xl bg-rose-950/90 backdrop-blur-md border-2 border-rose-500/70 text-center shadow-2xl z-20 space-y-2">
-              <div className="flex items-center justify-center gap-2 text-rose-200 font-black text-base">
-                <EyeOff className="w-5 h-5 animate-bounce text-amber-400" />
-                <span>قفص الصياد مسدود لـ {secondsLeft} ثانية!</span>
-              </div>
-              <p className="text-xs text-rose-100/90">
-                صحابك كيتحولو لطواجن، برادا، وصنادق وكيتخباو فـ الرياض... وجّد المطرقة ديالك! 🔨
-              </p>
-              {(secondsLeft <= 2 || isHost) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    sound.playCardFlip();
-                    onAction({ type: "START_HUNT" });
-                    sendRefresh();
-                  }}
-                  className="mt-1 px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg active:scale-95 transition-all"
-                >
-                  {secondsLeft <= 0
-                    ? "افتح القفص وبدا الصيد دابا! 🔨"
-                    : "كلشي تخبّى؟ افتح القفص دابا 🔓"}
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* CAUGHT SPECTATOR BANNER FOR HIDERS */}
-          {!isHunter && isCaught && (
-            <div className="absolute inset-x-4 top-16 max-w-sm mx-auto p-3 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-rose-500/50 text-center z-20 pointer-events-none">
-              <span className="text-xs font-black text-rose-400 block">
-                💥 حصلتي! دوز صبعك على الشاشة وتفرّج فصحابك مباشرة
-              </span>
-            </div>
-          )}
-
-          {/* FLOATING 8-PROP DISGUISE DRAWER (When Hider taps 🎭) */}
-          {!isHunter && !isCaught && propDrawerOpen && (
-            <div
-              className="absolute bottom-28 inset-x-3 sm:inset-x-auto sm:right-4 sm:w-[420px] p-3 rounded-3xl bg-slate-950/95 backdrop-blur-xl border-2 border-amber-400/50 shadow-2xl z-30 animate-fadeIn"
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <button
-                  type="button"
-                  onClick={() => setPropDrawerOpen(false)}
-                  className="p-1 rounded-lg bg-slate-800 text-slate-300"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-                <span className="text-xs font-black text-amber-300">
-                  🎭 اختار الغرض اللي بغيتي تتحول ليه:
-                </span>
-              </div>
-              <div className="grid grid-cols-4 gap-1.5">
-                {ALL_PROP_IDS.map((pid) => {
-                  const meta = GHAMMADA_PROPS[pid];
-                  const active = selectedProp === pid;
-                  return (
-                    <button
-                      key={pid}
-                      type="button"
-                      onClick={() => handleSelectProp(pid)}
-                      className={`p-2 rounded-2xl border text-center transition-all active:scale-95 ${
-                        active
-                          ? "bg-amber-500/25 border-amber-400 text-amber-200 shadow-md"
-                          : "bg-slate-900 border-slate-800 text-slate-200 hover:border-slate-600"
-                      }`}
-                    >
-                      <span className="text-xl block">{meta.emoji}</span>
-                      <span className="text-[10px] font-bold block truncate mt-0.5">
-                        {meta.name.split(" ")[0]}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* ================================================================= */}
-          {/* BOTTOM DUAL-THUMB ARCADE OVERLAY (LEFT JOYSTICK + RIGHT ACTIONS)  */}
-          {/* ================================================================= */}
-          <div
-            className="absolute bottom-3 inset-x-3 z-20 flex items-end justify-between pointer-events-none"
-            dir="ltr"
+          <button
+            type="button"
+            onClick={() => setIsImmersive((v) => !v)}
+            title={isImmersive ? "إظهار قائمة الغرفة" : "تكبير اللعبة"}
+            className="p-1.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 backdrop-blur-md border border-white/15 text-slate-200 shadow-lg active:scale-95"
           >
-            {/* BOTTOM-LEFT: MULTI-TOUCH VIRTUAL JOYSTICK */}
-            <div className="flex flex-col items-center gap-1 pointer-events-auto">
-              <div
-                ref={joyBaseRef}
-                onPointerDown={handleJoyDown}
-                onPointerMove={handleJoyMove}
-                onPointerUp={handleJoyUp}
-                onPointerCancel={handleJoyUp}
-                className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-slate-950/65 backdrop-blur-md border-2 border-cyan-400/50 relative flex items-center justify-center shadow-2xl touch-none cursor-pointer"
-              >
-                {/* Directional chevrons */}
-                <span className="absolute top-1.5 text-[9px] font-black text-cyan-300/60 pointer-events-none">
-                  ▲
-                </span>
-                <span className="absolute bottom-1.5 text-[9px] font-black text-cyan-300/60 pointer-events-none">
-                  ▼
-                </span>
-                <span className="absolute left-2 text-[9px] font-black text-cyan-300/60 pointer-events-none">
-                  ◀
-                </span>
-                <span className="absolute right-2 text-[9px] font-black text-cyan-300/60 pointer-events-none">
-                  ▶
-                </span>
-                {/* Thumb Stick Knob */}
-                <div
-                  style={{
-                    transform: `translate(${joyKnob.x}px, ${joyKnob.y}px)`,
-                  }}
-                  className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 border-2 border-white shadow-lg shadow-cyan-500/40 pointer-events-none"
-                />
-              </div>
-              <span className="text-[10px] font-bold text-slate-300/80 bg-black/50 px-2 py-0.5 rounded-full backdrop-blur-sm">
-                🕹️ تحرّك • دوز يمين باش تدوّر الكاميرا
+            {isImmersive ? (
+              <Minimize2 className="w-3.5 h-3.5" />
+            ) : (
+              <Maximize2 className="w-3.5 h-3.5" />
+            )}
+          </button>
+
+          <span
+            className={`px-2 py-1 rounded-xl text-[10px] font-black border backdrop-blur-md flex items-center gap-1 ${
+              isLive
+                ? "bg-emerald-950/85 border-emerald-500/40 text-emerald-300"
+                : "bg-slate-900/80 border-slate-700 text-slate-300"
+            }`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                isLive ? "bg-emerald-400 animate-ping" : "bg-amber-400"
+              }`}
+            />
+            <span>{isLive ? "LIVE" : `R${round}/${maxRounds}`}</span>
+          </span>
+        </div>
+
+        {/* Top-Center: Phase Timer + Uncaught Hiders */}
+        <div className="flex items-center gap-1 shrink-0">
+          <span
+            className={`px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-black border backdrop-blur-md shadow-lg flex items-center gap-1 ${
+              phase === "HIDE_PHASE"
+                ? "bg-amber-500/25 border-amber-400 text-amber-200"
+                : "bg-rose-600/35 border-rose-400 text-rose-100"
+            }`}
+          >
+            <span>⏱️ {secondsLeft}s</span>
+            <span className="hidden sm:inline">•</span>
+            <span className="hidden sm:inline">
+              {phase === "HIDE_PHASE" ? "تخبّاو 🙈" : "الصيد 🔨"}
+            </span>
+          </span>
+
+          <span className="px-2 py-1 rounded-full bg-slate-900/85 backdrop-blur-md border border-emerald-500/40 text-emerald-300 text-[11px] font-black shadow-lg">
+            📦 {uncaughtHidersCount}
+          </span>
+        </div>
+
+        {/* Top-Right: Role & Hearts / Active Prop */}
+        <div className="flex items-center gap-1 shrink-0" dir="rtl">
+          {isHunter ? (
+            <span className="px-2.5 py-1 rounded-full bg-rose-950/90 backdrop-blur-md border border-rose-500/50 text-rose-200 text-[11px] font-black shadow-lg flex items-center gap-1">
+              <span>🔨</span>
+              <span className="tracking-tighter">
+                {"❤️".repeat(Math.max(0, myEntity?.hearts ?? 5))}
               </span>
-            </div>
+            </span>
+          ) : (
+            <span className="px-2.5 py-1 rounded-full bg-cyan-950/90 backdrop-blur-md border border-cyan-400/50 text-cyan-200 text-[11px] font-black shadow-lg flex items-center gap-1">
+              <span>{GHAMMADA_PROPS[selectedProp]?.emoji}</span>
+              <span className="max-w-[72px] sm:max-w-none truncate">
+                {GHAMMADA_PROPS[selectedProp]?.name}
+              </span>
+            </span>
+          )}
+        </div>
+      </div>
 
-            {/* BOTTOM-RIGHT: ROLE ACTION CLUSTER */}
-            <div
-              className="pointer-events-auto flex flex-col items-end gap-2"
-              dir="rtl"
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              {isHunter ? (
-                /* HUNTER ARCADE BUTTONS */
-                <div className="flex items-end gap-2.5">
-                  <button
-                    type="button"
-                    onClick={handleHunterSonar}
-                    className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-slate-900/85 hover:bg-slate-800 backdrop-blur-md border-2 border-cyan-400/60 text-cyan-300 font-black text-[11px] shadow-xl active:scale-90 transition-all flex flex-col items-center justify-center"
-                  >
-                    <Radio className="w-5 h-5 text-cyan-400" />
-                    <span>رادار</span>
-                    {sonarDistance !== null && (
-                      <span className="text-[10px] text-amber-300 font-extrabold">
-                        {sonarDistance}m
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={phase !== "HUNT_PHASE" || (myEntity?.hearts ?? 5) <= 0}
-                    onClick={handleHunterStrike}
-                    className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-rose-500 via-red-600 to-orange-600 hover:brightness-110 disabled:opacity-40 border-4 border-rose-200/80 text-white font-black text-sm shadow-2xl shadow-rose-600/50 active:scale-90 transition-all flex flex-col items-center justify-center gap-1"
-                  >
-                    <Hammer className="w-8 h-8" />
-                    <span>ضرب! 🔨</span>
-                  </button>
-                </div>
-              ) : (
-                /* HIDER ARCADE BUTTONS */
-                <div className="flex flex-col items-end gap-2">
-                  {/* Top row: Morph Drawer + Whistle Taunt */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={isCaught}
-                      onClick={() => {
-                        sound.playCardFlip();
-                        setPropDrawerOpen((v) => !v);
-                      }}
-                      className={`px-3.5 py-2.5 rounded-2xl backdrop-blur-md border-2 font-black text-xs shadow-xl active:scale-95 transition-all flex items-center gap-1.5 ${
-                        propDrawerOpen
-                          ? "bg-amber-500 border-white text-slate-950"
-                          : "bg-slate-900/85 border-amber-400/60 text-amber-300"
-                      }`}
-                    >
-                      <span>{GHAMMADA_PROPS[selectedProp]?.emoji}</span>
-                      <span>بدّل الشكْل 🎭</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={isCaught || phase !== "HUNT_PHASE"}
-                      onClick={handleWhistleTaunt}
-                      className="px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 disabled:opacity-40 border-2 border-amber-200 text-slate-950 font-black text-xs shadow-xl active:scale-95 transition-all flex items-center gap-1"
-                    >
-                      <Volume2 className="w-4 h-4" />
-                      <span>صفّر (+30) 😗</span>
-                    </button>
-                  </div>
-
-                  {/* Bottom row: Smoke Dash + Big Lock/Freeze Button */}
-                  <div className="flex items-end gap-2">
-                    <button
-                      type="button"
-                      disabled={isCaught}
-                      onClick={handleSmokeDash}
-                      className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-indigo-600/90 hover:bg-indigo-500 disabled:opacity-40 backdrop-blur-md border-2 border-indigo-300 text-white font-black text-xs shadow-xl active:scale-90 transition-all flex flex-col items-center justify-center gap-0.5"
-                    >
-                      <Wind className="w-5 h-5" />
-                      <span>داش 💨</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={isCaught}
-                      onClick={handleToggleLock}
-                      className={`w-20 h-20 sm:w-24 sm:h-24 rounded-full backdrop-blur-md border-4 font-black text-xs shadow-2xl active:scale-90 transition-all flex flex-col items-center justify-center gap-1 ${
-                        isLockedUI
-                          ? "bg-emerald-600 border-emerald-200 text-white shadow-emerald-600/50"
-                          : "bg-slate-900/90 border-cyan-400/70 text-cyan-200"
-                      }`}
-                    >
-                      {isLockedUI ? (
-                        <Lock className="w-6 h-6" />
-                      ) : (
-                        <Unlock className="w-6 h-6" />
-                      )}
-                      <span>{isLockedUI ? "مثبّت 🔒" : "ثبّت بلاصتك"}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+      {/* LIVE KILL & TAUNT FEED (Cleanly below the single-row top bar) */}
+      <div className="absolute top-12 right-2.5 max-w-[210px] sm:max-w-[250px] space-y-1 pointer-events-none z-10">
+        {feed.slice(0, 3).map((item) => (
+          <div
+            key={item.id}
+            className="px-2.5 py-1 rounded-xl bg-black/65 backdrop-blur-md border border-white/10 text-[10px] sm:text-[11px] font-bold text-white shadow-md"
+          >
+            {item.text}
           </div>
+        ))}
+      </div>
 
-          {/* iOS Fullscreen & Landscape Instructions Modal */}
-          {iosHelpOpen && (
-            <div
-              className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
-              onClick={() => setIosHelpOpen(false)}
+      {/* HUNTER BLINDFOLD CAGE BANNER (HIDE_PHASE) */}
+      {isHunter && phase === "HIDE_PHASE" && (
+        <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 max-w-md mx-auto p-4 rounded-3xl bg-rose-950/90 backdrop-blur-md border-2 border-rose-500/70 text-center shadow-2xl z-20 space-y-2">
+          <div className="flex items-center justify-center gap-2 text-rose-200 font-black text-base">
+            <EyeOff className="w-5 h-5 animate-bounce text-amber-400" />
+            <span>قفص الصياد مسدود لـ {secondsLeft} ثانية!</span>
+          </div>
+          <p className="text-xs text-rose-100/90">
+            صحابك كيتحولو لطواجن، برادا، وصنادق وكيتخباو فـ الرياض... وجّد المطرقة ديالك! 🔨
+          </p>
+          {(secondsLeft <= 2 || isHost) && (
+            <button
+              type="button"
+              onClick={() => {
+                sound.playCardFlip();
+                onAction({ type: "START_HUNT" });
+                sendRefresh();
+              }}
+              className="mt-1 px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg active:scale-95 transition-all"
             >
-              <div
-                className="max-w-sm w-full rounded-3xl bg-slate-900 border-2 border-amber-400 p-5 text-right space-y-3 shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => setIosHelpOpen(false)}
-                    className="p-1.5 rounded-xl bg-slate-800 text-slate-300"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                  <h3 className="text-base font-black text-amber-300">
-                    📱 وضع الشاشة الكاملة فـ iPhone
-                  </h3>
-                </div>
-                <p className="text-xs text-slate-200 leading-relaxed">
-                  1️⃣ <strong>دوّر التيليفون بالعرض (Landscape)</strong> باش تلعب بـ جوج صباع بحال PUBG!
-                </p>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  2️⃣ إلا بغيتي تحيّد شريط Safari نهائياً: كليكي على زر المشاركة{" "}
-                  <strong>(Share ⬆️)</strong> لتحت واختار{" "}
-                  <strong>&quot;Add to Home Screen / إضافة إلى الشاشة الرئيسية&quot;</strong>.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setIosHelpOpen(false)}
-                  className="w-full py-2.5 rounded-2xl bg-amber-500 text-slate-950 font-black text-xs"
-                >
-                  مفهوم، يالاه نلعبو! 🎮
-                </button>
-              </div>
-            </div>
+              {secondsLeft <= 0
+                ? "افتح القفص وبدا الصيد دابا! 🔨"
+                : "كلشي تخبّى؟ افتح القفص دابا 🔓"}
+            </button>
           )}
         </div>
       )}
+
+      {/* CAUGHT SPECTATOR BANNER FOR HIDERS */}
+      {!isHunter && isCaught && (
+        <div className="absolute inset-x-4 top-14 max-w-sm mx-auto p-2.5 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-rose-500/50 text-center z-20 pointer-events-none">
+          <span className="text-xs font-black text-rose-400 block">
+            💥 حصلتي! دوز صبعك على الشاشة وتفرّج فصحابك مباشرة
+          </span>
+        </div>
+      )}
+
+      {/* FLOATING 8-PROP DISGUISE DRAWER (When Hider taps 🎭) */}
+      {!isHunter && !isCaught && propDrawerOpen && (
+        <div
+          className="absolute bottom-32 inset-x-3 sm:inset-x-auto sm:right-4 sm:w-[400px] p-3 rounded-3xl bg-slate-950/95 backdrop-blur-xl border-2 border-amber-400/50 shadow-2xl z-30"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <button
+              type="button"
+              onClick={() => setPropDrawerOpen(false)}
+              className="p-1 rounded-lg bg-slate-800 text-slate-300"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <span className="text-xs font-black text-amber-300">
+              🎭 اختار الغرض اللي بغيتي تتحول ليه:
+            </span>
+          </div>
+          <div className="grid grid-cols-4 gap-1.5">
+            {ALL_PROP_IDS.map((pid) => {
+              const meta = GHAMMADA_PROPS[pid];
+              const active = selectedProp === pid;
+              return (
+                <button
+                  key={pid}
+                  type="button"
+                  onClick={() => handleSelectProp(pid)}
+                  className={`p-2 rounded-2xl border text-center transition-all active:scale-95 ${
+                    active
+                      ? "bg-amber-500/25 border-amber-400 text-amber-200 shadow-md"
+                      : "bg-slate-900 border-slate-800 text-slate-200 hover:border-slate-600"
+                  }`}
+                >
+                  <span className="text-xl block">{meta.emoji}</span>
+                  <span className="text-[10px] font-bold block truncate mt-0.5">
+                    {meta.name.split(" ")[0]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* BOTTOM DUAL-THUMB ARCADE OVERLAY (LEFT JOYSTICK + RIGHT ACTIONS)  */}
+      {/* ================================================================= */}
+      <div
+        className="absolute bottom-0 inset-x-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] z-20 flex items-end justify-between gap-2 pointer-events-none"
+        dir="ltr"
+      >
+        {/* BOTTOM-LEFT: MULTI-TOUCH VIRTUAL JOYSTICK */}
+        <div className="flex flex-col items-center gap-1 pointer-events-auto shrink-0">
+          <div
+            ref={joyBaseRef}
+            onPointerDown={handleJoyDown}
+            onPointerMove={handleJoyMove}
+            onPointerUp={handleJoyUp}
+            onPointerCancel={handleJoyUp}
+            className="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-slate-950/65 backdrop-blur-md border-2 border-cyan-400/50 relative flex items-center justify-center shadow-2xl touch-none cursor-pointer"
+          >
+            <span className="absolute top-1.5 text-[8px] font-black text-cyan-300/60 pointer-events-none">
+              ▲
+            </span>
+            <span className="absolute bottom-1.5 text-[8px] font-black text-cyan-300/60 pointer-events-none">
+              ▼
+            </span>
+            <span className="absolute left-1.5 text-[8px] font-black text-cyan-300/60 pointer-events-none">
+              ◀
+            </span>
+            <span className="absolute right-1.5 text-[8px] font-black text-cyan-300/60 pointer-events-none">
+              ▶
+            </span>
+            <div
+              style={{
+                transform: `translate(${joyKnob.x}px, ${joyKnob.y}px)`,
+              }}
+              className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 border-2 border-white shadow-lg shadow-cyan-500/40 pointer-events-none"
+            />
+          </div>
+          <span className="hidden sm:inline-block text-[10px] font-bold text-slate-300/80 bg-black/50 px-2 py-0.5 rounded-full backdrop-blur-sm">
+            🕹️ تحرّك • دوز على الشاشة باش تدوّر الكاميرا
+          </span>
+        </div>
+
+        {/* BOTTOM-RIGHT: ROLE ACTION CLUSTER */}
+        <div
+          className="pointer-events-auto flex flex-col items-end gap-1.5"
+          dir="rtl"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {isHunter ? (
+            /* HUNTER ARCADE BUTTONS */
+            <div className="flex items-end gap-2">
+              <button
+                type="button"
+                onClick={handleHunterSonar}
+                className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-slate-900/85 hover:bg-slate-800 backdrop-blur-md border-2 border-cyan-400/60 text-cyan-300 font-black text-[11px] shadow-xl active:scale-90 transition-all flex flex-col items-center justify-center"
+              >
+                <Radio className="w-5 h-5 text-cyan-400" />
+                <span>رادار</span>
+                {sonarDistance !== null && (
+                  <span className="text-[10px] text-amber-300 font-extrabold">
+                    {sonarDistance}m
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                disabled={phase !== "HUNT_PHASE" || (myEntity?.hearts ?? 5) <= 0}
+                onClick={handleHunterStrike}
+                className="w-20 h-20 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-rose-500 via-red-600 to-orange-600 hover:brightness-110 disabled:opacity-40 border-4 border-rose-200/80 text-white font-black text-xs sm:text-sm shadow-2xl shadow-rose-600/50 active:scale-90 transition-all flex flex-col items-center justify-center gap-0.5"
+              >
+                <Hammer className="w-7 h-7 sm:w-8 sm:h-8" />
+                <span>ضرب! 🔨</span>
+              </button>
+            </div>
+          ) : (
+            /* HIDER ARCADE BUTTONS (Clean 2x2 Grid that fits Portrait & Landscape) */
+            <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+              <button
+                type="button"
+                disabled={isCaught}
+                onClick={() => {
+                  sound.playCardFlip();
+                  setPropDrawerOpen((v) => !v);
+                }}
+                className={`px-3 py-2.5 rounded-2xl backdrop-blur-md border-2 font-black text-[11px] sm:text-xs shadow-xl active:scale-95 transition-all flex items-center justify-center gap-1 ${
+                  propDrawerOpen
+                    ? "bg-amber-500 border-white text-slate-950"
+                    : "bg-slate-900/90 border-amber-400/60 text-amber-300"
+                }`}
+              >
+                <span>{GHAMMADA_PROPS[selectedProp]?.emoji}</span>
+                <span>الشكْل 🎭</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isCaught || phase !== "HUNT_PHASE"}
+                onClick={handleWhistleTaunt}
+                className="px-3 py-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 disabled:opacity-40 border-2 border-amber-200 text-slate-950 font-black text-[11px] sm:text-xs shadow-xl active:scale-95 transition-all flex items-center justify-center gap-1"
+              >
+                <Volume2 className="w-4 h-4 shrink-0" />
+                <span>صفّر 😗</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isCaught}
+                onClick={handleSmokeDash}
+                className="px-3 py-3 rounded-2xl bg-indigo-600/90 hover:bg-indigo-500 disabled:opacity-40 backdrop-blur-md border-2 border-indigo-300 text-white font-black text-[11px] sm:text-xs shadow-xl active:scale-95 transition-all flex items-center justify-center gap-1"
+              >
+                <Wind className="w-4 h-4 shrink-0" />
+                <span>داش 💨</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isCaught}
+                onClick={handleToggleLock}
+                className={`px-3 py-3 rounded-2xl backdrop-blur-md border-2 font-black text-[11px] sm:text-xs shadow-xl active:scale-95 transition-all flex items-center justify-center gap-1 ${
+                  isLockedUI
+                    ? "bg-emerald-600 border-emerald-200 text-white shadow-emerald-600/50"
+                    : "bg-slate-900/90 border-cyan-400/70 text-cyan-200"
+                }`}
+              >
+                {isLockedUI ? (
+                  <Lock className="w-4 h-4 shrink-0" />
+                ) : (
+                  <Unlock className="w-4 h-4 shrink-0" />
+                )}
+                <span>{isLockedUI ? "مثبّت 🔒" : "ثبّت"}</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* iOS Fullscreen & Landscape Instructions Modal */}
+      {iosHelpOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+          onClick={() => setIosHelpOpen(false)}
+        >
+          <div
+            className="max-w-sm w-full rounded-3xl bg-slate-900 border-2 border-amber-400 p-5 text-right space-y-3 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setIosHelpOpen(false)}
+                className="p-1.5 rounded-xl bg-slate-800 text-slate-300"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <h3 className="text-base font-black text-amber-300">
+                📱 وضع الشاشة الكاملة فـ iPhone
+              </h3>
+            </div>
+            <p className="text-xs text-slate-200 leading-relaxed">
+              1️⃣ <strong>دوّر التيليفون بالعرض (Landscape)</strong> باش تلعب بـ جوج صباع بحال PUBG!
+            </p>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              2️⃣ إلا بغيتي تحيّد شريط Safari نهائياً: كليكي على زر المشاركة{" "}
+              <strong>(Share ⬆️)</strong> لتحت واختار{" "}
+              <strong>&quot;Add to Home Screen / إضافة إلى الشاشة الرئيسية&quot;</strong>.
+            </p>
+            <button
+              type="button"
+              onClick={() => setIosHelpOpen(false)}
+              className="w-full py-2.5 rounded-2xl bg-amber-500 text-slate-950 font-black text-xs"
+            >
+              مفهوم، يالاه نلعبو! 🎮
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  return (
+    <div className="max-w-4xl mx-auto w-full space-y-3 pb-6 text-right">
+      {/* Render active 3D game via Portal directly on document.body when immersive */}
+      {isActivePhase &&
+        (isImmersive && mounted && typeof document !== "undefined"
+          ? createPortal(activeGameUI, document.body)
+          : activeGameUI)}
 
       {/* ===================================================================== */}
       {/* PHASE 3: ROUND_END                                                    */}
