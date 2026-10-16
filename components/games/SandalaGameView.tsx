@@ -211,6 +211,7 @@ export function SandalaGameView({
   const [isImmersive, setIsImmersive] = useState<boolean>(true);
   const [browserFs, setBrowserFs] = useState<boolean>(false);
   const [iosHelpOpen, setIosHelpOpen] = useState<boolean>(false);
+  const [lockedTargetId, setLockedTargetId] = useState<string | null>(null);
 
   const lastTimeUpSentRef = useRef<{ round: number; at: number }>({ round: 0, at: 0 });
   const lastServerSyncAtRef = useRef<number>(0);
@@ -234,10 +235,13 @@ export function SandalaGameView({
       localPosRef.current.z = myEntity.z;
       localPosRef.current.rotY = myEntity.rotY;
       localPosRef.current.camYaw = Math.atan2(-myEntity.x, -myEntity.z);
+      localPosRef.current.aimYaw = localPosRef.current.camYaw;
+      localPosRef.current.lockedTargetId = null;
       localPosRef.current.camPitch = 0.52;
       localPosRef.current.floppedUntil = 0;
       localPosRef.current.slippedUntil = 0;
       localPosRef.current.dancingUntil = 0;
+      setLockedTargetId(null);
       prevHitsRef.current = myEntity.hearts;
     }
   }, [round, myId]);
@@ -406,38 +410,56 @@ export function SandalaGameView({
   // =========================================================================
   // MAMA ACTIONS (🩴 صندالة صواريخ / 🧹 شطابة / 😡 بلاتي نجيك)
   // =========================================================================
-  const handleThrowSandala = () => {
-    sound.playSandalaThrow();
-    vibrate(45);
-    const x = localPosRef.current.x;
-    const z = localPosRef.current.z;
-    const rotY = localPosRef.current.rotY;
+  const handleThrowSandala = useCallback(
+    (overrideYaw?: number, overrideTargetId?: string) => {
+      sound.playSandalaThrow();
+      vibrate(45);
+      const x = localPosRef.current.x;
+      const z = localPosRef.current.z;
+      const targetId =
+        overrideTargetId ?? localPosRef.current.lockedTargetId ?? undefined;
+      const aimYaw =
+        typeof overrideYaw === "number"
+          ? overrideYaw
+          : localPosRef.current.aimYaw ?? localPosRef.current.camYaw;
 
-    const fx: Omit<SandalaFxEvent, "i"> = { k: "sandala", x, z, r: rotY };
-    fxQueueRef.current.push({ ...fx, i: myId });
-    sendLiveFx(fx);
+      // Immediately snap Mama's facing to her throw aim!
+      localPosRef.current.rotY = aimYaw;
 
-    const nowPerf = performance.now();
-    const targets: Array<{ id: string; x: number; z: number; flopped?: boolean }> = [];
-    for (const ent of Object.values(entities)) {
-      if (ent.role !== "KID" || ent.isKO) continue;
-      const peer = peersRef.current.get(ent.playerId);
-      if (peer && nowPerf - peer.t < 2000) {
-        targets.push({ id: ent.playerId, x: peer.x, z: peer.z, flopped: peer.f });
-      } else {
-        targets.push({ id: ent.playerId, x: ent.x, z: ent.z });
+      const fx: Omit<SandalaFxEvent, "i"> = {
+        k: "sandala",
+        x,
+        z,
+        r: aimYaw,
+        targetId,
+      };
+      fxQueueRef.current.push({ ...fx, i: myId });
+      sendLiveFx(fx);
+
+      const nowPerf = performance.now();
+      const targets: Array<{ id: string; x: number; z: number; flopped?: boolean }> = [];
+      for (const ent of Object.values(entities)) {
+        if (ent.role !== "KID" || ent.isKO) continue;
+        const peer = peersRef.current.get(ent.playerId);
+        if (peer && nowPerf - peer.t < 2000) {
+          targets.push({ id: ent.playerId, x: peer.x, z: peer.z, flopped: peer.f });
+        } else {
+          targets.push({ id: ent.playerId, x: ent.x, z: ent.z });
+        }
       }
-    }
 
-    onAction({
-      type: "THROW_SANDALA",
-      x,
-      z,
-      rotY,
-      targets,
-    });
-    sendRefresh();
-  };
+      onAction({
+        type: "THROW_SANDALA",
+        x,
+        z,
+        rotY: aimYaw,
+        targetId,
+        targets,
+      });
+      sendRefresh();
+    },
+    [entities, myId, onAction, sendLiveFx, sendRefresh]
+  );
 
   const handleBroomSweep = () => {
     sound.playSlapSmack();
@@ -577,7 +599,41 @@ export function SandalaGameView({
         fxQueueRef={fxQueueRef}
         onPositionTick={handlePositionTick}
         onTriggerTrap={handleTriggerTrap}
+        onLockedTargetChange={setLockedTargetId}
+        onTapThrow={(yaw, tid) => handleThrowSandala(yaw, tid)}
       />
+
+      {/* CENTER-VIEWPORT SNIPER RETICLE & AUTO-LOCK RADAR FOR MAMA */}
+      {isMama && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10">
+          <div
+            className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 flex items-center justify-center transition-all duration-150 ${
+              lockedTargetId
+                ? "border-emerald-400 bg-emerald-500/20 scale-110 shadow-[0_0_20px_rgba(16,185,129,0.65)]"
+                : "border-pink-400/50 bg-pink-500/10"
+            }`}
+          >
+            <div
+              className={`w-2 h-2 rounded-full ${
+                lockedTargetId ? "bg-emerald-300 animate-ping" : "bg-pink-300/80"
+              }`}
+            />
+          </div>
+
+          <div className="mt-2">
+            {lockedTargetId ? (
+              <span className="px-3 py-1 rounded-full bg-emerald-950/90 border border-emerald-400 text-emerald-200 text-[11px] font-black shadow-lg flex items-center gap-1 animate-bounce">
+                <span>🎯 مقفول على: {playersMap[lockedTargetId] || "برهوش"}</span>
+                <span>— قصف دابا!</span>
+              </span>
+            ) : (
+              <span className="px-2.5 py-0.5 rounded-full bg-black/55 border border-pink-400/30 text-pink-200/85 text-[10px] font-bold">
+                🎯 وجّه الكاميرا أو المس البرهوش فـ الشاشة باش تقصفو!
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* TOP SINGLE-ROW GLASSMORPHIC HUD BAR */}
       <div
@@ -745,11 +801,21 @@ export function SandalaGameView({
 
               <button
                 type="button"
-                onClick={handleThrowSandala}
-                className="w-22 h-22 sm:w-28 sm:h-28 p-3 rounded-full bg-gradient-to-br from-pink-500 via-rose-600 to-orange-600 hover:brightness-110 border-4 border-pink-200 text-white font-black text-xs sm:text-sm shadow-2xl shadow-pink-600/50 active:scale-90 transition-all flex flex-col items-center justify-center gap-0.5"
+                onClick={() => handleThrowSandala()}
+                className={`w-24 h-24 sm:w-28 sm:h-28 p-2.5 rounded-full border-4 text-white font-black text-xs sm:text-sm shadow-2xl active:scale-90 transition-all flex flex-col items-center justify-center gap-0.5 ${
+                  lockedTargetId
+                    ? "bg-gradient-to-br from-emerald-500 via-pink-600 to-rose-600 border-emerald-300 shadow-emerald-500/50 scale-105"
+                    : "bg-gradient-to-br from-pink-500 via-rose-600 to-orange-600 hover:brightness-110 border-pink-200 shadow-pink-600/50"
+                }`}
               >
-                <span className="text-2xl sm:text-3xl">🩴</span>
-                <span>صندالة!</span>
+                <span className="text-2xl sm:text-3xl">
+                  {lockedTargetId ? "🎯🩴" : "🩴"}
+                </span>
+                <span className="truncate max-w-[78px]">
+                  {lockedTargetId
+                    ? `قصف ${playersMap[lockedTargetId] || "!"}`
+                    : "صندالة!"}
+                </span>
               </button>
             </div>
           ) : (

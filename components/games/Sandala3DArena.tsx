@@ -38,6 +38,8 @@ export interface SandalaLocalTransform {
   rotY: number;
   camYaw: number;
   camPitch?: number;
+  aimYaw?: number;
+  lockedTargetId?: string | null;
   isMoving?: boolean;
   floppedUntil?: number;
   slippedUntil?: number;
@@ -64,6 +66,7 @@ export interface SandalaFxEvent {
   r?: number;
   tx?: number;
   tz?: number;
+  targetId?: string;
 }
 
 interface Sandala3DArenaProps {
@@ -77,6 +80,8 @@ interface Sandala3DArenaProps {
   fxQueueRef?: React.MutableRefObject<SandalaFxEvent[]>;
   onPositionTick?: (x: number, z: number, rotY: number, isMoving: boolean) => void;
   onTriggerTrap?: (trapId: string, x: number, z: number) => void;
+  onLockedTargetChange?: (targetId: string | null) => void;
+  onTapThrow?: (aimYaw: number, targetId?: string) => void;
 }
 
 /**
@@ -231,6 +236,8 @@ export function Sandala3DArena({
   fxQueueRef,
   onPositionTick,
   onTriggerTrap,
+  onLockedTargetChange,
+  onTapThrow,
 }: Sandala3DArenaProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [loadProgress, setLoadProgress] = useState<number>(0);
@@ -249,6 +256,12 @@ export function Sandala3DArena({
 
   const onTriggerTrapRef = useRef(onTriggerTrap);
   onTriggerTrapRef.current = onTriggerTrap;
+
+  const onLockedTargetChangeRef = useRef(onLockedTargetChange);
+  onLockedTargetChangeRef.current = onLockedTargetChange;
+
+  const onTapThrowRef = useRef(onTapThrow);
+  onTapThrowRef.current = onTapThrow;
 
   useEffect(() => {
     const container = mountRef.current;
@@ -418,19 +431,75 @@ export function Sandala3DArena({
     myRingMesh.position.y = 0.04;
     scene.add(myRingMesh);
 
-    // Mama Aim Laser / Trajectory Indicator
-    const mamaAimMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.55, 11),
+    // Mama Aim Laser Group (Always rotates cleanly around Y axis along aimYaw!)
+    const mamaAimGroup = new THREE.Group();
+    mamaAimGroup.position.y = 0.045;
+    mamaAimGroup.visible = false;
+
+    const mamaAimBeamMat = new THREE.MeshBasicMaterial({
+      color: 0xec4899,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.48,
+    });
+    const mamaAimBeamMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.45, 1),
+      mamaAimBeamMat
+    );
+    mamaAimBeamMesh.rotation.x = -Math.PI / 2;
+    mamaAimGroup.add(mamaAimBeamMesh);
+
+    const mamaAimTipMat = new THREE.MeshBasicMaterial({
+      color: 0xfbbf24,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const mamaAimTipMesh = new THREE.Mesh(
+      new THREE.RingGeometry(0.32, 0.55, 24),
+      mamaAimTipMat
+    );
+    mamaAimTipMesh.rotation.x = -Math.PI / 2;
+    mamaAimGroup.add(mamaAimTipMesh);
+    scene.add(mamaAimGroup);
+
+    // 3D Target Lock-On Crosshair Ring around the Kid currently in Mama's sights!
+    const mamaLockRingGroup = new THREE.Group();
+    mamaLockRingGroup.visible = false;
+    const lockOuterRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.75, 1.05, 32),
       new THREE.MeshBasicMaterial({
-        color: 0xec4899,
+        color: 0x10b981,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.32,
+        opacity: 0.9,
       })
     );
-    mamaAimMesh.rotation.x = -Math.PI / 2;
-    mamaAimMesh.visible = false;
-    scene.add(mamaAimMesh);
+    lockOuterRing.rotation.x = -Math.PI / 2;
+    lockOuterRing.position.y = 0.05;
+    mamaLockRingGroup.add(lockOuterRing);
+
+    const lockInnerRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.35, 0.5, 4),
+      new THREE.MeshBasicMaterial({
+        color: 0xf43f5e,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.95,
+      })
+    );
+    lockInnerRing.rotation.x = -Math.PI / 2;
+    lockInnerRing.position.y = 0.06;
+    mamaLockRingGroup.add(lockInnerRing);
+
+    const lockOverheadCone = new THREE.Mesh(
+      new THREE.ConeGeometry(0.28, 0.55, 6),
+      new THREE.MeshBasicMaterial({ color: 0x10b981 })
+    );
+    lockOverheadCone.rotation.x = Math.PI;
+    lockOverheadCone.position.y = 2.25;
+    mamaLockRingGroup.add(lockOverheadCone);
+    scene.add(mamaLockRingGroup);
 
     const effects = new GhammadaEffects(scene);
 
@@ -441,17 +510,18 @@ export function Sandala3DArena({
     loadGhammadaAssets((ratio) => {
       if (!disposed) setLoadProgress(ratio);
     }).then((assets) => {
-      if (disposed) return;
-      loadedAssets = assets;
-      assetsVersion++;
+      if (!disposed) {
+        loadedAssets = assets;
+        assetsVersion++;
 
-      decorGroup.clear();
-      for (const d of GHAMMADA_DECOR) {
-        const obj = createDecorObject(assets, d.model, d.height);
-        if (obj) {
-          obj.position.set(d.x, 0, d.z);
-          obj.rotation.y = d.rotY;
-          decorGroup.add(obj);
+        decorGroup.clear();
+        for (const d of GHAMMADA_DECOR) {
+          const obj = createDecorObject(assets, d.model, d.height);
+          if (obj) {
+            obj.position.set(d.x, 0, d.z);
+            obj.rotation.y = d.rotY;
+            decorGroup.add(obj);
+          }
         }
       }
     });
@@ -485,19 +555,26 @@ export function Sandala3DArena({
       vx: number;
       vz: number;
       life: number;
+      targetId?: string;
     }
     const projectiles: FlyingProjectile[] = [];
 
-    const spawnFlyingSandala = (x: number, z: number, rotY: number) => {
-      const mesh = build3DSandalaMesh(1.65);
+    const spawnFlyingSandala = (
+      x: number,
+      z: number,
+      rotY: number,
+      targetId?: string
+    ) => {
+      const mesh = build3DSandalaMesh(1.75);
       mesh.position.set(x + Math.sin(rotY) * 0.7, 1.25, z + Math.cos(rotY) * 0.7);
       mesh.rotation.y = rotY;
       scene.add(mesh);
       projectiles.push({
         mesh,
-        vx: Math.sin(rotY) * 21,
-        vz: Math.cos(rotY) * 21,
-        life: 0.65,
+        vx: Math.sin(rotY) * 22,
+        vz: Math.cos(rotY) * 22,
+        life: 0.75,
+        targetId,
       });
     };
 
@@ -645,13 +722,23 @@ export function Sandala3DArena({
     let lookPointerId: number | null = null;
     let lastPointerX = 0;
     let lastPointerY = 0;
+    let downPointerX = 0;
+    let downPointerY = 0;
+    let downTimeMs = 0;
+    let maxDragPx = 0;
     const domEl = renderer.domElement;
+    const tapRaycaster = new THREE.Raycaster();
+    const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
     const onPointerDown = (e: PointerEvent) => {
       if (lookPointerId !== null) return;
       lookPointerId = e.pointerId;
       lastPointerX = e.clientX;
       lastPointerY = e.clientY;
+      downPointerX = e.clientX;
+      downPointerY = e.clientY;
+      downTimeMs = performance.now();
+      maxDragPx = 0;
     };
 
     const onPointerMove = (e: PointerEvent) => {
@@ -660,6 +747,10 @@ export function Sandala3DArena({
       const dy = e.clientY - lastPointerY;
       lastPointerX = e.clientX;
       lastPointerY = e.clientY;
+      maxDragPx = Math.max(
+        maxDragPx,
+        Math.hypot(e.clientX - downPointerX, e.clientY - downPointerY)
+      );
 
       const currentPitch = localPosRef.current.camPitch ?? 0.52;
       const next = applyLookDrag(localPosRef.current.camYaw, currentPitch, dx, dy);
@@ -669,7 +760,76 @@ export function Sandala3DArena({
 
     const onPointerUpOrCancel = (e: PointerEvent) => {
       if (e.pointerId === lookPointerId) {
+        const tapElapsed = performance.now() - downTimeMs;
+        const wasQuickTap =
+          e.type === "pointerup" && tapElapsed < 240 && maxDragPx < 14;
         lookPointerId = null;
+
+        // If Mama quick-taps a Kid or spot on the 3D screen, turn and throw Sandala right there!
+        const myEnt = entitiesRef.current[myPlayerId];
+        if (
+          wasQuickTap &&
+          myEnt?.role === "MAMA" &&
+          phaseRef.current === "ROUND_PLAY"
+        ) {
+          const rect = domEl.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+            // 1. Check if Mama tapped near any Kid on screen (generous 95px radius!)
+            let tappedKidId: string | undefined;
+            let bestScreenDist = 95;
+            const projVec = new THREE.Vector3();
+            for (const ent of Object.values(entitiesRef.current)) {
+              if (ent.role !== "KID" || ent.isKO) continue;
+              const entry = playerMeshes.get(ent.playerId);
+              const kx = entry ? entry.root.position.x : ent.x;
+              const kz = entry ? entry.root.position.z : ent.z;
+              projVec.set(kx, 1.0, kz).project(camera);
+              if (projVec.z >= -1 && projVec.z <= 1) {
+                const sx = ((projVec.x + 1) * 0.5) * rect.width + rect.left;
+                const sy = ((-projVec.y + 1) * 0.5) * rect.height + rect.top;
+                const sDist = Math.hypot(e.clientX - sx, e.clientY - sy);
+                if (sDist < bestScreenDist) {
+                  bestScreenDist = sDist;
+                  tappedKidId = ent.playerId;
+                }
+              }
+            }
+
+            if (tappedKidId) {
+              const entry = playerMeshes.get(tappedKidId);
+              const ent = entitiesRef.current[tappedKidId];
+              const kx = entry ? entry.root.position.x : ent.x;
+              const kz = entry ? entry.root.position.z : ent.z;
+              const yawToKid = Math.atan2(
+                kx - localPosRef.current.x,
+                kz - localPosRef.current.z
+              );
+              localPosRef.current.rotY = yawToKid;
+              localPosRef.current.aimYaw = yawToKid;
+              localPosRef.current.lockedTargetId = tappedKidId;
+              onTapThrowRef.current?.(yawToKid, tappedKidId);
+            } else {
+              // 2. Raycast onto floor plane and throw toward that 3D spot
+              tapRaycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+              const hitPt = new THREE.Vector3();
+              if (tapRaycaster.ray.intersectPlane(floorPlane, hitPt)) {
+                const yawToSpot = Math.atan2(
+                  hitPt.x - localPosRef.current.x,
+                  hitPt.z - localPosRef.current.z
+                );
+                localPosRef.current.rotY = yawToSpot;
+                localPosRef.current.aimYaw = yawToSpot;
+                onTapThrowRef.current?.(
+                  yawToSpot,
+                  localPosRef.current.lockedTargetId || undefined
+                );
+              }
+            }
+          }
+        }
       }
     };
 
@@ -696,6 +856,7 @@ export function Sandala3DArena({
     let animFrameId = 0;
     let lastTime = performance.now();
     let lastSyncMs = 0;
+    let lastReportedLockedId: string | null = null;
 
     const animate = (nowMs: number) => {
       animFrameId = requestAnimationFrame(animate);
@@ -711,7 +872,7 @@ export function Sandala3DArena({
         const q = fxQueueRef.current.splice(0, fxQueueRef.current.length);
         for (const fx of q) {
           if (fx.k === "sandala") {
-            spawnFlyingSandala(fx.x, fx.z, fx.r ?? 0);
+            spawnFlyingSandala(fx.x, fx.z, fx.r ?? 0, fx.targetId);
             const ce = playerMeshes.get(fx.i);
             if (ce?.actions["Punch"]) {
               ce.actions["Punch"].reset().setEffectiveWeight(1).fadeIn(0.05).play();
@@ -730,10 +891,32 @@ export function Sandala3DArena({
         }
       }
 
-      // Update Flying Sandala Projectiles
+      // Update Flying Sandala Projectiles (with La Chancla Heat-Seeking!)
       for (let i = projectiles.length - 1; i >= 0; i--) {
         const p = projectiles[i];
         p.life -= dt;
+
+        if (p.targetId) {
+          const targetEntry = playerMeshes.get(p.targetId);
+          if (targetEntry) {
+            const tx = targetEntry.root.position.x - p.mesh.position.x;
+            const tz = targetEntry.root.position.z - p.mesh.position.z;
+            const distToTarget = Math.hypot(tx, tz);
+            if (distToTarget < 0.75) {
+              effects.poof(targetEntry.root.position.x, targetEntry.root.position.z);
+              scene.remove(p.mesh);
+              projectiles.splice(i, 1);
+              continue;
+            } else if (distToTarget > 0.1) {
+              const desiredVx = (tx / distToTarget) * 23;
+              const desiredVz = (tz / distToTarget) * 23;
+              const steer = damp(12, dt);
+              p.vx += (desiredVx - p.vx) * steer;
+              p.vz += (desiredVz - p.vz) * steer;
+            }
+          }
+        }
+
         p.mesh.position.x += p.vx * dt;
         p.mesh.position.z += p.vz * dt;
         p.mesh.rotation.x += dt * 28;
@@ -795,7 +978,60 @@ export function Sandala3DArena({
         }
       }
 
-      // B. Local Player Movement & Collisions
+      // B. Smart Viewport Aiming & Target Lock-On Radar for Mama
+      let lockedKidId: string | null = null;
+      let lockedKidDist = 11.5;
+      let lockedKidPos: { x: number; z: number } | null = null;
+      let computedAimYaw = localPosRef.current.camYaw;
+
+      if (myServerEnt?.role === "MAMA" && phaseRef.current === "ROUND_PLAY") {
+        let bestTargetScore = Infinity;
+        const myX = localPosRef.current.x;
+        const myZ = localPosRef.current.z;
+        const camYaw = localPosRef.current.camYaw;
+
+        for (const ent of Object.values(allEntities)) {
+          if (ent.role !== "KID" || ent.isKO) continue;
+          const peer = peersRef?.current.get(ent.playerId);
+          const isFresh = Boolean(peer && nowMs - peer.t < 2000);
+          const kx = isFresh && peer ? peer.x : ent.x;
+          const kz = isFresh && peer ? peer.z : ent.z;
+
+          const dx = kx - myX;
+          const dz = kz - myZ;
+          const dist = Math.hypot(dx, dz);
+          if (dist > 16.5) continue;
+
+          const angleToKid = Math.atan2(dx, dz);
+          const angDiff = Math.abs(angleDelta(camYaw, angleToKid));
+
+          // Lock on if Kid is inside a wide ±58° viewport cone, or very close (< 3.8m)
+          if (angDiff <= 1.02 || dist <= 3.8) {
+            const score = angDiff * 5.5 + dist * 0.28;
+            if (score < bestTargetScore) {
+              bestTargetScore = score;
+              lockedKidId = ent.playerId;
+              lockedKidDist = dist;
+              lockedKidPos = { x: kx, z: kz };
+              computedAimYaw = angleToKid;
+            }
+          }
+        }
+
+        localPosRef.current.lockedTargetId = lockedKidId;
+        localPosRef.current.aimYaw = computedAimYaw;
+
+        if (lockedKidId !== lastReportedLockedId) {
+          lastReportedLockedId = lockedKidId;
+          onLockedTargetChangeRef.current?.(lockedKidId);
+        }
+      } else if (lastReportedLockedId !== null) {
+        lastReportedLockedId = null;
+        localPosRef.current.lockedTargetId = null;
+        onLockedTargetChangeRef.current?.(null);
+      }
+
+      // B2. Local Player Movement & Collisions
       let localMoving = false;
       if (myServerEnt && !myServerEnt.isKO && phaseRef.current === "ROUND_PLAY") {
         const isFlopped =
@@ -834,9 +1070,17 @@ export function Sandala3DArena({
           localPosRef.current.x = resolved.x;
           localPosRef.current.z = resolved.z;
 
-          const targetFacing = facingFromDirection(move);
+          // For Mama: if locked onto a Kid in viewport, keep facing the Kid while strafing; otherwise face move direction
+          const targetFacing =
+            myServerEnt.role === "MAMA" && lockedKidId
+              ? computedAimYaw
+              : facingFromDirection(move);
           localPosRef.current.rotY +=
-            angleDelta(localPosRef.current.rotY, targetFacing) * damp(14, dt);
+            angleDelta(localPosRef.current.rotY, targetFacing) * damp(15, dt);
+        } else if (myServerEnt.role === "MAMA" && !isSlipped) {
+          // When Mama stands still and turns the camera viewport, smoothly turn Mama to face the viewport aim!
+          localPosRef.current.rotY +=
+            angleDelta(localPosRef.current.rotY, computedAimYaw) * damp(14, dt);
         }
 
         localPosRef.current.isMoving = localMoving;
@@ -930,15 +1174,33 @@ export function Sandala3DArena({
           myRingMesh.position.set(targetX, 0.04, targetZ);
 
           if (ent.role === "MAMA") {
-            mamaAimMesh.visible = true;
-            mamaAimMesh.position.set(
-              targetX + Math.sin(targetRot) * 5.8,
-              0.035,
-              targetZ + Math.cos(targetRot) * 5.8
-            );
-            mamaAimMesh.rotation.z = -targetRot;
+            const aimLen = lockedKidId ? Math.max(1.2, lockedKidDist) : 11.5;
+            mamaAimGroup.visible = true;
+            mamaAimGroup.position.set(targetX, 0.045, targetZ);
+            mamaAimGroup.rotation.y = computedAimYaw;
+
+            mamaAimBeamMesh.scale.set(lockedKidId ? 1.25 : 1, aimLen, 1);
+            mamaAimBeamMesh.position.set(0, 0, aimLen * 0.5);
+            mamaAimBeamMat.color.setHex(lockedKidId ? 0x10b981 : 0xec4899);
+            mamaAimBeamMat.opacity = lockedKidId ? 0.65 : 0.36;
+
+            mamaAimTipMesh.position.set(0, 0.01, aimLen);
+            mamaAimTipMat.color.setHex(lockedKidId ? 0x10b981 : 0xfbbf24);
+
+            if (lockedKidId && lockedKidPos) {
+              mamaLockRingGroup.visible = true;
+              mamaLockRingGroup.position.set(lockedKidPos.x, 0, lockedKidPos.z);
+              lockInnerRing.rotation.z += dt * 4.5;
+              const pulse = 1 + Math.sin(nowMs * 0.014) * 0.14;
+              lockOuterRing.scale.setScalar(pulse);
+              lockOverheadCone.position.y = 2.25 + Math.sin(nowMs * 0.015) * 0.22;
+              lockOverheadCone.rotation.y += dt * 5;
+            } else {
+              mamaLockRingGroup.visible = false;
+            }
           } else {
-            mamaAimMesh.visible = false;
+            mamaAimGroup.visible = false;
+            mamaLockRingGroup.visible = false;
           }
         } else {
           const blend = damp(14, dt);

@@ -192,6 +192,8 @@ describe("Sandala 3D (صندالة الواليدة 3D) Engine", () => {
     state = SandalaEngine.handleAction(makeCtx(state), "p3", {
       type: "TRIGGER_SABON",
       trapId,
+      x: 2,
+      z: 2,
     }).newState;
     expect(state.traps.length).toBe(0);
     expect(state.scores["p2"]).toBe(45);

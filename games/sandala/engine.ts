@@ -381,34 +381,42 @@ export const SandalaEngine: GameDefinition<
           }
         }
 
-        // Ray / homing cone check along Mama's throw direction (up to 15m range!)
+        // Ray / homing cone check along Mama's throw direction (up to 17.5m range!)
         const dirX = Math.sin(action.rotY);
         const dirZ = Math.cos(action.rotY);
         let bestKid: SandalaPlayerEntity | null = null;
         let bestScore = Infinity;
 
-        for (const ent of Object.values(state.entities)) {
-          if (ent.role !== "KID" || ent.isKO) continue;
-          if (action.targetId && ent.playerId === action.targetId) {
-            bestKid = ent;
-            break;
+        if (action.targetId) {
+          const locked = state.entities[action.targetId];
+          if (locked && locked.role === "KID" && !locked.isKO) {
+            const dist = Math.hypot(locked.x - actorEnt.x, locked.z - actorEnt.z);
+            if (dist <= 18.5) {
+              bestKid = locked;
+            }
           }
-          const dx = ent.x - actorEnt.x;
-          const dz = ent.z - actorEnt.z;
-          const dist = Math.hypot(dx, dz);
-          if (dist > 15.5) continue;
+        }
 
-          // Project onto throw ray
-          const along = dx * dirX + dz * dirZ;
-          if (along < -0.5) continue;
-          const perp = Math.abs(dx * dirZ - dz * dirX);
-          // Homing corridor widens slightly with distance (La Chancla curves!)
-          const maxCorridor = 1.65 + Math.min(1.4, Math.max(0, along) * 0.12);
-          if (perp <= maxCorridor) {
-            const score = perp * 2 + along * 0.25;
-            if (score < bestScore) {
-              bestScore = score;
-              bestKid = ent;
+        if (!bestKid) {
+          for (const ent of Object.values(state.entities)) {
+            if (ent.role !== "KID" || ent.isKO) continue;
+            const dx = ent.x - actorEnt.x;
+            const dz = ent.z - actorEnt.z;
+            const dist = Math.hypot(dx, dz);
+            if (dist > 17.5) continue;
+
+            // Project onto throw ray
+            const along = dx * dirX + dz * dirZ;
+            if (along < -0.8) continue;
+            const perp = Math.abs(dx * dirZ - dz * dirX);
+            // Generous homing corridor that widens with distance (La Chancla heat-seeking!)
+            const maxCorridor = 2.15 + Math.min(2.2, Math.max(0, along) * 0.18);
+            if (perp <= maxCorridor) {
+              const score = perp * 1.8 + Math.max(0, along) * 0.2;
+              if (score < bestScore) {
+                bestScore = score;
+                bestKid = ent;
+              }
             }
           }
         }
@@ -433,9 +441,14 @@ export const SandalaEngine: GameDefinition<
             // DIRECT SANDALA SMACK!
             bestKid.hearts = Math.max(0, bestKid.hearts - 1);
             bestKid.lastHitAt = now;
-            // Knockback along throw vector
-            bestKid.x = clampArena(bestKid.x + dirX * 3.6);
-            bestKid.z = clampArena(bestKid.z + dirZ * 3.6);
+            // Knockback along vector from Mama to Kid
+            const kdx = bestKid.x - actorEnt.x;
+            const kdz = bestKid.z - actorEnt.z;
+            const klen = Math.hypot(kdx, kdz);
+            const kbX = klen > 0.05 ? kdx / klen : dirX;
+            const kbZ = klen > 0.05 ? kdz / klen : dirZ;
+            bestKid.x = clampArena(bestKid.x + kbX * 3.6);
+            bestKid.z = clampArena(bestKid.z + kbZ * 3.6);
             actorEnt.hitsCount += 1;
 
             if (bestKid.hearts <= 0) {
