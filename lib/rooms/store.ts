@@ -84,9 +84,50 @@ export class RoomStore {
     if (redis) {
       try {
         await redis.set(`jma3a:session:${session.id}`, session, { ex: 86400 });
+        await redis.set(`jma3a:session:${session.id}:v`, session.stateVersion, { ex: 86400 });
       } catch (err) {
         console.error("Redis persistSession error:", err);
       }
+    }
+  }
+
+  private casUnsupported = false;
+
+  /**
+   * Writes the session only if nobody else saved a newer version since we read it.
+   * Returns false when another write won the race (caller should re-read and retry).
+   */
+  private async persistSessionIfVersion(
+    session: InternalGameSession,
+    expectedPrevVersion: number
+  ): Promise<boolean> {
+    if (!redis || this.casUnsupported) {
+      await this.persistSession(session);
+      return true;
+    }
+    const script = `
+      local cur = redis.call('GET', KEYS[2])
+      if cur and tonumber(cur) ~= tonumber(ARGV[2]) then return 0 end
+      redis.call('SET', KEYS[1], ARGV[1], 'EX', 86400)
+      redis.call('SET', KEYS[2], ARGV[3], 'EX', 86400)
+      return 1
+    `;
+    try {
+      const ok = await redis.eval(
+        script,
+        [`jma3a:session:${session.id}`, `jma3a:session:${session.id}:v`],
+        [JSON.stringify(session), String(expectedPrevVersion), String(session.stateVersion)]
+      );
+      if (Number(ok) === 1) {
+        this.gameSessions.set(session.id, session);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error("Redis CAS unsupported, falling back to plain write:", err);
+      this.casUnsupported = true;
+      await this.persistSession(session);
+      return true;
     }
   }
 
@@ -473,10 +514,10 @@ export class RoomStore {
       return { success: false, error: "No active game in this room" };
     }
 
-    const session = await this.getSession(room.activeSessionId);
-    if (!session) return { success: false, error: "Session not found" };
+    const firstSession = await this.getSession(room.activeSessionId);
+    if (!firstSession) return { success: false, error: "Session not found" };
 
-    const gameDef = getGameDefinition(session.gameId);
+    const gameDef = getGameDefinition(firstSession.gameId);
     if (!gameDef) return { success: false, error: "Game engine not found" };
 
     // Find acting player
@@ -490,80 +531,94 @@ export class RoomStore {
 
     if (!actor) return { success: false, error: "Player not authorized" };
 
-    if (action.type === "NIGHT_TIMER_EXPIRED") {
-      const host = room.players.find((p) => p.id === room.hostPlayerId);
-      if (host?.deviceSessionId !== sessionToken) {
-        return { success: false, error: "Only host can advance the night timer" };
+    const originalAction = action;
+    const MAX_ATTEMPTS = 5;
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      // Always work on the freshest saved state (first attempt reuses the read above)
+      const session = attempt === 0 ? firstSession : await this.getSession(room.activeSessionId);
+      if (!session) return { success: false, error: "Session not found" };
+      let actionToApply = originalAction;
+
+      if (actionToApply.type === "NIGHT_TIMER_EXPIRED") {
+        const host = room.players.find((p) => p.id === room.hostPlayerId);
+        if (host?.deviceSessionId !== sessionToken) {
+          return { success: false, error: "Only host can advance the night timer" };
+        }
+        if (
+          session.gameId !== "dib" ||
+          !["NIGHT_INTRO", "NIGHT_SEER", "NIGHT_WOLVES", "NIGHT_WITCH"].includes(session.phase) ||
+          actionToApply.phase !== session.phase ||
+          !session.timer || session.timer.isPaused ||
+          actionToApply.endsAt !== session.timer.endsAt ||
+          Date.now() < session.timer.endsAt
+        ) {
+          return { success: false, error: "Night timer is not ready or has changed" };
+        }
+        actionToApply = { type: "NEXT_PHASE" };
       }
-      if (
-        session.gameId !== "dib" ||
-        !["NIGHT_INTRO", "NIGHT_SEER", "NIGHT_WOLVES", "NIGHT_WITCH"].includes(session.phase) ||
-        action.phase !== session.phase ||
-        !session.timer || session.timer.isPaused ||
-        action.endsAt !== session.timer.endsAt ||
-        Date.now() < session.timer.endsAt
-      ) {
-        return { success: false, error: "Night timer is not ready or has changed" };
-      }
-      action = { type: "NEXT_PHASE" };
-    }
 
-    const ctx = {
-      roomId: room.code,
-      players: room.players,
-      state: session.state,
-      settings: {
-        ...gameDef.defaultSettings,
-        interactionMode: room.settings.interactionMode,
-        ...(room.settings.gameSettings || {}),
-      },
-      round: session.round,
-      phase: session.phase,
-      stateVersion: session.stateVersion,
-    };
-
-    const result = gameDef.handleAction(ctx, actor.id, action);
-    if (!result.success) {
-      return { success: false, error: result.error || "Action rejected" };
-    }
-
-    session.state = result.newState;
-    session.phase = result.newPhase;
-    if (result.newRound) session.round = result.newRound;
-    session.stateVersion += 1;
-
-    // If DIB transitioned out of ROLE_REVEAL into NIGHT_WOLF, complete pass-the-phone
-    if (session.gameId === "dib" && result.newPhase !== "ROLE_REVEAL") {
-      session.passThePhone = undefined;
-    }
-
-    if (result.timerDurationMs) {
-      session.timer = {
-        startsAt: Date.now(),
-        endsAt: Date.now() + result.timerDurationMs,
-        durationMs: result.timerDurationMs,
-        isPaused: false,
+      const ctx = {
+        roomId: room.code,
+        players: room.players,
+        state: session.state,
+        settings: {
+          ...gameDef.defaultSettings,
+          interactionMode: room.settings.interactionMode,
+          ...(room.settings.gameSettings || {}),
+        },
+        round: session.round,
+        phase: session.phase,
+        stateVersion: session.stateVersion,
       };
-    } else if (result.newPhase !== ctx.phase) {
-      session.timer = undefined;
+
+      const result = gameDef.handleAction(ctx, actor.id, actionToApply);
+      if (!result.success) {
+        return { success: false, error: result.error || "Action rejected" };
+      }
+
+      const prevVersion = session.stateVersion;
+      session.state = result.newState;
+      session.phase = result.newPhase;
+      if (result.newRound) session.round = result.newRound;
+      session.stateVersion += 1;
+
+      // If DIB transitioned out of ROLE_REVEAL into NIGHT_WOLF, complete pass-the-phone
+      if (session.gameId === "dib" && result.newPhase !== "ROLE_REVEAL") {
+        session.passThePhone = undefined;
+      }
+
+      if (result.timerDurationMs) {
+        session.timer = {
+          startsAt: Date.now(),
+          endsAt: Date.now() + result.timerDurationMs,
+          durationMs: result.timerDurationMs,
+          isPaused: false,
+        };
+      } else if (result.newPhase !== ctx.phase) {
+        session.timer = undefined;
+      }
+
+      const saved = await this.persistSessionIfVersion(session, prevVersion);
+      if (!saved) continue; // someone else saved first: retry on fresh state
+
+      const endCheck = gameDef.checkFinished({
+        ...ctx,
+        state: session.state,
+        phase: session.phase,
+        round: session.round,
+        stateVersion: session.stateVersion,
+      });
+      if (endCheck?.isFinished) {
+        room.status = "FINISHED";
+        await this.persistRoom(room);
+      }
+
+      realtimeHub.publish(room.code, "STATE_CHANGED", session.stateVersion);
+      return { success: true };
     }
 
-    const endCheck = gameDef.checkFinished({
-      ...ctx,
-      state: session.state,
-      phase: session.phase,
-      round: session.round,
-      stateVersion: session.stateVersion,
-    });
-    if (endCheck?.isFinished) {
-      room.status = "FINISHED";
-    }
-
-    await this.persistSession(session);
-    await this.persistRoom(room);
-
-    realtimeHub.publish(room.code, "STATE_CHANGED", session.stateVersion);
-    return { success: true };
+    return { success: false, error: "الضغط كبير دابا، عاود حاول" };
   }
 
   async advancePassThePhone(code: string, sessionToken: string): Promise<{ success: boolean; error?: string }> {

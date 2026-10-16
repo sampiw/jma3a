@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import {
   GhammadaPhase,
@@ -9,315 +9,85 @@ import {
   GhammadaWorldProp,
   GHAMMADA_PROPS,
 } from "@/games/ghammada/types";
+import {
+  ARENA_HALF,
+  FOUNTAIN_RADIUS,
+  GHAMMADA_DECOR,
+  PALM_POSITIONS,
+  resolveCollisions,
+  STATIC_COLLIDERS,
+} from "@/games/ghammada/layout";
+import {
+  createDecorObject,
+  createHunterRig,
+  createPropObject,
+  GhammadaAssets,
+  HunterRig,
+  loadGhammadaAssets,
+  playHunterAnim,
+  playHunterPunch,
+  updateHunterFez,
+} from "@/components/games/ghammada/assets";
+import { GhammadaEffects } from "@/components/games/ghammada/effects";
+import {
+  angleDelta,
+  applyLookDrag,
+  cameraRelativeMove,
+  damp,
+  facingFromDirection,
+} from "@/components/games/ghammada/controlsMath";
+import { LIVE_STALE_MS, LiveFx, LivePos } from "@/components/games/ghammada/useGhammadaLive";
+
+export interface LocalPlayerTransform {
+  x: number;
+  z: number;
+  rotY: number;
+  propId: GhammadaPropId;
+  isLocked: boolean;
+  camYaw: number;
+  camPitch?: number;
+  isMoving?: boolean;
+}
 
 interface Ghammada3DArenaProps {
   phase: GhammadaPhase;
   myPlayerId: string;
   entities: Record<string, GhammadaPlayerEntity>;
   worldProps: GhammadaWorldProp[];
-  playersMap: Record<string, string>; // id -> nickname
-  localPosRef: React.MutableRefObject<{
-    x: number;
-    z: number;
-    rotY: number;
-    propId: GhammadaPropId;
-    isLocked: boolean;
-    camYaw: number;
-  }>;
+  playersMap: Record<string, string>;
+  localPosRef: React.MutableRefObject<LocalPlayerTransform>;
   joystickVecRef: React.MutableRefObject<{ dx: number; dz: number }>;
-  onPositionTick?: (x: number, z: number, rotY: number) => void;
+  peersRef?: React.MutableRefObject<Map<string, LivePos>>;
+  fxQueueRef?: React.MutableRefObject<LiveFx[]>;
+  fullScreen?: boolean;
+  onPositionTick?: (x: number, z: number, rotY: number, isMoving: boolean) => void;
 }
 
 /**
- * Builds a recognizable, stylized 3D mesh for each of the 8 Moroccan props
+ * Clamp camera distance so the camera never clips outside the courtyard walls.
  */
-function buildPropMesh(propId: GhammadaPropId): THREE.Group {
-  const group = new THREE.Group();
+function clampCameraWallDist(
+  focusX: number,
+  focusZ: number,
+  dirX: number,
+  dirZ: number,
+  desiredDist: number
+): number {
+  const wallLimit = ARENA_HALF - 0.35;
+  let maxDist = desiredDist;
 
-  switch (propId) {
-    case "tajine": {
-      // Base dish
-      const baseGeo = new THREE.CylinderGeometry(0.75, 0.6, 0.22, 20);
-      const clayMat = new THREE.MeshStandardMaterial({
-        color: 0xc2410c,
-        roughness: 0.55,
-      });
-      const base = new THREE.Mesh(baseGeo, clayMat);
-      base.position.y = 0.11;
-      base.castShadow = true;
-      base.receiveShadow = true;
-      group.add(base);
-
-      // Conical lid
-      const coneGeo = new THREE.ConeGeometry(0.7, 0.85, 20);
-      const cone = new THREE.Mesh(coneGeo, clayMat);
-      cone.position.y = 0.64;
-      cone.castShadow = true;
-      group.add(cone);
-
-      // Gold decorative ring
-      const ringGeo = new THREE.TorusGeometry(0.45, 0.035, 10, 24);
-      const goldMat = new THREE.MeshStandardMaterial({
-        color: 0xfbbf24,
-        metalness: 0.6,
-        roughness: 0.3,
-      });
-      const ring = new THREE.Mesh(ringGeo, goldMat);
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = 0.55;
-      group.add(ring);
-
-      // Top knob
-      const knobGeo = new THREE.SphereGeometry(0.14, 14, 14);
-      const knob = new THREE.Mesh(knobGeo, clayMat);
-      knob.position.y = 1.08;
-      group.add(knob);
-      break;
-    }
-
-    case "berrad": {
-      // Silver Moroccan Teapot
-      const silverMat = new THREE.MeshStandardMaterial({
-        color: 0xe2e8f0,
-        metalness: 0.8,
-        roughness: 0.2,
-      });
-      const bellyGeo = new THREE.SphereGeometry(0.52, 20, 18);
-      const belly = new THREE.Mesh(bellyGeo, silverMat);
-      belly.scale.set(1, 1.15, 1);
-      belly.position.y = 0.58;
-      belly.castShadow = true;
-      group.add(belly);
-
-      // Foot base
-      const footGeo = new THREE.CylinderGeometry(0.32, 0.42, 0.16, 16);
-      const foot = new THREE.Mesh(footGeo, silverMat);
-      foot.position.y = 0.08;
-      group.add(foot);
-
-      // Conical crown lid
-      const lidGeo = new THREE.ConeGeometry(0.3, 0.42, 16);
-      const lid = new THREE.Mesh(lidGeo, silverMat);
-      lid.position.y = 1.25;
-      group.add(lid);
-
-      // Spout
-      const spoutGeo = new THREE.CylinderGeometry(0.05, 0.11, 0.65, 12);
-      const spout = new THREE.Mesh(spoutGeo, silverMat);
-      spout.position.set(0.48, 0.72, 0);
-      spout.rotation.z = -Math.PI / 4;
-      group.add(spout);
-
-      // Handle
-      const handleGeo = new THREE.TorusGeometry(0.28, 0.045, 10, 20);
-      const handle = new THREE.Mesh(handleGeo, silverMat);
-      handle.position.set(-0.42, 0.68, 0);
-      group.add(handle);
-      break;
-    }
-
-    case "butagaz": {
-      // Iconic Blue Moroccan Gas Cylinder
-      const blueMat = new THREE.MeshStandardMaterial({
-        color: 0x0284c7,
-        roughness: 0.4,
-        metalness: 0.3,
-      });
-      const cylGeo = new THREE.CylinderGeometry(0.52, 0.52, 0.85, 20);
-      const body = new THREE.Mesh(cylGeo, blueMat);
-      body.position.y = 0.48;
-      body.castShadow = true;
-      group.add(body);
-
-      const topDomeGeo = new THREE.SphereGeometry(0.52, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2);
-      const topDome = new THREE.Mesh(topDomeGeo, blueMat);
-      topDome.position.y = 0.9;
-      group.add(topDome);
-
-      // Collar guard
-      const collarGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.25, 16, 1, true);
-      const collar = new THREE.Mesh(collarGeo, blueMat);
-      collar.position.y = 1.18;
-      group.add(collar);
-
-      // Brass valve
-      const brassMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.7, roughness: 0.3 });
-      const valve = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.2, 12), brassMat);
-      valve.position.y = 1.15;
-      group.add(valve);
-      break;
-    }
-
-    case "chair": {
-      const woodMat = new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.7 });
-      const seatMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.6 });
-
-      // Seat
-      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.1, 0.85), seatMat);
-      seat.position.y = 0.55;
-      seat.castShadow = true;
-      group.add(seat);
-
-      // 4 legs
-      const legGeo = new THREE.CylinderGeometry(0.05, 0.04, 0.55, 8);
-      [
-        [-0.35, -0.35],
-        [0.35, -0.35],
-        [-0.35, 0.35],
-        [0.35, 0.35],
-      ].forEach(([lx, lz]) => {
-        const leg = new THREE.Mesh(legGeo, woodMat);
-        leg.position.set(lx, 0.275, lz);
-        group.add(leg);
-      });
-
-      // Backrest
-      const back = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.65, 0.09), woodMat);
-      back.position.set(0, 0.92, -0.38);
-      back.castShadow = true;
-      group.add(back);
-      break;
-    }
-
-    case "crate": {
-      const crateMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.75 });
-      const trimMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.8 });
-      const box = new THREE.Mesh(new THREE.BoxGeometry(1.05, 1.05, 1.05), crateMat);
-      box.position.y = 0.525;
-      box.castShadow = true;
-      box.receiveShadow = true;
-      group.add(box);
-
-      const frame = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.16, 1.1), trimMat);
-      frame.position.y = 0.95;
-      group.add(frame);
-      break;
-    }
-
-    case "amphora": {
-      const terraMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.5 });
-      const lower = new THREE.Mesh(new THREE.SphereGeometry(0.52, 18, 16), terraMat);
-      lower.scale.set(1, 1.35, 1);
-      lower.position.y = 0.62;
-      lower.castShadow = true;
-      group.add(lower);
-
-      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 0.45, 16), terraMat);
-      neck.position.y = 1.25;
-      group.add(neck);
-
-      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.045, 10, 20), terraMat);
-      rim.rotation.x = Math.PI / 2;
-      rim.position.y = 1.46;
-      group.add(rim);
-      break;
-    }
-
-    case "della7a": {
-      // Giant Striped Watermelon
-      const greenMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.35 });
-      const melon = new THREE.Mesh(new THREE.SphereGeometry(0.55, 20, 18), greenMat);
-      melon.scale.set(1.2, 0.95, 1);
-      melon.position.y = 0.52;
-      melon.castShadow = true;
-      group.add(melon);
-
-      const stripeMat = new THREE.MeshStandardMaterial({ color: 0x052e16, roughness: 0.4 });
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.54, 0.04, 8, 24), stripeMat);
-      ring.position.y = 0.52;
-      group.add(ring);
-      break;
-    }
-
-    case "fanar":
-    default: {
-      // Glowing Moroccan Brass Lantern
-      const brassMat = new THREE.MeshStandardMaterial({
-        color: 0xd97706,
-        metalness: 0.75,
-        roughness: 0.25,
-      });
-      const glowMat = new THREE.MeshStandardMaterial({
-        color: 0xfef08a,
-        emissive: 0xf59e0b,
-        emissiveIntensity: 0.9,
-      });
-
-      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.16, 6), brassMat);
-      base.position.y = 0.08;
-      group.add(base);
-
-      const core = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.75, 6), glowMat);
-      core.position.y = 0.52;
-      group.add(core);
-
-      const roof = new THREE.Mesh(new THREE.ConeGeometry(0.48, 0.45, 6), brassMat);
-      roof.position.y = 1.1;
-      roof.castShadow = true;
-      group.add(roof);
-      break;
-    }
+  if (Math.abs(dirX) > 1e-4) {
+    const boundX = dirX > 0 ? wallLimit : -wallLimit;
+    const dX = (boundX - focusX) / dirX;
+    if (dX > 0) maxDist = Math.min(maxDist, dX);
+  }
+  if (Math.abs(dirZ) > 1e-4) {
+    const boundZ = dirZ > 0 ? wallLimit : -wallLimit;
+    const dZ = (boundZ - focusZ) / dirZ;
+    if (dZ > 0) maxDist = Math.min(maxDist, dZ);
   }
 
-  return group;
-}
-
-/**
- * Builds the 3D Hunter Avatar (with Moroccan Fez hat & glowing 3D Hammer!)
- */
-function buildHunterMesh(): { group: THREE.Group; hammerPivot: THREE.Group } {
-  const group = new THREE.Group();
-
-  // Body tunic
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.5 });
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 0.65, 12, 16), bodyMat);
-  body.position.y = 0.75;
-  body.castShadow = true;
-  group.add(body);
-
-  // Head
-  const skinMat = new THREE.MeshStandardMaterial({ color: 0xfde68a, roughness: 0.45 });
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.34, 16, 16), skinMat);
-  head.position.y = 1.48;
-  head.castShadow = true;
-  group.add(head);
-
-  // Sunglasses / Visor (facing +Z in local coordinates)
-  const visorMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.8, roughness: 0.2 });
-  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.14, 0.2), visorMat);
-  visor.position.set(0, 1.5, 0.26);
-  group.add(visor);
-
-  // Moroccan Tarbouche (Fez Hat)
-  const fezMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.6 });
-  const fez = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.34, 16), fezMat);
-  fez.position.y = 1.85;
-  group.add(fez);
-
-  // Hammer Pivot on Right Hand
-  const hammerPivot = new THREE.Group();
-  hammerPivot.position.set(0.55, 0.95, 0.2);
-
-  const handleMat = new THREE.MeshStandardMaterial({ color: 0x78350f });
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.95, 10), handleMat);
-  handle.position.y = 0.4;
-  hammerPivot.add(handle);
-
-  const headMat = new THREE.MeshStandardMaterial({
-    color: 0xfbbf24,
-    metalness: 0.6,
-    roughness: 0.25,
-    emissive: 0xd97706,
-    emissiveIntensity: 0.3,
-  });
-  const hammerHead = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.58, 12), headMat);
-  hammerHead.rotation.x = Math.PI / 2;
-  hammerHead.position.y = 0.88;
-  hammerPivot.add(hammerHead);
-
-  group.add(hammerPivot);
-
-  return { group, hammerPivot };
+  return Math.max(1.4, maxDist);
 }
 
 export function Ghammada3DArena({
@@ -327,9 +97,14 @@ export function Ghammada3DArena({
   worldProps,
   localPosRef,
   joystickVecRef,
+  peersRef,
+  fxQueueRef,
+  fullScreen = false,
   onPositionTick,
 }: Ghammada3DArenaProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
+  const [loadProgress, setLoadProgress] = useState<number>(0);
+
   const entitiesRef = useRef(entities);
   entitiesRef.current = entities;
 
@@ -346,180 +121,258 @@ export function Ghammada3DArena({
     const container = mountRef.current;
     if (!container) return;
 
-    // 1. Initialize Scene, Camera, Renderer
+    let disposed = false;
+
+    // 1. Initialize Scene, Camera & Renderer
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0f172a);
-    scene.fog = new THREE.FogExp2(0x0f172a, 0.016);
+    scene.background = new THREE.Color(0x131c31);
+    scene.fog = new THREE.FogExp2(0x131c31, 0.014);
 
     const camera = new THREE.PerspectiveCamera(
-      58,
+      55,
       container.clientWidth / Math.max(1, container.clientHeight),
-      0.1,
-      120
+      0.15,
+      110
     );
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: "high-performance",
+    });
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
 
-    // 2. Lighting (Warm Moroccan Sunset + Courtyard Glow)
-    const ambientLight = new THREE.AmbientLight(0xffedd5, 0.75);
-    scene.add(ambientLight);
+    // 2. Warm Moroccan Golden-Hour Lighting
+    const hemiLight = new THREE.HemisphereLight(0xffe8c2, 0x1e293b, 0.85);
+    scene.add(hemiLight);
 
-    const dirLight = new THREE.DirectionalLight(0xfde68a, 1.35);
-    dirLight.position.set(16, 28, 14);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 1024;
-    dirLight.shadow.mapSize.height = 1024;
-    dirLight.shadow.camera.near = 2;
-    dirLight.shadow.camera.far = 65;
-    const d = 20;
-    dirLight.shadow.camera.left = -d;
-    dirLight.shadow.camera.right = d;
-    dirLight.shadow.camera.top = d;
-    dirLight.shadow.camera.bottom = -d;
-    scene.add(dirLight);
+    const sunLight = new THREE.DirectionalLight(0xffdfa8, 1.45);
+    sunLight.position.set(15, 26, 13);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 1024;
+    sunLight.shadow.mapSize.height = 1024;
+    sunLight.shadow.camera.near = 2;
+    sunLight.shadow.camera.far = 65;
+    const shadowBound = 20;
+    sunLight.shadow.camera.left = -shadowBound;
+    sunLight.shadow.camera.right = shadowBound;
+    sunLight.shadow.camera.top = shadowBound;
+    sunLight.shadow.camera.bottom = -shadowBound;
+    sunLight.shadow.bias = -0.0005;
+    scene.add(sunLight);
 
-    const fountainLight = new THREE.PointLight(0x22d3ee, 1.5, 14);
-    fountainLight.position.set(0, 2.5, 0);
+    const fountainLight = new THREE.PointLight(0x38bdf8, 1.6, 14);
+    fountainLight.position.set(0, 2.2, 0);
     scene.add(fountainLight);
 
-    // 3. Build 3D Moroccan Courtyard & Souk Environment (34m x 34m)
+    // 3. Build Moroccan Riad Courtyard Architecture
     const envGroup = new THREE.Group();
     scene.add(envGroup);
 
-    // Courtyard Floor
-    const floorGeo = new THREE.PlaneGeometry(36, 36);
-    const floorMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      roughness: 0.85,
-    });
-    const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    envGroup.add(floor);
+    // Courtyard tile floor
+    const floorMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(36, 36),
+      new THREE.MeshStandardMaterial({ color: 0x263248, roughness: 0.82 })
+    );
+    floorMesh.rotation.x = -Math.PI / 2;
+    floorMesh.receiveShadow = true;
+    envGroup.add(floorMesh);
 
-    // Zellij Decorative Grid Helper
-    const grid = new THREE.GridHelper(34, 17, 0xf59e0b, 0x334155);
-    grid.position.y = 0.02;
+    // Subtle Zellij tile grid lines
+    const grid = new THREE.GridHelper(34, 17, 0xd97706, 0x334155);
+    grid.position.y = 0.015;
     envGroup.add(grid);
 
-    // 4 Quadrant Zone Carpets / Patios so players can orient themselves easily
-    const zoneConfigs = [
-      { x: -9, z: -9, color: 0x7c2d12 }, // Café Terracotta
-      { x: 9, z: -9, color: 0x065f46 },  // Souk Emerald
-      { x: -9, z: 9, color: 0x1e3a8a },  // Medina Cobalt
-      { x: 9, z: 9, color: 0x701a75 },   // Garden Majorelle
+    // 4 Corner Zone Patios (color-coded so players orient fast)
+    const zones = [
+      { x: -10, z: -10, color: 0x7c2d12 }, // NW Café (Terracotta)
+      { x: 10, z: -10, color: 0x065f46 }, // NE Souk Lounge (Emerald)
+      { x: -10, z: 10, color: 0x1e3a8a }, // SW Plant Alley (Majorelle Blue)
+      { x: 10, z: 10, color: 0x581c87 }, // SE Garden (Amber/Plum)
     ];
-    zoneConfigs.forEach((zc) => {
-      const rug = new THREE.Mesh(
-        new THREE.PlaneGeometry(10, 10),
+    for (const zc of zones) {
+      const patio = new THREE.Mesh(
+        new THREE.PlaneGeometry(9.5, 9.5),
         new THREE.MeshStandardMaterial({ color: zc.color, roughness: 0.9 })
       );
-      rug.rotation.x = -Math.PI / 2;
-      rug.position.set(zc.x, 0.03, zc.z);
-      rug.receiveShadow = true;
-      envGroup.add(rug);
-    });
+      patio.rotation.x = -Math.PI / 2;
+      patio.position.set(zc.x, 0.02, zc.z);
+      patio.receiveShadow = true;
+      envGroup.add(patio);
+    }
 
-    // Outer Riad Perimeter Walls
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x9a3412, roughness: 0.7 });
-    const wallPositions = [
-      { x: 0, z: -17, w: 35, d: 1 },
-      { x: 0, z: 17, w: 35, d: 1 },
-      { x: -17, z: 0, w: 1, d: 35 },
-      { x: 17, z: 0, w: 1, d: 35 },
+    // Riad Perimeter Walls with Moroccan crenellations
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0xb4532a, roughness: 0.72 });
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0xfde68a, roughness: 0.6 });
+    const wallSegments = [
+      { x: 0, z: -16.8, w: 34.6, d: 0.9 },
+      { x: 0, z: 16.8, w: 34.6, d: 0.9 },
+      { x: -16.8, z: 0, w: 0.9, d: 34.6 },
+      { x: 16.8, z: 0, w: 0.9, d: 34.6 },
     ];
-    wallPositions.forEach((wp) => {
-      const wMesh = new THREE.Mesh(new THREE.BoxGeometry(wp.w, 3.2, wp.d), wallMat);
-      wMesh.position.set(wp.x, 1.6, wp.z);
-      wMesh.receiveShadow = true;
-      wMesh.castShadow = true;
-      envGroup.add(wMesh);
-    });
+    for (const ws of wallSegments) {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(ws.w, 3.4, ws.d), wallMat);
+      wall.position.set(ws.x, 1.7, ws.z);
+      wall.receiveShadow = true;
+      wall.castShadow = true;
+      envGroup.add(wall);
 
-    // Central Zellij Fountain (0, 0)
-    const fountainWall = new THREE.Mesh(
-      new THREE.CylinderGeometry(2.6, 2.8, 0.55, 8),
-      new THREE.MeshStandardMaterial({ color: 0x0d9488, roughness: 0.4 })
+      const crown = new THREE.Mesh(new THREE.BoxGeometry(ws.w, 0.22, ws.d + 0.12), trimMat);
+      crown.position.set(ws.x, 3.5, ws.z);
+      envGroup.add(crown);
+    }
+
+    // Central Zellij Fountain (radius ~2.9m)
+    const fountainBasin = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.65, 2.85, 0.58, 12),
+      new THREE.MeshStandardMaterial({ color: 0x0d9488, roughness: 0.35 })
     );
-    fountainWall.position.y = 0.275;
-    fountainWall.receiveShadow = true;
-    envGroup.add(fountainWall);
+    fountainBasin.position.y = 0.29;
+    fountainBasin.receiveShadow = true;
+    fountainBasin.castShadow = true;
+    envGroup.add(fountainBasin);
 
     const fountainWater = new THREE.Mesh(
-      new THREE.CylinderGeometry(2.3, 2.3, 0.45, 16),
+      new THREE.CylinderGeometry(2.35, 2.35, 0.48, 24),
       new THREE.MeshStandardMaterial({
-        color: 0x22d3ee,
-        emissive: 0x0891b2,
-        emissiveIntensity: 0.4,
-        roughness: 0.15,
+        color: 0x38bdf8,
+        emissive: 0x0284c7,
+        emissiveIntensity: 0.45,
+        roughness: 0.12,
       })
     );
-    fountainWater.position.y = 0.3;
+    fountainWater.position.y = 0.32;
     envGroup.add(fountainWater);
 
-    // 4 Courtyard Palm Pillars
-    const pillarMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.6 });
-    const leafMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.5 });
-    [
-      [-5.5, -5.5],
-      [5.5, -5.5],
-      [-5.5, 5.5],
-      [5.5, 5.5],
-    ].forEach(([px, pz]) => {
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.38, 3.4, 10), pillarMat);
-      trunk.position.set(px, 1.7, pz);
+    const fountainTier = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.55, 0.85, 1.25, 12),
+      new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.4 })
+    );
+    fountainTier.position.y = 0.75;
+    fountainTier.castShadow = true;
+    envGroup.add(fountainTier);
+
+    // 4 Courtyard Date Palms
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.75 });
+    const frondMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.55 });
+    for (const [px, pz] of PALM_POSITIONS) {
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.38, 3.8, 12), trunkMat);
+      trunk.position.set(px, 1.9, pz);
       trunk.castShadow = true;
+      trunk.receiveShadow = true;
       envGroup.add(trunk);
 
-      const canopy = new THREE.Mesh(new THREE.SphereGeometry(1.35, 12, 10), leafMat);
-      canopy.scale.set(1.2, 0.6, 1.2);
-      canopy.position.set(px, 3.5, pz);
-      canopy.castShadow = true;
-      envGroup.add(canopy);
-    });
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const frond = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.9, 6), frondMat);
+        frond.position.set(px + Math.cos(a) * 0.85, 3.85, pz + Math.sin(a) * 0.85);
+        frond.rotation.z = -Math.cos(a) * 1.1;
+        frond.rotation.x = Math.sin(a) * 1.1;
+        frond.castShadow = true;
+        envGroup.add(frond);
+      }
+    }
 
-    // Hunter Blindfold Cage (Visible during HIDE_PHASE)
+    // Decor group (populated once GLB assets finish loading)
+    const decorGroup = new THREE.Group();
+    envGroup.add(decorGroup);
+
+    // Hunter Blindfold Cage (during HIDE_PHASE)
     const cageMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(2.9, 2.9, 3.5, 16, 1, true),
+      new THREE.CylinderGeometry(FOUNTAIN_RADIUS + 0.25, FOUNTAIN_RADIUS + 0.25, 3.4, 18, 1, true),
       new THREE.MeshStandardMaterial({
         color: 0xf43f5e,
         emissive: 0xe11d48,
-        emissiveIntensity: 0.6,
+        emissiveIntensity: 0.65,
         wireframe: true,
       })
     );
-    cageMesh.position.y = 1.75;
+    cageMesh.position.y = 1.7;
     scene.add(cageMesh);
 
-    // Local Player Selection Halo Ring on Ground
+    // Subtle ground ring under local player
     const myRingMesh = new THREE.Mesh(
-      new THREE.RingGeometry(0.75, 0.95, 28),
-      new THREE.MeshBasicMaterial({ color: 0x22d3ee, side: THREE.DoubleSide })
+      new THREE.RingGeometry(0.62, 0.78, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.75,
+      })
     );
     myRingMesh.rotation.x = -Math.PI / 2;
-    myRingMesh.position.y = 0.05;
+    myRingMesh.position.y = 0.04;
     scene.add(myRingMesh);
 
-    // 4. Dynamic Registries for World Props & Player Entities
-    const worldPropMeshes = new Map<string, { group: THREE.Group; propId: GhammadaPropId }>();
-    const playerMeshes = new Map<
+    // Aim direction indicator in front of Hunter
+    const hunterAimMesh = new THREE.Mesh(
+      new THREE.RingGeometry(0.95, 1.22, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0xf43f5e,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.42,
+      })
+    );
+    hunterAimMesh.rotation.x = -Math.PI / 2;
+    hunterAimMesh.position.y = 0.05;
+    hunterAimMesh.visible = false;
+    scene.add(hunterAimMesh);
+
+    // 4. Particle Effects Manager
+    const effects = new GhammadaEffects(scene);
+
+    // 5. Load CC0 3D Assets (.glb models) & Populate Decor
+    let loadedAssets: GhammadaAssets | null = null;
+    let assetsVersion = 0;
+
+    const worldPropMeshes = new Map<
       string,
-      {
-        root: THREE.Group;
-        currentType: string; // "HUNTER" or propId
-        hammerPivot?: THREE.Group;
-        strikeRing?: THREE.Mesh;
-        tauntRing?: THREE.Mesh;
-      }
+      { group: THREE.Object3D; propId: GhammadaPropId; ver: number; wasDestroyed: boolean }
     >();
 
-    // Keyboard state for Desktop testing (WASD / Arrows)
+    interface PlayerRenderEntry {
+      root: THREE.Group;
+      visual: THREE.Group;
+      currentType: string;
+      ver: number;
+      hunterRig?: HunterRig;
+      hopPhase: number;
+      lastX: number;
+      lastZ: number;
+      wasCaught: boolean;
+      lastStrikeAt: number;
+      lastTauntAt: number;
+      lastDashAt: number;
+    }
+    const playerMeshes = new Map<string, PlayerRenderEntry>();
+
+    loadGhammadaAssets((ratio) => {
+      if (!disposed) setLoadProgress(ratio);
+    }).then((assets) => {
+      if (disposed) return;
+      loadedAssets = assets;
+      assetsVersion++;
+
+      // Populate Riad furniture from GHAMMADA_DECOR
+      decorGroup.clear();
+      for (const d of GHAMMADA_DECOR) {
+        const obj = createDecorObject(assets, d.model, d.height);
+        if (obj) {
+          obj.position.set(d.x, 0, d.z);
+          obj.rotation.y = d.rotY;
+          decorGroup.add(obj);
+        }
+      }
+    });
+
+    // 6. Keyboard Controls (Desktop WASD / Arrow Keys)
     const keysPressed: Record<string, boolean> = {};
     const handleKeyDown = (e: KeyboardEvent) => {
       keysPressed[e.code] = true;
@@ -530,71 +383,131 @@ export function Ghammada3DArena({
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
 
-    // Pointer drag on canvas to orbit camera (360° look around)
-    let isOrbiting = false;
+    // 7. Dedicated Multi-Touch Camera Orbit (tracks specific pointerId so joystick never conflicts)
+    let lookPointerId: number | null = null;
     let lastPointerX = 0;
+    let lastPointerY = 0;
     const domEl = renderer.domElement;
 
     const onPointerDown = (e: PointerEvent) => {
-      isOrbiting = true;
+      if (lookPointerId !== null) return;
+      lookPointerId = e.pointerId;
       lastPointerX = e.clientX;
+      lastPointerY = e.clientY;
     };
+
     const onPointerMove = (e: PointerEvent) => {
-      if (!isOrbiting) return;
+      if (e.pointerId !== lookPointerId) return;
       const dx = e.clientX - lastPointerX;
+      const dy = e.clientY - lastPointerY;
       lastPointerX = e.clientX;
-      localPosRef.current.camYaw -= dx * 0.008;
+      lastPointerY = e.clientY;
+
+      const currentPitch = localPosRef.current.camPitch ?? 0.42;
+      const next = applyLookDrag(localPosRef.current.camYaw, currentPitch, dx, dy);
+      localPosRef.current.camYaw = next.yaw;
+      localPosRef.current.camPitch = next.pitch;
     };
-    const onPointerUp = () => {
-      isOrbiting = false;
+
+    const onPointerUpOrCancel = (e: PointerEvent) => {
+      if (e.pointerId === lookPointerId) {
+        lookPointerId = null;
+      }
     };
 
     domEl.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointerup", onPointerUpOrCancel);
+    window.addEventListener("pointercancel", onPointerUpOrCancel);
 
-    // Handle Window Resize
+    // 8. Responsive Resize Observer + Window Resize
     const handleResize = () => {
       if (!container) return;
-      camera.aspect = container.clientWidth / Math.max(1, container.clientHeight);
+      const w = Math.max(1, container.clientWidth);
+      const h = Math.max(1, container.clientHeight);
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setSize(w, h);
     };
     window.addEventListener("resize", handleResize);
+    const resizeObs =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(handleResize) : null;
+    resizeObs?.observe(container);
 
-    // 5. Main 60 FPS Animation & Physics Loop
+    // Pre-build collider list without center fountain for HIDE_PHASE hunter cage
+    const collidersWithoutFountain = STATIC_COLLIDERS.filter(
+      (c) => !(c.x === 0 && c.z === 0)
+    );
+
+    // 9. Main 60 FPS Game Loop
     let animFrameId = 0;
     let lastTime = performance.now();
-    let lastSyncSent = 0;
+    let lastServerSyncMs = 0;
 
     const animate = (nowMs: number) => {
       animFrameId = requestAnimationFrame(animate);
-      const dt = Math.min(0.05, (nowMs - lastTime) / 1000);
+      const dt = Math.min(0.05, Math.max(0.001, (nowMs - lastTime) / 1000));
       lastTime = nowMs;
 
       const currentPhase = phaseRef.current;
       const allEntities = entitiesRef.current;
       const myServerEnt = allEntities[myPlayerId];
 
-      // Toggle Hunter Cage visibility
-      cageMesh.visible = currentPhase === "HIDE_PHASE";
-      if (cageMesh.visible) {
-        cageMesh.rotation.y += dt * 0.8;
+      // Process any queued instant FX (local or Supabase live broadcast)
+      if (fxQueueRef?.current && fxQueueRef.current.length > 0) {
+        const queue = fxQueueRef.current.splice(0, fxQueueRef.current.length);
+        for (const fx of queue) {
+          if (fx.k === "strike") {
+            const hitX = fx.x + Math.sin(fx.r ?? 0) * 1.3;
+            const hitZ = fx.z + Math.cos(fx.r ?? 0) * 1.3;
+            effects.dust(hitX, hitZ);
+            const pEntry = playerMeshes.get(fx.i);
+            if (pEntry?.hunterRig) {
+              playHunterPunch(pEntry.hunterRig);
+            }
+          } else if (fx.k === "whistle") {
+            effects.notes(fx.x, fx.z);
+          } else if (fx.k === "dash") {
+            effects.smoke(fx.x, fx.z);
+          } else if (fx.k === "morph") {
+            effects.smoke(fx.x, fx.z);
+          }
+        }
       }
 
-      // A. Update Static World Props
+      // Toggle Hunter Blindfold Cage
+      cageMesh.visible = currentPhase === "HIDE_PHASE";
+      if (cageMesh.visible) {
+        cageMesh.rotation.y += dt * 0.7;
+      }
+
+      // A. Sync World Decoy Props
       const activeWorldProps = worldPropsRef.current || [];
       const seenWpIds = new Set<string>();
       for (const wp of activeWorldProps) {
         seenWpIds.add(wp.id);
         let entry = worldPropMeshes.get(wp.id);
-        if (!entry || entry.propId !== wp.propId) {
+        if (!entry || entry.propId !== wp.propId || entry.ver !== assetsVersion) {
+          const prevDestroyed = entry?.wasDestroyed ?? Boolean(wp.isDestroyed);
           if (entry) scene.remove(entry.group);
-          const g = buildPropMesh(wp.propId);
-          scene.add(g);
-          entry = { group: g, propId: wp.propId };
+          const group = createPropObject(loadedAssets, wp.propId);
+          scene.add(group);
+          entry = {
+            group,
+            propId: wp.propId,
+            ver: assetsVersion,
+            wasDestroyed: prevDestroyed,
+          };
           worldPropMeshes.set(wp.id, entry);
         }
+
+        if (wp.isDestroyed && !entry.wasDestroyed) {
+          entry.wasDestroyed = true;
+          effects.shatter(wp.x, wp.z);
+        } else if (!wp.isDestroyed) {
+          entry.wasDestroyed = false;
+        }
+
         entry.group.position.set(wp.x, 0, wp.z);
         entry.group.rotation.y = wp.rotY;
         entry.group.visible = !wp.isDestroyed;
@@ -606,156 +519,242 @@ export function Ghammada3DArena({
         }
       }
 
-      // B. Local Player Movement & Physics
+      // B. Local Player Movement & Collisions (Camera-Relative!)
+      let localMoving = false;
       if (myServerEnt && !myServerEnt.isCaught) {
-        const isHunterInCage = myServerEnt.role === "HUNTER" && currentPhase === "HIDE_PHASE";
-        let inputX = joystickVecRef.current.dx;
-        let inputZ = joystickVecRef.current.dz;
+        const isHunterInCage =
+          myServerEnt.role === "HUNTER" && currentPhase === "HIDE_PHASE";
+        let jx = joystickVecRef.current.dx;
+        let jy = joystickVecRef.current.dz;
 
-        if (keysPressed["KeyW"] || keysPressed["ArrowUp"]) inputZ -= 1;
-        if (keysPressed["KeyS"] || keysPressed["ArrowDown"]) inputZ += 1;
-        if (keysPressed["KeyA"] || keysPressed["ArrowLeft"]) inputX -= 1;
-        if (keysPressed["KeyD"] || keysPressed["ArrowRight"]) inputX += 1;
+        if (keysPressed["KeyW"] || keysPressed["ArrowUp"]) jy -= 1;
+        if (keysPressed["KeyS"] || keysPressed["ArrowDown"]) jy += 1;
+        if (keysPressed["KeyA"] || keysPressed["ArrowLeft"]) jx -= 1;
+        if (keysPressed["KeyD"] || keysPressed["ArrowRight"]) jx += 1;
 
-        const mag = Math.hypot(inputX, inputZ);
-        if (mag > 0.05 && !isHunterInCage && !localPosRef.current.isLocked) {
-          const normX = inputX / Math.max(1, mag);
-          const normZ = inputZ / Math.max(1, mag);
-
-          // Rotate input vector relative to camera yaw
-          const yaw = localPosRef.current.camYaw;
-          const moveX = normX * Math.cos(yaw) + normZ * Math.sin(yaw);
-          const moveZ = normZ * Math.cos(yaw) - normX * Math.sin(yaw);
-
-          const baseSpeed = myServerEnt.role === "HUNTER" ? 6.6 : 6.0;
-          const propSpeedMult =
+        const inputMag = Math.hypot(jx, jy);
+        if (inputMag > 0.04 && !isHunterInCage && !localPosRef.current.isLocked) {
+          localMoving = true;
+          const move = cameraRelativeMove(jx, jy, localPosRef.current.camYaw);
+          const baseSpeed = myServerEnt.role === "HUNTER" ? 6.7 : 6.0;
+          const propMult =
             myServerEnt.role === "HIDER"
               ? GHAMMADA_PROPS[localPosRef.current.propId]?.speedMultiplier || 1.0
               : 1.0;
 
-          let nextX = localPosRef.current.x + moveX * baseSpeed * propSpeedMult * dt;
-          let nextZ = localPosRef.current.z + moveZ * baseSpeed * propSpeedMult * dt;
+          const rawX = localPosRef.current.x + move.x * baseSpeed * propMult * dt;
+          const rawZ = localPosRef.current.z + move.z * baseSpeed * propMult * dt;
 
-          // Keep outside center fountain radius (2.7m) during HUNT_PHASE
-          const distFromCenter = Math.hypot(nextX, nextZ);
-          if (distFromCenter < 2.75 && distFromCenter > 0.01 && currentPhase !== "HIDE_PHASE") {
-            nextX = (nextX / distFromCenter) * 2.75;
-            nextZ = (nextZ / distFromCenter) * 2.75;
-          }
+          const activeColliders =
+            currentPhase === "HIDE_PHASE" ? collidersWithoutFountain : STATIC_COLLIDERS;
+          const resolved = resolveCollisions(rawX, rawZ, 0.45, activeColliders);
 
-          localPosRef.current.x = Math.max(-15.8, Math.min(15.8, nextX));
-          localPosRef.current.z = Math.max(-15.8, Math.min(15.8, nextZ));
-          localPosRef.current.rotY = Math.atan2(moveX, moveZ);
+          localPosRef.current.x = resolved.x;
+          localPosRef.current.z = resolved.z;
 
-          // Throttled network sync every 240ms while moving
-          if (nowMs - lastSyncSent > 240) {
-            lastSyncSent = nowMs;
-            onPosTickRef.current?.(
-              localPosRef.current.x,
-              localPosRef.current.z,
-              localPosRef.current.rotY
-            );
-          }
+          const targetFacing = facingFromDirection(move);
+          localPosRef.current.rotY +=
+            angleDelta(localPosRef.current.rotY, targetFacing) * damp(14, dt);
+        }
+
+        localPosRef.current.isMoving = localMoving;
+
+        // Notify parent so it can broadcast over Supabase (80ms) and/or server (260ms)
+        if (localMoving || nowMs - lastServerSyncMs > 300) {
+          if (localMoving) lastServerSyncMs = nowMs;
+          onPosTickRef.current?.(
+            localPosRef.current.x,
+            localPosRef.current.z,
+            localPosRef.current.rotY,
+            localMoving
+          );
         }
       }
 
-      // C. Render & Interpolate All Player Entities
+      // C. Render & Animate All Players (Local + Live Peers + Server Entities)
       const seenPlayerIds = new Set<string>();
       const nowEpoch = Date.now();
 
       for (const ent of Object.values(allEntities)) {
         seenPlayerIds.add(ent.playerId);
         const isMe = ent.playerId === myPlayerId;
-        const desiredType = ent.role === "HUNTER" ? "HUNTER" : isMe ? localPosRef.current.propId : ent.propId;
+        const livePeer = !isMe ? peersRef?.current.get(ent.playerId) : undefined;
+        const isLiveFresh = Boolean(
+          livePeer && nowMs - livePeer.t < LIVE_STALE_MS
+        );
 
-        let pMesh = playerMeshes.get(ent.playerId);
-        if (!pMesh || pMesh.currentType !== desiredType) {
-          if (pMesh) scene.remove(pMesh.root);
+        const activePropId: GhammadaPropId = isMe
+          ? localPosRef.current.propId
+          : isLiveFresh && livePeer?.p
+          ? livePeer.p
+          : ent.propId;
+
+        const desiredType = ent.role === "HUNTER" ? "HUNTER" : activePropId;
+
+        let pEntry = playerMeshes.get(ent.playerId);
+        if (!pEntry || pEntry.currentType !== desiredType || pEntry.ver !== assetsVersion) {
+          const prevX = pEntry?.lastX ?? ent.x;
+          const prevZ = pEntry?.lastZ ?? ent.z;
+          const prevCaught = pEntry?.wasCaught ?? ent.isCaught;
+          if (pEntry) scene.remove(pEntry.root);
+
           const root = new THREE.Group();
+          const visual = new THREE.Group();
+          root.add(visual);
 
-          let hammerPivot: THREE.Group | undefined;
+          let hunterRig: HunterRig | undefined;
           if (desiredType === "HUNTER") {
-            const built = buildHunterMesh();
-            root.add(built.group);
-            hammerPivot = built.hammerPivot;
+            hunterRig = createHunterRig(loadedAssets);
+            visual.add(hunterRig.root);
           } else {
-            const propGroup = buildPropMesh(desiredType as GhammadaPropId);
-            root.add(propGroup);
+            const propObj = createPropObject(loadedAssets, desiredType as GhammadaPropId);
+            visual.add(propObj);
           }
 
-          // Strike shockwave ring (for Hunters)
-          const strikeRing = new THREE.Mesh(
-            new THREE.RingGeometry(0.4, 3.0, 32),
-            new THREE.MeshBasicMaterial({
-              color: 0xf43f5e,
-              side: THREE.DoubleSide,
-              transparent: true,
-              opacity: 0,
-            })
-          );
-          strikeRing.rotation.x = -Math.PI / 2;
-          strikeRing.position.y = 0.08;
-          root.add(strikeRing);
-
-          // Taunt soundwave ring (for Hiders whistling)
-          const tauntRing = new THREE.Mesh(
-            new THREE.RingGeometry(0.5, 2.2, 28),
-            new THREE.MeshBasicMaterial({
-              color: 0xfacc15,
-              side: THREE.DoubleSide,
-              transparent: true,
-              opacity: 0,
-            })
-          );
-          tauntRing.rotation.x = -Math.PI / 2;
-          tauntRing.position.y = 1.3;
-          root.add(tauntRing);
-
+          root.position.set(prevX, 0, prevZ);
           scene.add(root);
-          pMesh = { root, currentType: desiredType, hammerPivot, strikeRing, tauntRing };
-          playerMeshes.set(ent.playerId, pMesh);
+
+          pEntry = {
+            root,
+            visual,
+            currentType: desiredType,
+            ver: assetsVersion,
+            hunterRig,
+            hopPhase: 0,
+            lastX: prevX,
+            lastZ: prevZ,
+            wasCaught: prevCaught,
+            lastStrikeAt: ent.lastStrikeAt ?? 0,
+            lastTauntAt: ent.lastTauntAt ?? 0,
+            lastDashAt: ent.lastDashAt ?? 0,
+          };
+          playerMeshes.set(ent.playerId, pEntry);
         }
 
-        pMesh.root.visible = !ent.isCaught;
+        // Trigger catch poof + stars when a hider transitions to caught
+        if (ent.isCaught && !pEntry.wasCaught) {
+          pEntry.wasCaught = true;
+          effects.poof(pEntry.root.position.x, pEntry.root.position.z);
+        } else if (!ent.isCaught) {
+          pEntry.wasCaught = false;
+        }
 
-        // Position interpolation
-        const targetX = isMe ? localPosRef.current.x : ent.x;
-        const targetZ = isMe ? localPosRef.current.z : ent.z;
-        const targetRot = isMe ? localPosRef.current.rotY : ent.rotY;
+        // Trigger server-observed FX if not already triggered via live channel
+        if (ent.lastStrikeAt && ent.lastStrikeAt !== pEntry.lastStrikeAt) {
+          pEntry.lastStrikeAt = ent.lastStrikeAt;
+          if (pEntry.hunterRig) playHunterPunch(pEntry.hunterRig);
+          const hitX = pEntry.root.position.x + Math.sin(pEntry.root.rotation.y) * 1.3;
+          const hitZ = pEntry.root.position.z + Math.cos(pEntry.root.rotation.y) * 1.3;
+          effects.dust(hitX, hitZ);
+        }
+        if (ent.lastTauntAt && ent.lastTauntAt !== pEntry.lastTauntAt) {
+          pEntry.lastTauntAt = ent.lastTauntAt;
+          effects.notes(pEntry.root.position.x, pEntry.root.position.z);
+        }
+        if (ent.lastDashAt && ent.lastDashAt !== pEntry.lastDashAt) {
+          pEntry.lastDashAt = ent.lastDashAt;
+          effects.smoke(pEntry.root.position.x, pEntry.root.position.z);
+        }
+
+        pEntry.root.visible = !ent.isCaught;
+
+        // Target position & rotation (Me -> localPosRef, Peer -> livePeer or server ent)
+        const targetX = isMe
+          ? localPosRef.current.x
+          : isLiveFresh && livePeer
+          ? livePeer.x
+          : ent.x;
+        const targetZ = isMe
+          ? localPosRef.current.z
+          : isLiveFresh && livePeer
+          ? livePeer.z
+          : ent.z;
+        const targetRot = isMe
+          ? localPosRef.current.rotY
+          : isLiveFresh && livePeer
+          ? livePeer.r
+          : ent.rotY;
+        const isLockedNow = isMe
+          ? localPosRef.current.isLocked
+          : isLiveFresh && livePeer?.l !== undefined
+          ? livePeer.l
+          : ent.isLocked;
+
+        const prevX = pEntry.root.position.x;
+        const prevZ = pEntry.root.position.z;
 
         if (isMe) {
-          pMesh.root.position.set(targetX, 0, targetZ);
-          pMesh.root.rotation.y = targetRot;
-          myRingMesh.position.set(targetX, 0.05, targetZ);
+          pEntry.root.position.set(targetX, 0, targetZ);
+          pEntry.root.rotation.y = targetRot;
+          myRingMesh.position.set(targetX, 0.04, targetZ);
           myRingMesh.visible = !ent.isCaught;
-        } else {
-          pMesh.root.position.x += (targetX - pMesh.root.position.x) * Math.min(1, dt * 10);
-          pMesh.root.position.z += (targetZ - pMesh.root.position.z) * Math.min(1, dt * 10);
-          pMesh.root.rotation.y = targetRot;
-        }
 
-        // Animate Hunter Hammer Strike & Shockwave
-        if (ent.lastStrikeAt && nowEpoch - ent.lastStrikeAt < 650) {
-          const progress = (nowEpoch - ent.lastStrikeAt) / 650;
-          if (pMesh.hammerPivot) {
-            pMesh.hammerPivot.rotation.x = Math.sin(progress * Math.PI) * 1.45;
-          }
-          if (pMesh.strikeRing) {
-            pMesh.strikeRing.scale.setScalar(0.3 + progress * 0.9);
-            (pMesh.strikeRing.material as THREE.MeshBasicMaterial).opacity = 0.85 * (1 - progress);
+          if (ent.role === "HUNTER" && currentPhase === "HUNT_PHASE") {
+            hunterAimMesh.visible = true;
+            hunterAimMesh.position.set(
+              targetX + Math.sin(targetRot) * 1.3,
+              0.045,
+              targetZ + Math.cos(targetRot) * 1.3
+            );
+          } else {
+            hunterAimMesh.visible = false;
           }
         } else {
-          if (pMesh.hammerPivot) pMesh.hammerPivot.rotation.x = 0;
-          if (pMesh.strikeRing) (pMesh.strikeRing.material as THREE.MeshBasicMaterial).opacity = 0;
+          const blend = damp(14, dt);
+          pEntry.root.position.x += (targetX - pEntry.root.position.x) * blend;
+          pEntry.root.position.z += (targetZ - pEntry.root.position.z) * blend;
+          pEntry.root.rotation.y +=
+            angleDelta(pEntry.root.rotation.y, targetRot) * blend;
         }
 
-        // Animate Hider Whistle Taunt Ring
-        if (ent.lastTauntAt && nowEpoch - ent.lastTauntAt < 2200 && pMesh.tauntRing) {
-          const p = ((nowEpoch - ent.lastTauntAt) % 700) / 700;
-          pMesh.tauntRing.scale.setScalar(0.5 + p * 1.3);
-          (pMesh.tauntRing.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - p);
-        } else if (pMesh.tauntRing) {
-          (pMesh.tauntRing.material as THREE.MeshBasicMaterial).opacity = 0;
+        const frameDist = Math.hypot(
+          pEntry.root.position.x - prevX,
+          pEntry.root.position.z - prevZ
+        );
+        const speed = frameDist / dt;
+        const isMovingEntity = isMe
+          ? localMoving
+          : isLiveFresh && livePeer?.m !== undefined
+          ? livePeer.m || speed > 0.25
+          : speed > 0.25;
+
+        pEntry.lastX = pEntry.root.position.x;
+        pEntry.lastZ = pEntry.root.position.z;
+
+        // Animate Hunter skeletal rig & hammer swing
+        if (pEntry.hunterRig) {
+          playHunterAnim(
+            pEntry.hunterRig,
+            isMovingEntity ? (speed > 2.0 || isMe ? "Running" : "Walking") : "Idle"
+          );
+          pEntry.hunterRig.mixer?.update(dt);
+          updateHunterFez(pEntry.hunterRig);
+
+          const strikeAge = pEntry.lastStrikeAt ? nowEpoch - pEntry.lastStrikeAt : 9999;
+          if (strikeAge >= 0 && strikeAge < 520) {
+            const t = strikeAge / 520;
+            pEntry.hunterRig.hammerPivot.rotation.x = -0.35 + Math.sin(t * Math.PI) * 1.65;
+          } else {
+            pEntry.hunterRig.hammerPivot.rotation.x = -0.35;
+          }
+        } else {
+          // Hider Prop Hop + Squash-and-Stretch when moving; completely still when locked/idle
+          if (isMovingEntity && !isLockedNow) {
+            pEntry.hopPhase += dt * 11.5;
+            const hop = Math.abs(Math.sin(pEntry.hopPhase));
+            pEntry.visual.position.y = hop * 0.24;
+            pEntry.visual.rotation.z = Math.sin(pEntry.hopPhase) * 0.09;
+            const sy = 1 + (hop - 0.35) * 0.14;
+            const sxz = 1 / Math.sqrt(sy);
+            pEntry.visual.scale.set(sxz, sy, sxz);
+          } else {
+            const settle = damp(16, dt);
+            pEntry.visual.position.y += (0 - pEntry.visual.position.y) * settle;
+            pEntry.visual.rotation.z += (0 - pEntry.visual.rotation.z) * settle;
+            pEntry.visual.scale.x += (1 - pEntry.visual.scale.x) * settle;
+            pEntry.visual.scale.y += (1 - pEntry.visual.scale.y) * settle;
+            pEntry.visual.scale.z += (1 - pEntry.visual.scale.z) * settle;
+          }
         }
       }
 
@@ -766,26 +765,57 @@ export function Ghammada3DArena({
         }
       }
 
-      // D. Update 3rd-Person Follow Camera
+      // D. Update 3D Particle System
+      effects.update(dt);
+
+      // E. Over-the-Shoulder 3rd-Person Follow Camera (synchronized with controlsMath!)
       const camYaw = localPosRef.current.camYaw;
+      const camPitch = localPosRef.current.camPitch ?? 0.42;
       const focusX = localPosRef.current.x;
       const focusZ = localPosRef.current.z;
 
-      // If Hunter during HIDE_PHASE: high orbiting blindfold camera
       if (myServerEnt?.role === "HUNTER" && currentPhase === "HIDE_PHASE") {
-        const orbitAngle = nowMs * 0.0012;
-        camera.position.set(Math.sin(orbitAngle) * 4.5, 11.5, Math.cos(orbitAngle) * 4.5);
+        // Blindfold orbital camera above central fountain
+        const orbitAngle = nowMs * 0.0011;
+        camera.position.set(
+          Math.sin(orbitAngle) * 4.4,
+          10.5,
+          Math.cos(orbitAngle) * 4.4
+        );
         camera.lookAt(0, 1.0, 0);
       } else {
-        const camDist = 6.8;
-        const camHeight = 4.6;
-        const desiredCamX = focusX - Math.sin(camYaw) * camDist;
-        const desiredCamZ = focusZ + Math.cos(camYaw) * camDist;
+        const isHunterRole = myServerEnt?.role === "HUNTER";
+        const isLockedHider = !isHunterRole && localPosRef.current.isLocked;
+        const baseDist = isHunterRole ? 4.9 : isLockedHider ? 5.8 : 4.5;
+        const focusY = isHunterRole ? 1.35 : 0.85;
 
-        camera.position.x += (desiredCamX - camera.position.x) * Math.min(1, dt * 12);
-        camera.position.y += (camHeight - camera.position.y) * Math.min(1, dt * 12);
-        camera.position.z += (desiredCamZ - camera.position.z) * Math.min(1, dt * 12);
-        camera.lookAt(focusX, 1.1, focusZ);
+        // Camera sits BEHIND the player along -cameraForward(camYaw) = (-sin(yaw), -cos(yaw))
+        const backDirX = -Math.sin(camYaw);
+        const backDirZ = -Math.cos(camYaw);
+        const desiredHorizDist = baseDist * Math.cos(camPitch);
+        const clampedHorizDist = clampCameraWallDist(
+          focusX,
+          focusZ,
+          backDirX,
+          backDirZ,
+          desiredHorizDist
+        );
+        const distRatio = clampedHorizDist / Math.max(0.01, desiredHorizDist);
+        const vertDist = baseDist * Math.sin(camPitch) * Math.max(0.55, distRatio);
+
+        const desiredCamX = focusX + backDirX * clampedHorizDist;
+        const desiredCamZ = focusZ + backDirZ * clampedHorizDist;
+        const desiredCamY = Math.max(0.7, focusY + vertDist);
+
+        const camBlend = damp(16, dt);
+        camera.position.x += (desiredCamX - camera.position.x) * camBlend;
+        camera.position.y += (desiredCamY - camera.position.y) * camBlend;
+        camera.position.z += (desiredCamZ - camera.position.z) * camBlend;
+
+        const shakeAmt = effects.shake * 0.3;
+        const shakeX = shakeAmt > 0 ? (Math.random() - 0.5) * shakeAmt : 0;
+        const shakeY = shakeAmt > 0 ? (Math.random() - 0.5) * shakeAmt : 0;
+        camera.lookAt(focusX + shakeX, focusY + shakeY, focusZ);
       }
 
       renderer.render(scene, camera);
@@ -794,21 +824,35 @@ export function Ghammada3DArena({
     animFrameId = requestAnimationFrame(animate);
 
     return () => {
+      disposed = true;
       cancelAnimationFrame(animFrameId);
+      resizeObs?.disconnect();
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
       domEl.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointerup", onPointerUpOrCancel);
+      window.removeEventListener("pointercancel", onPointerUpOrCancel);
       window.removeEventListener("resize", handleResize);
+      effects.dispose();
       renderer.dispose();
     };
-  }, [myPlayerId, localPosRef, joystickVecRef]);
+  }, [myPlayerId, localPosRef, joystickVecRef, peersRef, fxQueueRef]);
 
   return (
     <div
-      ref={mountRef}
-      className="w-full h-[380px] sm:h-[460px] rounded-3xl overflow-hidden border-2 border-amber-500/40 shadow-2xl bg-slate-950 relative touch-none select-none"
-    />
+      className={
+        fullScreen
+          ? "relative w-full h-full overflow-hidden bg-slate-950 select-none touch-none"
+          : "relative w-full h-[380px] sm:h-[460px] rounded-3xl overflow-hidden border-2 border-amber-500/40 shadow-2xl shadow-black/80 bg-slate-950 select-none touch-none"
+      }
+    >
+      <div ref={mountRef} className="w-full h-full" />
+      {loadProgress > 0 && loadProgress < 1 && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-black/75 border border-amber-400/40 text-[11px] font-bold text-amber-300 pointer-events-none">
+          جاري تحميل المجسمات 3D... {Math.round(loadProgress * 100)}%
+        </div>
+      )}
+    </div>
   );
 }

@@ -3,6 +3,12 @@ import { GhammadaEngine } from "@/games/ghammada/engine";
 import { Player } from "@/lib/types";
 import { GameContext } from "@/games/registry";
 import { GhammadaState, GhammadaSettings } from "@/games/ghammada/types";
+import {
+  cameraForward,
+  cameraRelativeMove,
+  cameraRight,
+} from "@/components/games/ghammada/controlsMath";
+import { FOUNTAIN_RADIUS, resolveCollisions } from "@/games/ghammada/layout";
 
 const mockPlayers: Player[] = [
   {
@@ -58,8 +64,8 @@ function makeCtx(
   };
 }
 
-describe("Ghammada 3D (غمّيضة 3D — Prop Hunt) Engine", () => {
-  it("initializes 3D world props, roles, and HIDE_PHASE", () => {
+describe("Ghammada 3D (غمّيضة 3D — Prop Hunt) Engine & Controls", () => {
+  it("initializes 3D world props outside furniture colliders, roles, and HIDE_PHASE", () => {
     const val = GhammadaEngine.validateSetup(mockPlayers, GhammadaEngine.defaultSettings);
     expect(val.isValid).toBe(true);
 
@@ -107,7 +113,7 @@ describe("Ghammada 3D (غمّيضة 3D — Prop Hunt) Engine", () => {
     expect(state.entities["p2"].tauntCount).toBe(1);
   });
 
-  it("handles Hunter hammer strikes (miss loses heart, hit catches Hiders and concludes round)", () => {
+  it("handles directional Hunter hammer strikes (smashing decoy loses heart, hitting Hiders catches them)", () => {
     let state = GhammadaEngine.createInitialState(mockPlayers, GhammadaEngine.defaultSettings);
     state = GhammadaEngine.handleAction(makeCtx(state), "p1", { type: "START_HUNT" }).newState;
 
@@ -117,31 +123,41 @@ describe("Ghammada 3D (غمّيضة 3D — Prop Hunt) Engine", () => {
     state.entities["p3"].x = -10;
     state.entities["p3"].z = -10;
 
-    // Hunter p1 strikes at (0, 0) -> misses and loses 1 heart
+    // Place a decoy worldProp at (0, 1.3) directly in front of Hunter at (0, 0, rotY=0)
+    state.worldProps[0].x = 0;
+    state.worldProps[0].z = 1.3;
+    state.worldProps[0].isDestroyed = false;
+
+    // Hunter p1 strikes at (0, 0, rotY=0) -> smashes decoy worldProp[0] and loses 1 heart
     state = GhammadaEngine.handleAction(makeCtx(state), "p1", {
       type: "HUNTER_STRIKE",
       x: 0,
       z: 0,
       rotY: 0,
     }).newState;
+    expect(state.worldProps[0].isDestroyed).toBe(true);
     expect(state.entities["p1"].hearts).toBe(4);
 
-    // Hunter p1 moves to (9.5, 9.5) and strikes -> catches p2 (+120 pts)
+    // Clear strike cooldown to simulate next swing
+    state.entities["p1"].lastStrikeAt = 0;
+
+    // Hunter p1 stands at (10, 8.7) facing +Z (rotY=0) so hammer hits (10, 10) -> catches p2 (+120 pts)
     state = GhammadaEngine.handleAction(makeCtx(state), "p1", {
       type: "HUNTER_STRIKE",
-      x: 9.5,
-      z: 9.5,
+      x: 10,
+      z: 8.7,
       rotY: 0,
     }).newState;
     expect(state.entities["p2"].isCaught).toBe(true);
     expect(state.scores["p1"]).toBe(120);
     expect(state.phase).toBe("HUNT_PHASE");
 
-    // Hunter p1 moves to (-9.5, -9.5) and strikes -> catches p3 -> all hiders caught -> ROUND_END!
+    // Clear strike cooldown and strike p3 at (-10, -10) from (-10, -11.3, rotY=0) -> all hiders caught -> ROUND_END!
+    state.entities["p1"].lastStrikeAt = 0;
     state = GhammadaEngine.handleAction(makeCtx(state), "p1", {
       type: "HUNTER_STRIKE",
-      x: -9.5,
-      z: -9.5,
+      x: -10,
+      z: -11.3,
       rotY: 0,
     }).newState;
     expect(state.entities["p3"].isCaught).toBe(true);
@@ -152,7 +168,6 @@ describe("Ghammada 3D (غمّيضة 3D — Prop Hunt) Engine", () => {
 
   it("prevents duplicate TIME_UP packets from skipping HUNT_PHASE", () => {
     let state = GhammadaEngine.createInitialState(mockPlayers, GhammadaEngine.defaultSettings);
-    // Simulate HIDE_PHASE timer expiring
     state.phaseEndsAt = Date.now() - 100;
 
     // First TIME_UP transitions from HIDE_PHASE -> HUNT_PHASE
@@ -174,5 +189,33 @@ describe("Ghammada 3D (غمّيضة 3D — Prop Hunt) Engine", () => {
       type: "TIME_UP",
     }).newState;
     expect(state.phase).toBe("HUNT_PHASE");
+  });
+
+  it("keeps joystick movement aligned with camera yaw at all 360° angles (never inverted)", () => {
+    const testAngles = [0, Math.PI / 4, Math.PI / 2, Math.PI, -Math.PI / 2, 2.35];
+
+    for (const yaw of testAngles) {
+      const f = cameraForward(yaw);
+      const r = cameraRight(yaw);
+
+      // Pushing stick UP (jy = -1) must move strictly along +cameraForward(yaw)
+      const upMove = cameraRelativeMove(0, -1, yaw);
+      const dotForward = upMove.x * f.x + upMove.z * f.z;
+      expect(dotForward).toBeCloseTo(1, 5);
+
+      // Pushing stick DOWN (jy = +1) must move strictly along -cameraForward(yaw)
+      const downMove = cameraRelativeMove(0, 1, yaw);
+      const dotBack = downMove.x * f.x + downMove.z * f.z;
+      expect(dotBack).toBeCloseTo(-1, 5);
+
+      // Pushing stick RIGHT (jx = +1) must move strictly along +cameraRight(yaw)
+      const rightMove = cameraRelativeMove(1, 0, yaw);
+      const dotRight = rightMove.x * r.x + rightMove.z * r.z;
+      expect(dotRight).toBeCloseTo(1, 5);
+    }
+
+    // Verify collision resolution pushes player out of center fountain
+    const pushed = resolveCollisions(0.5, 0, 0.45);
+    expect(Math.hypot(pushed.x, pushed.z)).toBeGreaterThanOrEqual(FOUNTAIN_RADIUS + 0.44);
   });
 });

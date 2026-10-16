@@ -139,7 +139,14 @@ export type GhammadaAction =
   | { type: "TOGGLE_LOCK"; isLocked: boolean; x?: number; z?: number; rotY?: number }
   | { type: "SMOKE_DASH"; x: number; z: number; rotY: number }
   | { type: "TAUNT_WHISTLE"; x: number; z: number }
-  | { type: "HUNTER_STRIKE"; x: number; z: number; rotY: number }
+  | {
+      type: "HUNTER_STRIKE";
+      x: number;
+      z: number;
+      rotY: number;
+      /** Hider positions as seen live on the hunter's screen (optional, validated server-side) */
+      targets?: Array<{ id: string; x: number; z: number }>;
+    }
   | { type: "START_HUNT" }
   | { type: "TIME_UP"; forPhase?: GhammadaPhase }
   | { type: "NEXT_ROUND" }

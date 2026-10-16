@@ -712,7 +712,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   activeLocalPlayer?.id,
                   myDevicePlayers,
                   setActiveLocalPlayerId,
-                  true
+                  true,
+                  room.code,
+                  fetchState
                 )}
               </PassThePhoneCurtain>
             )}
@@ -731,7 +733,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 activeLocalPlayer?.id,
                 myDevicePlayers,
                 setActiveLocalPlayerId,
-                false
+                false,
+                room.code,
+                fetchState
               )}
           </div>
         )}
@@ -1020,7 +1024,9 @@ function renderActiveGameView(
   activePlayerId?: string,
   devicePlayers?: DevicePlayerInfo[],
   onSelectPlayer?: (playerId: string) => void,
-  isPassThePhoneActive?: boolean
+  isPassThePhoneActive?: boolean,
+  roomCode?: string,
+  onRefresh?: () => void
 ) {
   switch (gameId) {
     case "ghammada":
@@ -1032,6 +1038,8 @@ function renderActiveGameView(
           onAction={onAction}
           players={players}
           activePlayerId={activePlayerId}
+          roomCode={roomCode}
+          onRefresh={onRefresh}
         />
       );
     case "dib":

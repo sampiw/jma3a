@@ -16,6 +16,7 @@ import {
   GHAMMADA_PROPS,
   GhammadaPropId,
 } from "./types";
+import { isSpotFree } from "./layout";
 
 function seededRandom(seed: number): () => number {
   let s = seed % 2147483647;
@@ -25,6 +26,14 @@ function seededRandom(seed: number): () => number {
     return (s - 1) / 2147483646;
   };
 }
+
+/** Distance in front of the hunter where the hammer lands */
+export const STRIKE_REACH = 1.3;
+/** Base radius of the hammer impact (prop size is added on top) */
+export const STRIKE_RADIUS = 1.25;
+export const STRIKE_COOLDOWN_MS = 700;
+/** How far the hunter's live view of a hider may differ from the last saved position */
+const LIVE_POSITION_TOLERANCE = 6;
 
 export function generateWorldProps(seed: number): GhammadaWorldProp[] {
   const rand = seededRandom(seed);
@@ -46,10 +55,17 @@ export function generateWorldProps(seed: number): GhammadaWorldProp[] {
   for (const cluster of clusterCenters) {
     for (let i = 0; i < 4; i++) {
       const propId = ALL_PROP_IDS[Math.floor(rand() * ALL_PROP_IDS.length)];
-      const angle = rand() * Math.PI * 2;
-      const dist = 1.5 + rand() * 3.8;
-      const x = Math.max(-15, Math.min(15, Number((cluster.cx + Math.cos(angle) * dist).toFixed(2))));
-      const z = Math.max(-15, Math.min(15, Number((cluster.cz + Math.sin(angle) * dist).toFixed(2))));
+      let x = cluster.cx;
+      let z = cluster.cz;
+      // Try a few random spots around the cluster and keep the first free one
+      for (let tryN = 0; tryN < 8; tryN++) {
+        const angle = rand() * Math.PI * 2;
+        const dist = 1.5 + rand() * 3.8;
+        x = Math.max(-15, Math.min(15, Number((cluster.cx + Math.cos(angle) * dist).toFixed(2))));
+        z = Math.max(-15, Math.min(15, Number((cluster.cz + Math.sin(angle) * dist).toFixed(2))));
+        const tooCloseToProp = props.some((p) => Math.hypot(p.x - x, p.z - z) < 1.3);
+        if (isSpotFree(x, z, 0.8) && !tooCloseToProp) break;
+      }
       const rotY = Number((rand() * Math.PI * 2).toFixed(2));
 
       props.push({
@@ -388,20 +404,39 @@ export const GhammadaEngine: GameDefinition<GhammadaState, GhammadaAction, Ghamm
           return { success: false, newState: state, newPhase: state.phase, error: "ساليو ليك القلوب ❤️!" };
         }
 
+        // Short cooldown so the hammer can't be spammed
+        if (actorEntity.lastStrikeAt && now - actorEntity.lastStrikeAt < STRIKE_COOLDOWN_MS) {
+          return { success: true, newState: state, newPhase: state.phase };
+        }
+
         actorEntity.x = Math.max(-16.2, Math.min(16.2, Number(action.x.toFixed(2))));
         actorEntity.z = Math.max(-16.2, Math.min(16.2, Number(action.z.toFixed(2))));
         actorEntity.rotY = Number(action.rotY.toFixed(2));
         actorEntity.lastStrikeAt = now;
 
-        const STRIKE_RADIUS = 3.1;
-        const caughtHiders: GhammadaPlayerEntity[] = [];
+        // The hammer lands in front of the hunter
+        const hitX = actorEntity.x + Math.sin(actorEntity.rotY) * STRIKE_REACH;
+        const hitZ = actorEntity.z + Math.cos(actorEntity.rotY) * STRIKE_REACH;
 
+        const liveTargets = new Map<string, { x: number; z: number }>();
+        for (const t of action.targets || []) {
+          if (t && typeof t.x === "number" && typeof t.z === "number") liveTargets.set(t.id, t);
+        }
+
+        const caughtHiders: GhammadaPlayerEntity[] = [];
         for (const ent of Object.values(state.entities)) {
-          if (ent.role === "HIDER" && !ent.isCaught) {
-            const dist = Math.hypot(ent.x - actorEntity.x, ent.z - actorEntity.z);
-            if (dist <= STRIKE_RADIUS) {
-              caughtHiders.push(ent);
-            }
+          if (ent.role !== "HIDER" || ent.isCaught) continue;
+          // Prefer what the hunter saw live, as long as it's plausible vs. the last saved position
+          let hx = ent.x;
+          let hz = ent.z;
+          const live = liveTargets.get(ent.playerId);
+          if (live && Math.hypot(live.x - ent.x, live.z - ent.z) <= LIVE_POSITION_TOLERANCE) {
+            hx = live.x;
+            hz = live.z;
+          }
+          const radius = STRIKE_RADIUS + (GHAMMADA_PROPS[ent.propId]?.hitRadius ?? 0.8) * 0.5;
+          if (Math.hypot(hx - hitX, hz - hitZ) <= radius) {
+            caughtHiders.push(ent);
           }
         }
 
@@ -434,48 +469,52 @@ export const GhammadaEngine: GameDefinition<GhammadaState, GhammadaAction, Ghamm
           }
 
           return { success: true, newState: state, newPhase: state.phase };
-        } else {
-          // Missed! Check if a world prop was hit and shatter it
-          let shatteredProp: GhammadaWorldProp | null = null;
-          for (const wp of state.worldProps) {
-            if (!wp.isDestroyed) {
-              const d = Math.hypot(wp.x - actorEntity.x, wp.z - actorEntity.z);
-              if (d <= 2.6) {
-                wp.isDestroyed = true;
-                shatteredProp = wp;
-                break;
-              }
-            }
+        }
+
+        // No hider hit: did the hammer smash a fake prop?
+        let shatteredProp: GhammadaWorldProp | null = null;
+        let bestDist = Infinity;
+        for (const wp of state.worldProps) {
+          if (wp.isDestroyed) continue;
+          const d = Math.hypot(wp.x - hitX, wp.z - hitZ);
+          const radius = STRIKE_RADIUS + (GHAMMADA_PROPS[wp.propId]?.hitRadius ?? 0.8) * 0.5;
+          if (d <= radius && d < bestDist) {
+            bestDist = d;
+            shatteredProp = wp;
           }
+        }
 
-          actorEntity.hearts = Math.max(0, actorEntity.hearts - 1);
-          const propLabel = shatteredProp
-            ? GHAMMADA_PROPS[shatteredProp.propId]?.name
-            : "الخوا";
-
-          state.feed.unshift({
-            id: "miss_" + now + "_" + actorPlayerId,
-            timestamp: now,
-            text: `❌💔 ${getNick(actorPlayerId)} ضرب ${propLabel} وخسر قلب! (باقي ${actorEntity.hearts} ❤️)`,
-            type: "MISS",
-          });
-          state.feed = state.feed.slice(0, 8);
-
-          // Check if all Hunters ran out of hearts
-          const aliveHunters = Object.values(state.entities).filter(
-            (e) => e.role === "HUNTER" && e.hearts > 0
-          );
-          if (aliveHunters.length === 0) {
-            return concludeRound(
-              state,
-              "HIDERS",
-              "📦😂 الصيادين هرّسو غير الماعن وساليو ليهم القلوب! فوز المتخبيين!",
-              "المتخبيين دوّخو الصيادين مزيان فهاد الجولة!"
-            );
-          }
-
+        if (!shatteredProp) {
+          // Swinging at empty air is free (just the cooldown)
           return { success: true, newState: state, newPhase: state.phase };
         }
+
+        shatteredProp.isDestroyed = true;
+        actorEntity.hearts = Math.max(0, actorEntity.hearts - 1);
+        const propLabel = GHAMMADA_PROPS[shatteredProp.propId]?.name || "شي حاجة";
+
+        state.feed.unshift({
+          id: "miss_" + now + "_" + actorPlayerId,
+          timestamp: now,
+          text: `❌💔 ${getNick(actorPlayerId)} هرّس ${propLabel} خاوي وخسر قلب! (باقي ${actorEntity.hearts} ❤️)`,
+          type: "MISS",
+        });
+        state.feed = state.feed.slice(0, 8);
+
+        // Check if all Hunters ran out of hearts
+        const aliveHunters = Object.values(state.entities).filter(
+          (e) => e.role === "HUNTER" && e.hearts > 0
+        );
+        if (aliveHunters.length === 0) {
+          return concludeRound(
+            state,
+            "HIDERS",
+            "📦😂 الصيادين هرّسو غير الماعن وساليو ليهم القلوب! فوز المتخبيين!",
+            "المتخبيين دوّخو الصيادين مزيان فهاد الجولة!"
+          );
+        }
+
+        return { success: true, newState: state, newPhase: state.phase };
       }
 
       case "NEXT_ROUND": {
