@@ -198,6 +198,25 @@ export const DIB3D_CENTRAL_DRUM = {
   zoneName: "وسط رياض الدرب",
 };
 
+export interface Dib3DMaskDef {
+  emoji: string;
+  name: string;
+  color: number;
+}
+
+export const DIB3D_MASKS: Dib3DMaskDef[] = [
+  { emoji: "🦊", name: "قناع الثعلب", color: 0xe11d48 },
+  { emoji: "🦁", name: "قناع السبع", color: 0xd97706 },
+  { emoji: "🦅", name: "قناع الباز", color: 0x2563eb },
+  { emoji: "🐍", name: "قناع الحنش", color: 0x16a34a },
+  { emoji: "🦂", name: "قناع العقرب", color: 0x9333ea },
+  { emoji: "🦉", name: "قناع الموكة", color: 0x0891b2 },
+  { emoji: "🐪", name: "قناع الجمل", color: 0xfacc15 },
+  { emoji: "🐆", name: "قناع النمر", color: 0xec4899 },
+  { emoji: "🦩", name: "قناع البشروش", color: 0x4f46e5 },
+  { emoji: "🐏", name: "قناع بوجلود", color: 0x65a30d },
+];
+
 export interface Dib3DDeadBody {
   id: string;
   victimId: string;
@@ -217,6 +236,11 @@ export interface Dib3DPlayerEntity {
   rotY: number;
   isAlive: boolean;
   outfitColor: number;
+  maskEmoji?: string;
+  maskName?: string;
+  shadowUntil?: number;
+  lastShadowAt?: number;
+  killedAt?: number;
   assignedTasks: Dib3DTaskStationId[];
   completedTasks: Dib3DTaskStationId[];
   sheriffBullets: number;
@@ -287,6 +311,7 @@ export type Dib3DAction =
       targetZ?: number;
     }
   | { type: "WOLF_VENT"; fromVentId?: string }
+  | { type: "WOLF_SHADOW" }
   | { type: "SABOTAGE_LIGHTS" }
   | { type: "FIX_LIGHTS" }
   | {

@@ -14,6 +14,7 @@ import {
   DIB3D_ARENA_HALF,
   DIB3D_CENTRAL_DRUM,
   DIB3D_ELECTRIC_BOX,
+  DIB3D_MASKS,
   DIB3D_TASK_STATIONS,
   DIB3D_VENTS,
   Dib3DAction,
@@ -93,6 +94,7 @@ function buildFreshMatchState(
   while (rolePool.length < count) rolePool.push("VILLAGER");
 
   const shuffledRoles = shuffle(rolePool);
+  const shuffledMasks = shuffle(DIB3D_MASKS);
 
   const entities: Record<string, Dib3DPlayerEntity> = {};
   const scores: Record<string, number> = { ...prevScores };
@@ -101,6 +103,7 @@ function buildFreshMatchState(
   players.forEach((p, idx) => {
     if (scores[p.id] === undefined) scores[p.id] = 0;
     const role = shuffledRoles[idx] || "VILLAGER";
+    const mask = shuffledMasks[idx % shuffledMasks.length];
     const angle = (idx / Math.max(1, count)) * Math.PI * 2;
     const spawnRadius = 3.8;
     const sx = Math.round(Math.cos(angle) * spawnRadius * 10) / 10;
@@ -118,7 +121,11 @@ function buildFreshMatchState(
       z: sz,
       rotY: Math.atan2(-sx, -sz),
       isAlive: true,
-      outfitColor: DERB_OUTFIT_COLORS[idx % DERB_OUTFIT_COLORS.length],
+      outfitColor: mask?.color ?? DERB_OUTFIT_COLORS[idx % DERB_OUTFIT_COLORS.length],
+      maskEmoji: mask?.emoji ?? "🎭",
+      maskName: mask?.name ?? "قناع الدرب",
+      shadowUntil: 0,
+      lastShadowAt: now - 12000,
       assignedTasks,
       completedTasks: [],
       sheriffBullets: role === "SHERIFF" ? 1 : 0,
@@ -412,7 +419,10 @@ export const Dib3DEngine: GameDefinition<
         actorEnt.x = clampArena(vx);
         actorEnt.z = clampArena(vz);
         actorEnt.lastKillAt = now;
+        // Automatically cloak the Wolf in dark shadow for 5s so nobody sees who killed!
+        actorEnt.shadowUntil = Math.max(actorEnt.shadowUntil || 0, now + 5000);
         victim.isAlive = false;
+        victim.killedAt = now;
         victim.x = vx;
         victim.z = vz;
 
@@ -432,6 +442,23 @@ export const Dib3DEngine: GameDefinition<
         state.scores[actorPlayerId] = (state.scores[actorPlayerId] || 0) + 95;
 
         checkAndApplyWinCondition(state, ctx.players);
+        return { success: true, newState: state, newPhase: state.phase };
+      }
+
+      case "WOLF_SHADOW": {
+        if (
+          !actorEnt ||
+          !actorEnt.isAlive ||
+          actorEnt.role !== "WOLF" ||
+          state.phase !== "ROAM_3D"
+        ) {
+          return { success: true, newState: state, newPhase: state.phase };
+        }
+        if (actorEnt.lastShadowAt && now - actorEnt.lastShadowAt < 16000) {
+          return { success: true, newState: state, newPhase: state.phase };
+        }
+        actorEnt.lastShadowAt = now;
+        actorEnt.shadowUntil = now + 10000;
         return { success: true, newState: state, newPhase: state.phase };
       }
 
@@ -507,6 +534,7 @@ export const Dib3DEngine: GameDefinition<
 
         // The shot hits the target regardless of alignment!
         target.isAlive = false;
+        target.killedAt = now;
         actorEnt.lastSheriffShotAt = now;
 
         const targetName =

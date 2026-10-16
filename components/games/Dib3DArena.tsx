@@ -48,12 +48,14 @@ export interface Dib3DLivePacket {
   z: number;
   r: number;
   m?: boolean;
+  s?: boolean;
   t: number;
 }
 
 export interface Dib3DFxEvent {
-  k: "kill" | "vent" | "task" | "lights" | "fix" | "shoot" | "scan";
+  k: "kill" | "vent" | "task" | "lights" | "fix" | "shoot" | "scan" | "shadow";
   i: string;
+  v?: string;
   x: number;
   z: number;
 }
@@ -854,6 +856,7 @@ export function Dib3DArena({
       color: number;
       badgeKey: string;
       isGhost: boolean;
+      isShadow: boolean;
       lastX: number;
       lastZ: number;
     }
@@ -864,12 +867,13 @@ export function Dib3DArena({
     const buildCharacter = (
       outfitColor: number,
       isGhost: boolean,
+      isShadow: boolean,
       displayName: string,
       badgeText?: string,
       badgeColor?: string
     ): Omit<
       CharacterEntry,
-      "ver" | "color" | "badgeKey" | "isGhost" | "lastX" | "lastZ"
+      "ver" | "color" | "badgeKey" | "isGhost" | "isShadow" | "lastX" | "lastZ"
     > => {
       const root = new THREE.Group();
       const visual = new THREE.Group();
@@ -887,7 +891,7 @@ export function Dib3DArena({
         cloned.traverse((child) => {
           const mesh = child as THREE.Mesh;
           if (mesh.isMesh) {
-            mesh.castShadow = !isGhost;
+            mesh.castShadow = !isGhost && !isShadow;
             mesh.receiveShadow = !isGhost;
             mesh.frustumCulled = false;
             const mat = mesh.material as THREE.MeshStandardMaterial;
@@ -898,6 +902,14 @@ export function Dib3DArena({
                 m.color.set(0x38bdf8);
                 m.transparent = true;
                 m.opacity = 0.42;
+              } else if (isShadow) {
+                m.color.set(0x090d16);
+                if ("emissive" in m) {
+                  m.emissive.set(0x4c1d95);
+                  m.emissiveIntensity = 0.55;
+                }
+                m.transparent = true;
+                m.opacity = 0.82;
               } else if (name.includes("main")) {
                 m.color.set(outfitColor);
               } else if (name.includes("grey") || name.includes("gray")) {
@@ -917,9 +929,9 @@ export function Dib3DArena({
         const fallback = new THREE.Mesh(
           new THREE.CapsuleGeometry(0.36, 0.75, 10, 16),
           new THREE.MeshStandardMaterial({
-            color: isGhost ? 0x38bdf8 : outfitColor,
-            transparent: isGhost,
-            opacity: isGhost ? 0.45 : 1,
+            color: isGhost ? 0x38bdf8 : isShadow ? 0x090d16 : outfitColor,
+            transparent: isGhost || isShadow,
+            opacity: isGhost ? 0.45 : isShadow ? 0.82 : 1,
           })
         );
         fallback.position.y = 0.8;
@@ -1036,7 +1048,7 @@ export function Dib3DArena({
         for (const fx of q) {
           if (fx.k === "kill" || fx.k === "shoot") {
             effects.poof(fx.x, fx.z);
-          } else if (fx.k === "vent") {
+          } else if (fx.k === "vent" || fx.k === "shadow") {
             effects.smoke(fx.x, fx.z);
           } else if (fx.k === "task" || fx.k === "fix" || fx.k === "scan") {
             effects.notes(fx.x, fx.z);
@@ -1265,7 +1277,19 @@ export function Dib3DArena({
         const peer = !isMe ? peersRef?.current.get(ent.playerId) : undefined;
         const isPeerFresh = Boolean(peer && nowMs - peer.t < 2000);
 
-        const displayName = playersMapRef.current[ent.playerId] || "لاعب";
+        const isShadow =
+          !isGhost &&
+          (Boolean(ent.shadowUntil && nowEpoch < ent.shadowUntil) ||
+            Boolean(isPeerFresh && peer?.s));
+
+        // In 3D, NEVER show real player names! Show Moroccan Mask Icon + Title (or Shadow Cloak ❓)!
+        const maskLabel = `${ent.maskEmoji || "🎭"} ${ent.maskName || "مقنّع"}`;
+        const displayName = isShadow
+          ? "طيف الظلام ❓"
+          : isMe
+          ? `${maskLabel} (أنت)`
+          : maskLabel;
+
         const isFellowWolf =
           role === "WOLF" && fellowWolfIdsRef.current.includes(ent.playerId);
         const seerAlignment = seerKnownRef.current[ent.playerId];
@@ -1275,6 +1299,9 @@ export function Dib3DArena({
         if (isGhost) {
           badgeText = "👻";
           badgeColor = "#38bdf8";
+        } else if (isShadow) {
+          badgeText = "🌑";
+          badgeColor = "#c084fc";
         } else if (isFellowWolf) {
           badgeText = "🐺";
           badgeColor = "#f43f5e";
@@ -1286,7 +1313,7 @@ export function Dib3DArena({
           badgeColor = "#34d399";
         }
 
-        const badgeKey = `${displayName}|${badgeText || ""}|${badgeColor || ""}`;
+        const badgeKey = `${displayName}|${badgeText || ""}|${badgeColor || ""}|${isShadow ? 1 : 0}`;
 
         let entry = playerMeshes.get(ent.playerId);
         if (
@@ -1294,6 +1321,7 @@ export function Dib3DArena({
           entry.ver !== assetsVersion ||
           entry.color !== ent.outfitColor ||
           entry.isGhost !== isGhost ||
+          entry.isShadow !== isShadow ||
           entry.badgeKey !== badgeKey
         ) {
           const prevX = entry?.lastX ?? ent.x;
@@ -1303,6 +1331,7 @@ export function Dib3DArena({
           const built = buildCharacter(
             ent.outfitColor,
             isGhost,
+            isShadow,
             displayName,
             badgeText,
             badgeColor
@@ -1316,6 +1345,7 @@ export function Dib3DArena({
             color: ent.outfitColor,
             badgeKey,
             isGhost,
+            isShadow,
             lastX: prevX,
             lastZ: prevZ,
           };

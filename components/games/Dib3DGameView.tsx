@@ -198,10 +198,23 @@ export function Dib3DGameView({
   const peersRef = useRef<Map<string, Dib3DLivePacket>>(new Map());
   const channelRef = useRef<RealtimeChannel | null>(null);
   const lastBroadcastRef = useRef<{ at: number; key: string }>({ at: 0, key: "" });
+  const localShadowUntilRef = useRef<number>(0);
+  const wasAliveRef = useRef<boolean>(isAlive);
+  const [ambushBannerUntil, setAmbushBannerUntil] = useState<number>(0);
   const [isLive, setIsLive] = useState(false);
 
   const onRefreshRef = useRef(onRefresh);
   onRefreshRef.current = onRefresh;
+
+  // Trigger Blind Ambush screen if isAlive transitions from true -> false during ROAM_3D
+  useEffect(() => {
+    if (wasAliveRef.current && !isAlive && phase === "ROAM_3D") {
+      sound.playWolfKill();
+      vibrate([120, 40, 160, 40, 200]);
+      setAmbushBannerUntil(Date.now() + 6500);
+    }
+    wasAliveRef.current = isAlive;
+  }, [isAlive, phase]);
 
   useEffect(() => {
     const supabase = getSupabaseBrowser();
@@ -219,8 +232,40 @@ export function Dib3DGameView({
       .on("broadcast", { event: "fx" }, ({ payload }) => {
         const fx = payload as Dib3DFxEvent;
         if (!fx || fx.i === myId) return;
-        if (fx.k === "kill") sound.playWolfKill();
-        else if (fx.k === "vent") sound.playVentPop();
+        if (fx.k === "kill") {
+          sound.playWolfKill();
+          // Immediately cloak the killer in shadow on all screens
+          const prev = peersRef.current.get(fx.i);
+          peersRef.current.set(fx.i, {
+            i: fx.i,
+            x: fx.x,
+            z: fx.z,
+            r: prev?.r ?? 0,
+            m: false,
+            s: true,
+            t: performance.now(),
+          });
+          if (fx.v === myId) {
+            vibrate([120, 40, 160, 40, 200]);
+            setAmbushBannerUntil(Date.now() + 6500);
+          }
+        } else if (fx.k === "shoot" && fx.v === myId) {
+          sound.playSlapSmack();
+          vibrate([120, 40, 160]);
+          setAmbushBannerUntil(Date.now() + 6500);
+        } else if (fx.k === "shadow") {
+          sound.playVentPop();
+          const prev = peersRef.current.get(fx.i);
+          peersRef.current.set(fx.i, {
+            i: fx.i,
+            x: fx.x,
+            z: fx.z,
+            r: prev?.r ?? 0,
+            m: prev?.m,
+            s: true,
+            t: performance.now(),
+          });
+        } else if (fx.k === "vent") sound.playVentPop();
         else if (fx.k === "lights") sound.playLightsOut();
         else if (fx.k === "task" || fx.k === "fix") sound.playSuccess();
         fxQueueRef.current.push(fx);
@@ -246,7 +291,10 @@ export function Dib3DGameView({
       const ch = channelRef.current;
       if (!ch || !myId) return;
       const now = performance.now();
-      const key = `${pkt.x.toFixed(2)}|${pkt.z.toFixed(2)}|${pkt.r.toFixed(2)}`;
+      const isShadowNow =
+        Date.now() < localShadowUntilRef.current ||
+        Boolean(myPrivEnt?.shadowUntil && Date.now() < myPrivEnt.shadowUntil);
+      const key = `${pkt.x.toFixed(2)}|${pkt.z.toFixed(2)}|${pkt.r.toFixed(2)}|${isShadowNow ? 1 : 0}`;
       const since = now - lastBroadcastRef.current.at;
       if (since < 80) return;
       if (key === lastBroadcastRef.current.key && since < 900) return;
@@ -260,11 +308,12 @@ export function Dib3DGameView({
           z: Math.round(pkt.z * 100) / 100,
           r: Math.round(pkt.r * 100) / 100,
           m: pkt.m,
+          s: isShadowNow,
           t: 0,
         },
       });
     },
-    [myId]
+    [myId, myPrivEnt?.shadowUntil]
   );
 
   const sendLiveFx = useCallback(
@@ -447,11 +496,42 @@ export function Dib3DGameView({
     return Math.max(0, Math.ceil(12 - elapsed));
   }, [myRole, myPrivEnt?.lastKillAt, nowClock]);
 
+  const shadowActiveLeft = useMemo(() => {
+    const until = Math.max(
+      localShadowUntilRef.current,
+      myPrivEnt?.shadowUntil || 0
+    );
+    if (nowClock >= until) return 0;
+    return Math.ceil((until - nowClock) / 1000);
+  }, [myPrivEnt?.shadowUntil, nowClock]);
+
+  const shadowCooldownLeft = useMemo(() => {
+    if (myRole !== "WOLF" || !myPrivEnt?.lastShadowAt) return 0;
+    const elapsed = (nowClock - myPrivEnt.lastShadowAt) / 1000;
+    return Math.max(0, Math.ceil(16 - elapsed));
+  }, [myRole, myPrivEnt?.lastShadowAt, nowClock]);
+
   const isLightsOut = Boolean(lightsOutUntil && nowClock < lightsOutUntil);
   const taskPercent = Math.min(
     100,
     Math.round((totalTasksCompleted / Math.max(1, totalTasksRequired)) * 100)
   );
+
+  const handleWolfShadow = () => {
+    if (shadowCooldownLeft > 0 || shadowActiveLeft > 0) return;
+    sound.playVentPop();
+    vibrate([40, 25, 40]);
+    localShadowUntilRef.current = Date.now() + 10000;
+    const fx: Omit<Dib3DFxEvent, "i"> = {
+      k: "shadow",
+      x: localPosRef.current.x,
+      z: localPosRef.current.z,
+    };
+    fxQueueRef.current.push({ ...fx, i: myId });
+    sendLiveFx(fx);
+    onAction({ type: "WOLF_SHADOW" });
+    sendRefresh();
+  };
 
   const handleWolfKill = () => {
     if (!proximity.nearestTargetId || killCooldownLeft > 0) return;
@@ -465,7 +545,16 @@ export function Dib3DGameView({
 
     localPosRef.current.x = tx;
     localPosRef.current.z = tz;
-    const fx: Omit<Dib3DFxEvent, "i"> = { k: "kill", x: tx, z: tz };
+    localShadowUntilRef.current = Math.max(
+      localShadowUntilRef.current,
+      Date.now() + 5000
+    );
+    const fx: Omit<Dib3DFxEvent, "i"> = {
+      k: "kill",
+      v: targetId,
+      x: tx,
+      z: tz,
+    };
     fxQueueRef.current.push({ ...fx, i: myId });
     sendLiveFx(fx);
 
@@ -892,10 +981,31 @@ export function Dib3DGameView({
             </button>
           )}
 
-          {/* 5. WOLF ABILITIES (Kill / Sewer Vent / Sabotage Lights) */}
+          {/* 5. WOLF ABILITIES (Kill / Shadow Cloak / Sewer Vent / Sabotage Lights) */}
           {isAlive && myRole === "WOLF" && (
             <div className="flex items-end gap-2">
               <div className="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  disabled={shadowCooldownLeft > 0 || shadowActiveLeft > 0}
+                  onClick={handleWolfShadow}
+                  className={`px-3 py-2 rounded-2xl border-2 font-black text-[11px] shadow-xl flex items-center gap-1 active:scale-95 transition-all ${
+                    shadowActiveLeft > 0
+                      ? "bg-purple-950 border-purple-400 text-purple-200 animate-pulse"
+                      : shadowCooldownLeft > 0
+                      ? "bg-slate-900/75 border-slate-700 text-slate-400 opacity-60"
+                      : "bg-gradient-to-r from-purple-900 to-slate-900 border-purple-400 text-purple-200"
+                  }`}
+                >
+                  <span>
+                    {shadowActiveLeft > 0
+                      ? `🌑 مخفّي فـ الظل (${shadowActiveLeft}s)`
+                      : shadowCooldownLeft > 0
+                      ? `🌑 عباءة الظل (${shadowCooldownLeft}s)`
+                      : "🌑 لبس عباءة الظل (10s)"}
+                  </span>
+                </button>
+
                 <button
                   type="button"
                   disabled={isLightsOut}
@@ -931,11 +1041,11 @@ export function Dib3DGameView({
                 }`}
               >
                 <Skull className="w-7 h-7" />
-                <span className="truncate max-w-[78px]">
+                <span className="truncate max-w-[82px]">
                   {killCooldownLeft > 0
                     ? `⏱️ ${killCooldownLeft}s`
                     : proximity.nearestTargetId
-                    ? `افترس ${playersMap[proximity.nearestTargetId] || "!"}`
+                    ? `افترس ${entities[proximity.nearestTargetId]?.maskEmoji || "🎭"}`
                     : "قرّب لضحية"}
                 </span>
               </button>
@@ -965,7 +1075,7 @@ export function Dib3DGameView({
                     {sheriffCooldownLeft > 0
                       ? `⏳ الرصاصة كتوجد (${sheriffCooldownLeft}s)`
                       : proximity.nearestTargetId
-                      ? `🎯 أطلق رصاصة الفضة على ${playersMap[proximity.nearestTargetId]}!`
+                      ? `🎯 أطلق رصاصة الفضة على ${entities[proximity.nearestTargetId]?.maskEmoji || "🎭"} ${entities[proximity.nearestTargetId]?.maskName || ""}!`
                       : "🎯 قرّب للمشتبه باش تضربو"}
                   </span>
                 </button>
@@ -990,13 +1100,48 @@ export function Dib3DGameView({
                 <Eye className="w-4 h-4" />
                 <span>
                   {proximity.nearestTargetId
-                    ? `🔮 اكشف هالة ${playersMap[proximity.nearestTargetId]} (${myPrivEnt?.seerScansLeft})`
+                    ? `🔮 اكشف هالة ${entities[proximity.nearestTargetId]?.maskEmoji || "🎭"} (${myPrivEnt?.seerScansLeft})`
                     : `🔮 قرّب للاعب لكشف هالته (${myPrivEnt?.seerScansLeft})`}
                 </span>
               </button>
             )}
         </div>
       </div>
+
+      {/* ================================================================= */}
+      {/* INSTANT FULL-SCREEN BLIND AMBUSH OVERLAY ON VICTIM'S PHONE!       */}
+      {/* ================================================================= */}
+      {(nowClock < ambushBannerUntil ||
+        Boolean(myPrivEnt?.killedAt && nowClock - myPrivEnt.killedAt < 6500)) && (
+        <div
+          className="fixed inset-0 z-[160] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center select-none animate-in fade-in duration-100"
+          dir="rtl"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="text-7xl sm:text-8xl animate-bounce mb-4">🐺💥</div>
+          <h2 className="text-2xl sm:text-4xl font-black text-rose-500 mb-2">
+            غدرك طيف الظلام من اللور!
+          </h2>
+          <p className="text-sm sm:text-base font-bold text-amber-200 max-w-md mb-4">
+            هجم عليك الذيب فـ الظلام بلا ما تشوف شكون هو!
+          </p>
+          <div className="max-w-md w-full p-4 rounded-2xl bg-rose-950/80 border-2 border-rose-500 space-y-2 mb-5">
+            <p className="text-base font-black text-white">
+              🤫 ممنوع تهضر أو تلمّح للحيين!
+            </p>
+            <p className="text-xs text-rose-200 leading-relaxed">
+              أنت دابا روح (👻) فـ الدرب — بقى ساكت باش ما تخسرش اللعب، وكمّل المهام ديالك كـ روح باش تعاون ولاد الدرب يربحو!
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAmbushBannerUntil(0)}
+            className="px-6 py-3 rounded-2xl bg-sky-600 hover:bg-sky-500 text-white font-black text-xs shadow-xl active:scale-95"
+          >
+            👻 كمّل كـ روح بـ سكات
+          </button>
+        </div>
+      )}
 
       {/* INTERACTIVE MOROCCAN TASK MINI-GAME MODAL */}
       {activeMiniGameStation && (
@@ -1181,6 +1326,9 @@ export function Dib3DGameView({
                         {seerTag === "WOLF" ? "🐺 ذيب!" : "🟢 بريء"}
                       </span>
                     )}
+                    <span className="text-xs px-2 py-0.5 rounded-lg bg-slate-800 border border-white/10 text-amber-200 font-bold">
+                      {ent?.maskEmoji || "🎭"} {ent?.maskName || "قناع"}
+                    </span>
                     <span
                       className={`text-sm font-black ${
                         pAlive ? "text-white" : "text-rose-300 line-through"
