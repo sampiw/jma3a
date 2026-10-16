@@ -1,5 +1,6 @@
 import { registerGame, getGameDefinition, getAllGameDefinitions } from "./registry";
 import { GhammadaEngine } from "./ghammada/engine";
+import { SandalaEngine } from "./sandala/engine";
 import { DibEngine } from "./dib/engine";
 import { IntrusEngine } from "./intrus/engine";
 import { ChkonFinaEngine } from "./chkon-fina/engine";
@@ -9,6 +10,7 @@ import { MissionSirriyaEngine } from "./mission-sirriya/engine";
 
 // Register all production games
 registerGame(GhammadaEngine);
+registerGame(SandalaEngine);
 registerGame(DibEngine);
 registerGame(IntrusEngine);
 registerGame(ChkonFinaEngine);
@@ -20,6 +22,7 @@ export {
   getGameDefinition,
   getAllGameDefinitions,
   GhammadaEngine,
+  SandalaEngine,
   DibEngine,
   IntrusEngine,
   ChkonFinaEngine,
@@ -27,3 +30,4 @@ export {
   Mamnou3Engine,
   MissionSirriyaEngine,
 };
+

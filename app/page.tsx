@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { sound } from "@/lib/sound";
 import { DibWolfIcon } from "@/components/icons/DibWolfIcon";
 import { GhammadaIcon } from "@/components/icons/GhammadaIcon";
+import { SandalaIcon } from "@/components/icons/SandalaIcon";
 import {
   Volume2,
   VolumeX,
@@ -32,6 +33,18 @@ interface GameInfo {
 }
 
 const GAMES: GameInfo[] = [
+  {
+    id: "sandala",
+    title: "صندالة الواليدة 3D 🩴",
+    tagline: "ميمز، غدر، وشطيح ثلاثي الأبعاد 🔥😂",
+    description:
+      "شكون هرس البراد؟! الواليدة هازة الصندالة كاتقنص، والبراهش كيتلاحو على كرشهم (Matrix Dodge)، كيرميو الصابون البلدي لبعضياتهم، وكيشطحو الشعبي باش يربحو!",
+    players: "2-16 لاعب",
+    duration: "5-10 دقائق",
+    modes: ["كل واحد بتليفونو 📱"],
+    icon: <SandalaIcon className="w-14 h-14" />,
+    badgeColor: "from-pink-600/35 to-amber-900/50 border-pink-400/50 text-pink-200",
+  },
   {
     id: "ghammada",
     title: "غمّيضة 3D (Prop Hunt)",
@@ -65,7 +78,7 @@ export default function HomePage() {
 
   // Create room modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<GameId>("ghammada");
+  const [selectedGame, setSelectedGame] = useState<GameId>("sandala");
   const [hostNickname, setHostNickname] = useState("");
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("MULTI_PHONE");
   const [isCreating, setIsCreating] = useState(false);
@@ -88,7 +101,7 @@ export default function HomePage() {
   const openCreateForGame = (gameId: GameId) => {
     sound.playCardFlip();
     setSelectedGame(gameId);
-    if (gameId === "ghammada") {
+    if (gameId === "ghammada" || gameId === "sandala") {
       setInteractionMode("MULTI_PHONE");
     }
     setCreateModalOpen(true);
@@ -220,7 +233,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
           {GAMES.map((game) => (
             <div
               key={game.id}

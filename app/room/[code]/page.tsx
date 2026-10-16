@@ -8,6 +8,7 @@ import { PassThePhoneCurtain } from "@/components/PassThePhoneCurtain";
 import { DibGameView } from "@/components/games/DibGameView";
 import { DibNightTimer } from "@/components/games/DibNightTimer";
 import { GhammadaGameView } from "@/components/games/GhammadaGameView";
+import { SandalaGameView } from "@/components/games/SandalaGameView";
 import { IntrusGameView } from "@/components/games/IntrusGameView";
 import { ChkonFinaGameView } from "@/components/games/ChkonFinaGameView";
 import { MettelhaGameView } from "@/components/games/MettelhaGameView";
@@ -37,10 +38,11 @@ import {
   Minimize,
 } from "lucide-react";
 
-// Active flagship games: Ghammada 3D & DIB
-const ACTIVE_GAMES: GameId[] = ["ghammada", "dib"];
+// Active flagship games: Sandala 3D, Ghammada 3D & DIB
+const ACTIVE_GAMES: GameId[] = ["sandala", "ghammada", "dib"];
 
 const GAME_NAMES: Record<GameId, string> = {
+  sandala: "صندالة الواليدة 3D 🩴🔥",
   ghammada: "غمّيضة 3D (Prop Hunt) 📦🔨",
   dib: "الذيب (DIB) 🐺",
   intrus: "الدخيل (L'Intrus)",
@@ -1029,6 +1031,19 @@ function renderActiveGameView(
   onRefresh?: () => void
 ) {
   switch (gameId) {
+    case "sandala":
+      return (
+        <SandalaGameView
+          publicData={publicData}
+          privateData={privateData}
+          isHost={isHost}
+          onAction={onAction}
+          players={players}
+          activePlayerId={activePlayerId}
+          roomCode={roomCode}
+          onRefresh={onRefresh}
+        />
+      );
     case "ghammada":
       return (
         <GhammadaGameView
