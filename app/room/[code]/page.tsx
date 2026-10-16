@@ -7,6 +7,7 @@ import { QRCodeModal } from "@/components/QRCodeModal";
 import { PassThePhoneCurtain } from "@/components/PassThePhoneCurtain";
 import { DibGameView } from "@/components/games/DibGameView";
 import { DibNightTimer } from "@/components/games/DibNightTimer";
+import { Dib3DGameView } from "@/components/games/Dib3DGameView";
 import { GhammadaGameView } from "@/components/games/GhammadaGameView";
 import { SandalaGameView } from "@/components/games/SandalaGameView";
 import { IntrusGameView } from "@/components/games/IntrusGameView";
@@ -38,13 +39,14 @@ import {
   Minimize,
 } from "lucide-react";
 
-// Active flagship games: Sandala 3D, Ghammada 3D & DIB
-const ACTIVE_GAMES: GameId[] = ["sandala", "ghammada", "dib"];
+// Active flagship games: DIB 3D, Sandala 3D, Ghammada 3D & Classic DIB
+const ACTIVE_GAMES: GameId[] = ["dib3d", "sandala", "ghammada", "dib"];
 
 const GAME_NAMES: Record<GameId, string> = {
+  dib3d: "الذيب 3D: الدرب المظلم 🐺🔪",
   sandala: "صندالة الواليدة 3D 🩴🔥",
   ghammada: "غمّيضة 3D (Prop Hunt) 📦🔨",
-  dib: "الذيب (DIB) 🐺",
+  dib: "الذيب الكلاسيكي (DIB) 🐺",
   intrus: "الدخيل (L'Intrus)",
   "chkon-fina": "شكون فينا؟",
   mettelha: "مثلها (Mettelha)",
@@ -1031,6 +1033,20 @@ function renderActiveGameView(
   onRefresh?: () => void
 ) {
   switch (gameId) {
+    case "dib3d":
+      return (
+        <Dib3DGameView
+          publicData={publicData}
+          privateData={privateData}
+          myRole={myRole}
+          isHost={isHost}
+          onAction={onAction}
+          players={players}
+          activePlayerId={activePlayerId}
+          roomCode={roomCode}
+          onRefresh={onRefresh}
+        />
+      );
     case "sandala":
       return (
         <SandalaGameView

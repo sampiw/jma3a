@@ -235,7 +235,102 @@ class SoundEngine {
       osc.stop(now + i * 0.09 + 0.08);
     });
   }
+
+  /** Deep wolf snarl + slash for DIB 3D kill */
+  playWolfKill() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const snarl = this.ctx.createOscillator();
+    const snarlGain = this.ctx.createGain();
+    snarl.type = "sawtooth";
+    snarl.frequency.setValueAtTime(160, now);
+    snarl.frequency.exponentialRampToValueAtTime(52, now + 0.32);
+    snarlGain.gain.setValueAtTime(0.38, now);
+    snarlGain.gain.exponentialRampToValueAtTime(0.001, now + 0.34);
+    snarl.connect(snarlGain);
+    snarlGain.connect(this.ctx.destination);
+    snarl.start(now);
+    snarl.stop(now + 0.34);
+
+    const slash = this.ctx.createOscillator();
+    const slashGain = this.ctx.createGain();
+    slash.type = "triangle";
+    slash.frequency.setValueAtTime(1400, now + 0.04);
+    slash.frequency.exponentialRampToValueAtTime(190, now + 0.16);
+    slashGain.gain.setValueAtTime(0.32, now + 0.04);
+    slashGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    slash.connect(slashGain);
+    slashGain.connect(this.ctx.destination);
+    slash.start(now + 0.04);
+    slash.stop(now + 0.18);
+  }
+
+  /** Emergency Tbal + Alarm Siren when Dead Body Reported or Meeting Called */
+  playEmergencySiren() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const freqs = [587.33, 880, 587.33, 880];
+    freqs.forEach((f, idx) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(f, now + idx * 0.14);
+      gain.gain.setValueAtTime(0.24, now + idx * 0.14);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.14 + 0.13);
+      osc.connect(gain);
+      gain.connect(this.ctx!.destination);
+      osc.start(now + idx * 0.14);
+      osc.stop(now + idx * 0.14 + 0.13);
+    });
+  }
+
+  /** Metallic manhole clang + whoosh for Sewer Vent teleport */
+  playVentPop() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(220, now);
+    osc.frequency.exponentialRampToValueAtTime(640, now + 0.18);
+    gain.gain.setValueAtTime(0.25, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.2);
+  }
+
+  /** Power-down electrical buzz when Lights Sabotaged */
+  playLightsOut() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(360, now);
+    osc.frequency.exponentialRampToValueAtTime(55, now + 0.45);
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.46);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.46);
+  }
 }
 
 export const sound = new SoundEngine();
+
 

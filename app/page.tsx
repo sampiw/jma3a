@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { sound } from "@/lib/sound";
 import { DibWolfIcon } from "@/components/icons/DibWolfIcon";
+import { Dib3DIcon } from "@/components/icons/Dib3DIcon";
 import { GhammadaIcon } from "@/components/icons/GhammadaIcon";
 import { SandalaIcon } from "@/components/icons/SandalaIcon";
 import {
@@ -34,6 +35,18 @@ interface GameInfo {
 
 const GAMES: GameInfo[] = [
   {
+    id: "dib3d",
+    title: "الذيب 3D: الدرب المظلم 🐺🔪",
+    tagline: "Among Us مغربي ثلاثي الأبعاد 🔥🌙",
+    description:
+      "تحرّك بالجويستيك فـ الدرب المغربي 3D بالليل! كمّل المهام فـ الفرّان والحانوت والقهوة، وحضي راسك من الذيب الخائن اللي كيغدر فـ الظلام، كيتخشّى فـ القادوس، وكيقطّع الضو!",
+    players: "2-16 لاعب",
+    duration: "8-15 دقيقة",
+    modes: ["كل واحد بتليفونو 📱"],
+    icon: <Dib3DIcon className="w-14 h-14" />,
+    badgeColor: "from-rose-600/40 to-purple-950/60 border-rose-400/60 text-rose-200",
+  },
+  {
     id: "sandala",
     title: "صندالة الواليدة 3D 🩴",
     tagline: "ميمز، غدر، وشطيح ثلاثي الأبعاد 🔥😂",
@@ -59,9 +72,9 @@ const GAMES: GameInfo[] = [
   },
   {
     id: "dib",
-    title: "الذيب (DIB)",
-    tagline: "لعبة الذئب البشري والمكر 🐺",
-    description: "الذيابة كياكلو بالليل، والقرية خاصها تكتاشفهم بالنهار قبل ما يقضيو على كولشي!",
+    title: "الذيب الكلاسيكي (DIB)",
+    tagline: "لعبة الذئب البشري بتليفون واحد أو عدة هواتف 🐺",
+    description: "الذيابة كياكلو بالليل، والقرية خاصها تكتاشفهم بالنهار قبل ما يقضيو على كولشي! مثالية حتى بتليفون واحد كيدور.",
     players: "4-18 لاعب",
     duration: "15-30 دقيقة",
     modes: ["كل واحد بتليفونو", "تليفون واحد"],
@@ -78,7 +91,7 @@ export default function HomePage() {
 
   // Create room modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<GameId>("sandala");
+  const [selectedGame, setSelectedGame] = useState<GameId>("dib3d");
   const [hostNickname, setHostNickname] = useState("");
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("MULTI_PHONE");
   const [isCreating, setIsCreating] = useState(false);
@@ -101,7 +114,7 @@ export default function HomePage() {
   const openCreateForGame = (gameId: GameId) => {
     sound.playCardFlip();
     setSelectedGame(gameId);
-    if (gameId === "ghammada" || gameId === "sandala") {
+    if (gameId === "dib3d" || gameId === "ghammada" || gameId === "sandala") {
       setInteractionMode("MULTI_PHONE");
     }
     setCreateModalOpen(true);
@@ -233,7 +246,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
           {GAMES.map((game) => (
             <div
               key={game.id}
