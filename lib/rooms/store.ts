@@ -510,7 +510,11 @@ export class RoomStore {
     targetPlayerId?: string
   ): Promise<{ success: boolean; error?: string }> {
     const room = await this.getRoom(code);
-    if (!room || room.status !== "ACTIVE" || !room.activeSessionId) {
+    if (
+      !room ||
+      (room.status !== "ACTIVE" && room.status !== "FINISHED") ||
+      !room.activeSessionId
+    ) {
       return { success: false, error: "No active game in this room" };
     }
 
@@ -609,8 +613,11 @@ export class RoomStore {
         round: session.round,
         stateVersion: session.stateVersion,
       });
-      if (endCheck?.isFinished) {
+      if (endCheck?.isFinished && room.status !== "FINISHED") {
         room.status = "FINISHED";
+        await this.persistRoom(room);
+      } else if (!endCheck?.isFinished && room.status === "FINISHED") {
+        room.status = "ACTIVE";
         await this.persistRoom(room);
       }
 
