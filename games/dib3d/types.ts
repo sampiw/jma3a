@@ -8,7 +8,51 @@ export type Dib3DTaskStationId =
   | "cafe_atay"
   | "hammam_berma"
   | "sqaya_bucket"
-  | "zellige_lamp";
+  | "zellige_lamp"
+  | "attar_spices"
+  | "sebbagh_wool"
+  | "souika_carpet"
+  | "medersa_clock";
+
+export const DIB3D_ARENA_HALF = 38;
+
+export interface Dib3DWallSegment {
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  h: number;
+}
+
+export const DIB3D_WALL_SEGMENTS: Dib3DWallSegment[] = [
+  // Inner Riad Courtyard ring (with 5m gates on N, S, E, W)
+  { x: -5.5, z: -8.5, w: 6.0, d: 1.1, h: 3.8 },
+  { x: 5.5, z: -8.5, w: 6.0, d: 1.1, h: 3.8 },
+  { x: -5.5, z: 8.5, w: 6.0, d: 1.1, h: 3.8 },
+  { x: 5.5, z: 8.5, w: 6.0, d: 1.1, h: 3.8 },
+  { x: -8.5, z: -5.5, w: 1.1, d: 6.0, h: 3.8 },
+  { x: -8.5, z: 5.5, w: 1.1, d: 6.0, h: 3.8 },
+  { x: 8.5, z: -5.5, w: 1.1, d: 6.0, h: 3.8 },
+  { x: 8.5, z: 5.5, w: 1.1, d: 6.0, h: 3.8 },
+  // 4 Outer Medina Quarter Enclosures (NW, NE, SW, SE)
+  { x: -23.0, z: -18.0, w: 10.0, d: 1.2, h: 4.1 },
+  { x: -19.0, z: -26.5, w: 1.2, d: 10.0, h: 4.1 },
+  { x: 23.0, z: -18.0, w: 10.0, d: 1.2, h: 4.1 },
+  { x: 19.0, z: -26.5, w: 1.2, d: 10.0, h: 4.1 },
+  { x: -23.0, z: 18.0, w: 10.0, d: 1.2, h: 4.1 },
+  { x: -19.0, z: 26.5, w: 1.2, d: 10.0, h: 4.1 },
+  { x: 23.0, z: 18.0, w: 10.0, d: 1.2, h: 4.1 },
+  { x: 19.0, z: 26.5, w: 1.2, d: 10.0, h: 4.1 },
+  // Alleyway Sightline Baffles (West, East, North, South)
+  { x: -21.0, z: -6.5, w: 1.2, d: 7.5, h: 3.9 },
+  { x: -21.0, z: 6.5, w: 1.2, d: 7.5, h: 3.9 },
+  { x: 21.0, z: -6.5, w: 1.2, d: 7.5, h: 3.9 },
+  { x: 21.0, z: 6.5, w: 1.2, d: 7.5, h: 3.9 },
+  { x: -6.5, z: -22.0, w: 6.5, d: 1.2, h: 3.9 },
+  { x: 6.5, z: -22.0, w: 6.5, d: 1.2, h: 3.9 },
+  { x: -6.5, z: 22.0, w: 6.5, d: 1.2, h: 3.9 },
+  { x: 6.5, z: 22.0, w: 6.5, d: 1.2, h: 3.9 },
+];
 
 export interface Dib3DTaskStationDef {
   id: Dib3DTaskStationId;
@@ -25,62 +69,102 @@ export const DIB3D_TASK_STATIONS: Dib3DTaskStationDef[] = [
   {
     id: "farran_bread",
     title: "الفرّان البلدي",
-    actionLabel: "🥖 طرح الخبز فـ الفران!",
-    zoneName: "حدا الفرّان البلدي",
+    actionLabel: "🥖 طيّب وقلّب الخبز فـ الفران!",
+    zoneName: "حي الفرّان البلدي (شمال غرب)",
     emoji: "🥖",
-    x: -10.2,
-    z: -10.2,
+    x: -26.0,
+    z: -24.0,
     color: 0xf97316,
   },
   {
     id: "hanout_kunnach",
     title: "حانوت الحاج",
-    actionLabel: "📓 قيّد الكريدي فـ الكناش!",
-    zoneName: "قدام حانوت الحاج",
+    actionLabel: "📓 قدّ الحساب فـ كناش الكريدي!",
+    zoneName: "رحبة حانوت الحاج (شمال)",
     emoji: "📓",
     x: 0,
-    z: -12.2,
+    z: -28.0,
     color: 0x3b82f6,
   },
   {
     id: "cafe_atay",
     title: "قهوة الشعبي",
-    actionLabel: "🍵 شحّر البراد د أتاي!",
-    zoneName: "فـ قهوة الشعبي",
+    actionLabel: "🍵 شحّر البراد د أتاي بالنعناع!",
+    zoneName: "ركنة قهوة الشعبي (شمال شرق)",
     emoji: "🍵",
-    x: 10.2,
-    z: -10.2,
+    x: 26.0,
+    z: -24.0,
     color: 0x10b981,
   },
   {
     id: "hammam_berma",
     title: "الحمام البلدي",
-    actionLabel: "🪣 سخّن البرمة د الحمام!",
-    zoneName: "داخلة الحمام البلدي",
+    actionLabel: "🪣 زيد العواد فـ فرناتشي الحمام!",
+    zoneName: "زنقة الحمام البلدي (جنوب غرب)",
     emoji: "🪣",
-    x: -10.2,
-    z: 10.2,
+    x: -26.0,
+    z: 24.0,
     color: 0xec4899,
   },
   {
     id: "sqaya_bucket",
     title: "سقاية الدرب",
-    actionLabel: "⛲ عمّر السطل من السقاية!",
-    zoneName: "حدا سقاية الدرب",
+    actionLabel: "⛲ عمّر القلوشة من السقاية!",
+    zoneName: "ساحة سقاية الدرب (جنوب شرق)",
     emoji: "⛲",
-    x: 10.2,
-    z: 10.2,
+    x: 26.0,
+    z: 24.0,
     color: 0x06b6d4,
   },
   {
     id: "zellige_lamp",
     title: "فانوس الزنقة",
-    actionLabel: "🏮 شعل فانوس الزنقة!",
-    zoneName: "تحت فانوس الزنقة",
+    actionLabel: "🏮 ركّب الخيوط وشعل الفانوس!",
+    zoneName: "عقبة الفانوس (غرب)",
     emoji: "🏮",
-    x: -12.2,
+    x: -28.0,
     z: 0,
     color: 0xfacc15,
+  },
+  {
+    id: "attar_spices",
+    title: "دكّان العطّار",
+    actionLabel: "🌿 خلّط عطرية راس الحانوت!",
+    zoneName: "زقاق العطّارين (وسط شمال)",
+    emoji: "🌿",
+    x: -14.0,
+    z: -15.0,
+    color: 0xa855f7,
+  },
+  {
+    id: "sebbagh_wool",
+    title: "دار الدبّاغ",
+    actionLabel: "🧶 صبغ الجلد فـ جفان الدباغة!",
+    zoneName: "حومة دار الدبّاغ (وسط جنوب)",
+    emoji: "🧶",
+    x: 14.0,
+    z: 15.0,
+    color: 0xeab308,
+  },
+  {
+    id: "souika_carpet",
+    title: "قيسارية الزرابي",
+    actionLabel: "🕌 نفض الغبرة من الزربية الأمازيغية!",
+    zoneName: "قيسارية الزرابي (وسط غرب)",
+    emoji: "🕌",
+    x: -14.0,
+    z: 15.0,
+    color: 0xef4444,
+  },
+  {
+    id: "medersa_clock",
+    title: "ساعة المدرسة",
+    actionLabel: "🕰️ قدّ عقارب الساعة الشمسية!",
+    zoneName: "صحن الساعة القديمة (وسط شرق)",
+    emoji: "🕰️",
+    x: 14.0,
+    z: -15.0,
+    color: 0x14b8a6,
   },
 ];
 
@@ -92,24 +176,26 @@ export interface Dib3DVentDef {
 }
 
 export const DIB3D_VENTS: Dib3DVentDef[] = [
-  { id: "vent_nw", label: "قادوس الفرّان", x: -13.2, z: -13.2 },
-  { id: "vent_ne", label: "قادوس القهوة", x: 13.2, z: -13.2 },
-  { id: "vent_se", label: "قادوس السقاية", x: 13.2, z: 13.2 },
-  { id: "vent_sw", label: "قادوس الحمام", x: -13.2, z: 13.2 },
+  { id: "vent_nw", label: "قادوس الفرّان", x: -31.0, z: -29.0 },
+  { id: "vent_n", label: "قادوس العطّار", x: 0, z: -16.0 },
+  { id: "vent_ne", label: "قادوس القهوة", x: 31.0, z: -29.0 },
+  { id: "vent_se", label: "قادوس السقاية", x: 31.0, z: 29.0 },
+  { id: "vent_s", label: "قادوس الدبّاغ", x: 0, z: 16.0 },
+  { id: "vent_sw", label: "قادوس الحمام", x: -31.0, z: 29.0 },
 ];
 
 export const DIB3D_ELECTRIC_BOX = {
-  x: 12.2,
+  x: 28.0,
   z: 0,
   title: "صندوق الضو ⚡",
-  zoneName: "حدا صندوق الضو",
+  zoneName: "حدا المحوّل الكهربائي (شرق)",
 };
 
 export const DIB3D_CENTRAL_DRUM = {
   x: 0,
   z: 0,
   title: "طبل ساحة الدرب 🥁",
-  zoneName: "وسط ساحة الدرب",
+  zoneName: "وسط رياض الدرب",
 };
 
 export interface Dib3DDeadBody {
@@ -134,6 +220,9 @@ export interface Dib3DPlayerEntity {
   assignedTasks: Dib3DTaskStationId[];
   completedTasks: Dib3DTaskStationId[];
   sheriffBullets: number;
+  sheriffGunBroken?: boolean;
+  lastSheriffShotAt?: number;
+  lastNotice?: string;
   seerScansLeft: number;
   meetingsLeft: number;
   lastKillAt?: number;

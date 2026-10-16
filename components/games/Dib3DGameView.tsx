@@ -14,6 +14,10 @@ import {
   Dib3DProximityState,
 } from "@/components/games/Dib3DArena";
 import {
+  Dib3DMiniGameModal,
+  Dib3DMinimap,
+} from "@/components/games/Dib3DMiniGameModal";
+import {
   DIB3D_TASK_STATIONS,
   DIB3D_VENTS,
   Dib3DChatMsg,
@@ -21,6 +25,7 @@ import {
   Dib3DPhase,
   Dib3DPlayerEntity,
   Dib3DRole,
+  Dib3DTaskStationDef,
   Dib3DTaskStationId,
 } from "@/games/dib3d/types";
 import {
@@ -96,13 +101,13 @@ const ROLE_INFO: Record<
   WOLF: {
     title: "🐺 أنت الذيب الخائن!",
     badge: "🐺 الذيب",
-    desc: "افترس ولاد الدرب فـ الظلام، تخشّى فـ القادوس، وقطّع الضو بلا ما يعيقو بيك!",
+    desc: "افترس ولاد الدرب فـ الزناقي المظلمة، تخشّى فـ القوادس بـ 6، وقطّع الضو بلا ما يعيقو بيك!",
     colorClass: "bg-rose-950/90 border-rose-500 text-rose-200",
   },
   SHERIFF: {
-    title: "🎯 أنت الصياد (المقدم)!",
-    badge: "🎯 الصياد",
-    desc: "عندك رصاصة فضية وحدة! يلا ضربتي الذيب كيربح الدرب، ولكن يلا ضربتي بريء كتموت نتا!",
+    title: "🎯 أنت القناص (المقدم)!",
+    badge: "🎯 القناص",
+    desc: "عندك رصاصة فضية! يلا ضربتي الذيب كيموت فوراً، ولكن يلا قتلتي ولد الدرب بريء كيموت هو وكتهرس المكحلة ديالك للأبد!",
     colorClass: "bg-amber-950/90 border-amber-400 text-amber-200",
   },
   SEER: {
@@ -114,7 +119,7 @@ const ROLE_INFO: Record<
   VILLAGER: {
     title: "👨‍🌾 أنت ولد الدرب!",
     badge: "👨‍🌾 ولد الدرب",
-    desc: "كمّل المهام ديالك فـ الفران والحانوت والقهوة، وبلّغ على أي جثة تلقاها فـ الزنقة!",
+    desc: "استعمل الخريطة 🗺️ وكمّل المهام التفاعلية فـ الحومة الكبيرة، وبلّغ على أي جثة تلقاها!",
     colorClass: "bg-emerald-950/90 border-emerald-400 text-emerald-200",
   },
 };
@@ -182,7 +187,12 @@ export function Dib3DGameView({
     nearElectricBox: false,
     nearCentralDrum: false,
     nearVentId: null,
+    playerX: myPrivEnt?.x ?? 0,
+    playerZ: myPrivEnt?.z ?? 3.5,
+    playerRotY: myPrivEnt?.rotY ?? 0,
   });
+  const [activeMiniGameStation, setActiveMiniGameStation] =
+    useState<Dib3DTaskStationDef | null>(null);
 
   const fxQueueRef = useRef<Dib3DFxEvent[]>([]);
   const peersRef = useRef<Map<string, Dib3DLivePacket>>(new Map());
@@ -518,8 +528,19 @@ export function Dib3DGameView({
     sendRefresh();
   };
 
-  const handleCompleteTask = () => {
+  const handleOpenTaskMiniGame = () => {
     if (!proximity.nearestTaskStationId) return;
+    const st = DIB3D_TASK_STATIONS.find(
+      (s) => s.id === proximity.nearestTaskStationId
+    );
+    if (!st) return;
+    sound.playCardFlip();
+    vibrate(25);
+    setActiveMiniGameStation(st);
+  };
+
+  const handleCompleteTaskById = (stationId: Dib3DTaskStationId) => {
+    setActiveMiniGameStation(null);
     sound.playSuccess();
     vibrate([30, 40, 30]);
     const fx: Omit<Dib3DFxEvent, "i"> = {
@@ -531,13 +552,19 @@ export function Dib3DGameView({
     sendLiveFx(fx);
     onAction({
       type: "COMPLETE_TASK",
-      stationId: proximity.nearestTaskStationId,
+      stationId,
     });
     sendRefresh();
   };
 
+  const sheriffCooldownLeft = useMemo(() => {
+    if (myRole !== "SHERIFF" || !myPrivEnt?.lastSheriffShotAt) return 0;
+    const elapsed = (nowClock - myPrivEnt.lastSheriffShotAt) / 1000;
+    return Math.max(0, Math.ceil(20 - elapsed));
+  }, [myRole, myPrivEnt?.lastSheriffShotAt, nowClock]);
+
   const handleSheriffShoot = () => {
-    if (!proximity.nearestTargetId) return;
+    if (!proximity.nearestTargetId || sheriffCooldownLeft > 0) return;
     sound.playSlapSmack();
     vibrate([80, 40, 80]);
     const fx: Omit<Dib3DFxEvent, "i"> = {
@@ -672,7 +699,7 @@ export function Dib3DGameView({
         {/* Center Baraka Task Progress Bar */}
         <div className="flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md border border-emerald-400/40 px-2.5 py-1 rounded-full shadow-lg">
           <span className="text-[10px] font-black text-emerald-300">
-            🥖 مهام الدرب {taskPercent}%
+            🥖 مهام الحومة {taskPercent}%
           </span>
           <div className="w-16 sm:w-28 h-2 rounded-full bg-slate-800 overflow-hidden">
             <div
@@ -696,14 +723,35 @@ export function Dib3DGameView({
       {isLightsOut && (
         <div className="absolute top-12 inset-x-4 max-w-md mx-auto p-2 rounded-2xl bg-rose-950/95 border-2 border-amber-400 text-center z-20 pointer-events-none animate-pulse">
           <span className="text-xs font-black text-amber-300 block">
-            ⚡ الضو مقطوع فـ الدرب! جري لـ صندوق الضو (شرق الساحة) باش تشعلو!
+            ⚡ الضو مقطوع فـ المدينة! تبع الخريطة 🗺️ لـ صندوق الضو (شرق) باش تشعلو!
           </span>
         </div>
       )}
 
+      {/* HUNTER NOTICE BANNER (e.g. Broken Gun or Wolf Eliminated) */}
+      {myPrivEnt?.lastNotice && (
+        <div className="absolute top-24 inset-x-4 max-w-md mx-auto p-2.5 rounded-2xl bg-slate-950/95 border-2 border-amber-400 text-center z-20 pointer-events-none shadow-2xl">
+          <span className="text-xs font-black text-amber-200 block">
+            {myPrivEnt.lastNotice}
+          </span>
+        </div>
+      )}
+
+      {/* TOP-RIGHT MEDINA LABYRINTH MINIMAP (76x76m) */}
+      <div className="absolute top-12 right-2.5 z-20 pointer-events-auto">
+        <Dib3DMinimap
+          playerX={proximity.playerX}
+          playerZ={proximity.playerZ}
+          myRole={myRole}
+          assignedTasks={myAssignedTasks}
+          completedTasks={myCompletedTasks}
+          isLightsOut={isLightsOut}
+        />
+      </div>
+
       {/* TOP-LEFT TASK CHECKLIST / ROLE BRIEFING */}
       <div
-        className="absolute top-12 left-2.5 z-20 pointer-events-auto max-w-[210px] sm:max-w-[240px]"
+        className="absolute top-12 left-2.5 z-20 pointer-events-auto max-w-[195px] sm:max-w-[235px]"
         dir="rtl"
         onPointerDown={(e) => e.stopPropagation()}
       >
@@ -721,7 +769,7 @@ export function Dib3DGameView({
         </button>
 
         {tasksExpanded && (
-          <div className="mt-1 p-2.5 rounded-2xl bg-slate-950/85 backdrop-blur-md border border-white/10 space-y-1.5 text-right shadow-xl">
+          <div className="mt-1 p-2.5 rounded-2xl bg-slate-950/85 backdrop-blur-md border border-white/10 space-y-1.5 text-right shadow-xl max-h-[210px] overflow-y-auto">
             <p className="text-[10px] text-slate-300 leading-snug">{roleMeta.desc}</p>
             {myRole !== "WOLF" && (
               <div className="space-y-1 pt-1 border-t border-white/10">
@@ -833,14 +881,14 @@ export function Dib3DGameView({
               </button>
             )}
 
-          {/* 4. COMPLETE MOROCCAN 3D TASK (For Villagers, Sheriff, Seer, and Ghosts!) */}
+          {/* 4. OPEN INTERACTIVE MOROCCAN MINI-GAME TASK */}
           {myRole !== "WOLF" && currentTaskStation && (
             <button
               type="button"
-              onClick={handleCompleteTask}
+              onClick={handleOpenTaskMiniGame}
               className="px-4 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 border-2 border-emerald-200 text-white font-black text-xs sm:text-sm shadow-2xl shadow-emerald-600/50 animate-bounce flex items-center gap-1.5 active:scale-95"
             >
-              <span>{currentTaskStation.actionLabel}</span>
+              <span>🛠️ {currentTaskStation.actionLabel}</span>
             </button>
           )}
 
@@ -894,28 +942,36 @@ export function Dib3DGameView({
             </div>
           )}
 
-          {/* 6. SHERIFF SILVER BULLET */}
-          {isAlive &&
-            myRole === "SHERIFF" &&
-            (myPrivEnt?.sheriffBullets ?? 0) > 0 && (
-              <button
-                type="button"
-                disabled={!proximity.nearestTargetId}
-                onClick={handleSheriffShoot}
-                className={`px-4 py-3.5 rounded-2xl border-2 font-black text-xs sm:text-sm shadow-2xl flex items-center gap-1.5 active:scale-95 transition-all ${
-                  proximity.nearestTargetId
-                    ? "bg-gradient-to-r from-amber-500 to-orange-600 border-amber-200 text-slate-950"
-                    : "bg-slate-900/80 border-slate-700 text-slate-400 opacity-60"
-                }`}
-              >
-                <Crosshair className="w-4 h-4" />
-                <span>
-                  {proximity.nearestTargetId
-                    ? `🎯 أطلق رصاصة الفضة على ${playersMap[proximity.nearestTargetId]}!`
-                    : "🎯 قرّب للمشتبه باش تضربو"}
-                </span>
-              </button>
-            )}
+          {/* 6. SHERIFF SILVER BULLET (OR BROKEN GUN NOTICE) */}
+          {isAlive && myRole === "SHERIFF" && (
+            <>
+              {myPrivEnt?.sheriffGunBroken ? (
+                <div className="px-3.5 py-2.5 rounded-2xl bg-rose-950/90 border-2 border-rose-500/60 text-rose-200 font-black text-[11px] shadow-xl">
+                  💥 المكحلة تهرسات (قتلتي ولد الدرب بريء!)
+                </div>
+              ) : (myPrivEnt?.sheriffBullets ?? 0) > 0 ? (
+                <button
+                  type="button"
+                  disabled={!proximity.nearestTargetId || sheriffCooldownLeft > 0}
+                  onClick={handleSheriffShoot}
+                  className={`px-4 py-3.5 rounded-2xl border-2 font-black text-xs sm:text-sm shadow-2xl flex items-center gap-1.5 active:scale-95 transition-all ${
+                    proximity.nearestTargetId && sheriffCooldownLeft <= 0
+                      ? "bg-gradient-to-r from-amber-500 to-orange-600 border-amber-200 text-slate-950"
+                      : "bg-slate-900/80 border-slate-700 text-slate-400 opacity-60"
+                  }`}
+                >
+                  <Crosshair className="w-4 h-4" />
+                  <span>
+                    {sheriffCooldownLeft > 0
+                      ? `⏳ الرصاصة كتوجد (${sheriffCooldownLeft}s)`
+                      : proximity.nearestTargetId
+                      ? `🎯 أطلق رصاصة الفضة على ${playersMap[proximity.nearestTargetId]}!`
+                      : "🎯 قرّب للمشتبه باش تضربو"}
+                  </span>
+                </button>
+              ) : null}
+            </>
+          )}
 
           {/* 7. SEER AURA SCAN */}
           {isAlive &&
@@ -941,6 +997,15 @@ export function Dib3DGameView({
             )}
         </div>
       </div>
+
+      {/* INTERACTIVE MOROCCAN TASK MINI-GAME MODAL */}
+      {activeMiniGameStation && (
+        <Dib3DMiniGameModal
+          station={activeMiniGameStation}
+          onComplete={handleCompleteTaskById}
+          onClose={() => setActiveMiniGameStation(null)}
+        />
+      )}
 
       {/* iOS Fullscreen Modal */}
       {iosHelpOpen && (

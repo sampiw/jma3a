@@ -5,21 +5,18 @@ import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import {
+  DIB3D_ARENA_HALF,
   DIB3D_CENTRAL_DRUM,
   DIB3D_ELECTRIC_BOX,
   DIB3D_TASK_STATIONS,
   DIB3D_VENTS,
+  DIB3D_WALL_SEGMENTS,
   Dib3DDeadBody,
   Dib3DPhase,
   Dib3DPlayerEntity,
   Dib3DRole,
   Dib3DTaskStationId,
 } from "@/games/dib3d/types";
-import {
-  ARENA_HALF,
-  resolveCollisions,
-  STATIC_COLLIDERS,
-} from "@/games/ghammada/layout";
 import {
   buildProceduralProp,
   enableShadows,
@@ -69,6 +66,9 @@ export interface Dib3DProximityState {
   nearElectricBox: boolean;
   nearCentralDrum: boolean;
   nearVentId: string | null;
+  playerX: number;
+  playerZ: number;
+  playerRotY: number;
 }
 
 interface Dib3DArenaProps {
@@ -281,6 +281,82 @@ function buildTaskStation3D(
     );
     water.position.set(0, 0.65, 0.25);
     root.add(water);
+  } else if (id === "attar_spices") {
+    // Moroccan Spice Souk Stall + 4 Conical Spice Mounds
+    const table = new THREE.Mesh(
+      new THREE.BoxGeometry(1.8, 0.75, 1.1),
+      new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.7 })
+    );
+    table.position.y = 0.42;
+    root.add(table);
+    const spiceColors = [0xef4444, 0xfacc15, 0xd97706, 0x84cc16];
+    spiceColors.forEach((sc, idx) => {
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry(0.22, 0.38, 12),
+        new THREE.MeshStandardMaterial({ color: sc, roughness: 0.6 })
+      );
+      cone.position.set(-0.55 + idx * 0.36, 0.98, 0);
+      root.add(cone);
+    });
+  } else if (id === "sebbagh_wool") {
+    // Chouara Tannery Dye Vats (Saffron, Crimson, Indigo)
+    const vatColors = [0xfacc15, 0xe11d48, 0x2563eb];
+    vatColors.forEach((vc, idx) => {
+      const angle = (idx / 3) * Math.PI * 2;
+      const vx = Math.cos(angle) * 0.58;
+      const vz = Math.sin(angle) * 0.58;
+      const vat = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.45, 0.48, 0.55, 16),
+        new THREE.MeshStandardMaterial({ color: 0xd6d3d1, roughness: 0.85 })
+      );
+      vat.position.set(vx, 0.32, vz);
+      root.add(vat);
+      const dye = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.38, 0.38, 0.58, 14),
+        new THREE.MeshBasicMaterial({ color: vc })
+      );
+      dye.position.set(vx, 0.33, vz);
+      root.add(dye);
+    });
+  } else if (id === "souika_carpet") {
+    // Hanging Amazigh Woven Carpet on Cedar Frame
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.75 });
+    for (const px of [-0.85, 0.85]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 2.2, 10), frameMat);
+      post.position.set(px, 1.1, 0);
+      root.add(post);
+    }
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.9, 10), frameMat);
+    bar.rotation.z = Math.PI / 2;
+    bar.position.set(0, 2.15, 0);
+    root.add(bar);
+    const rug = new THREE.Mesh(
+      new THREE.BoxGeometry(1.45, 1.65, 0.08),
+      new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.8 })
+    );
+    rug.position.set(0, 1.25, 0);
+    root.add(rug);
+    const diamond = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.38, 0),
+      new THREE.MeshBasicMaterial({ color: 0xfbbf24 })
+    );
+    diamond.scale.set(1, 1.3, 0.25);
+    diamond.position.set(0, 1.25, 0);
+    root.add(diamond);
+  } else if (id === "medersa_clock") {
+    // Ornate Brass & Zellige Sundial Clock Pillar
+    const pillar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.75, 1.85, 0.75),
+      new THREE.MeshStandardMaterial({ color: 0x0f766e, roughness: 0.45 })
+    );
+    pillar.position.y = 0.95;
+    root.add(pillar);
+    const dial = new THREE.Mesh(
+      new THREE.TorusGeometry(0.48, 0.07, 12, 24),
+      new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.7, roughness: 0.25 })
+    );
+    dial.position.set(0, 2.15, 0);
+    root.add(dial);
   } else {
     // Wrought-Iron Street Lantern
     const pole = new THREE.Mesh(
@@ -426,6 +502,64 @@ function buildDeadBodyMesh(outfitColor: number, victimName: string): THREE.Group
   return g;
 }
 
+function resolveDib3DCollisions(
+  rawX: number,
+  rawZ: number,
+  radius: number,
+  isGhost: boolean
+): { x: number; z: number } {
+  const limit = DIB3D_ARENA_HALF - 1.4;
+  let x = Math.max(-limit, Math.min(limit, rawX));
+  let z = Math.max(-limit, Math.min(limit, rawZ));
+
+  if (isGhost) {
+    return { x, z };
+  }
+
+  // Collide against Medina Labyrinth Wall Segments (AABB vs Circle)
+  for (const w of DIB3D_WALL_SEGMENTS) {
+    const halfW = w.w / 2;
+    const halfD = w.d / 2;
+    const closestX = Math.max(w.x - halfW, Math.min(w.x + halfW, x));
+    const closestZ = Math.max(w.z - halfD, Math.min(w.z + halfD, z));
+    const dx = x - closestX;
+    const dz = z - closestZ;
+    const distSq = dx * dx + dz * dz;
+    if (distSq < radius * radius) {
+      const dist = Math.sqrt(distSq);
+      if (dist > 1e-4) {
+        const push = radius - dist;
+        x += (dx / dist) * push;
+        z += (dz / dist) * push;
+      } else {
+        x += radius;
+      }
+    }
+  }
+
+  // Soft circle push from Central Drum & Task Stations so players don't clip inside them
+  const drumDist = Math.hypot(x - DIB3D_CENTRAL_DRUM.x, z - DIB3D_CENTRAL_DRUM.z);
+  const drumMin = 1.45 + radius;
+  if (drumDist < drumMin && drumDist > 1e-4) {
+    x = DIB3D_CENTRAL_DRUM.x + ((x - DIB3D_CENTRAL_DRUM.x) / drumDist) * drumMin;
+    z = DIB3D_CENTRAL_DRUM.z + ((z - DIB3D_CENTRAL_DRUM.z) / drumDist) * drumMin;
+  }
+
+  for (const st of DIB3D_TASK_STATIONS) {
+    const sd = Math.hypot(x - st.x, z - st.z);
+    const sMin = 1.05 + radius;
+    if (sd < sMin && sd > 1e-4) {
+      x = st.x + ((x - st.x) / sd) * sMin;
+      z = st.z + ((z - st.z) / sd) * sMin;
+    }
+  }
+
+  return {
+    x: Math.max(-limit, Math.min(limit, x)),
+    z: Math.max(-limit, Math.min(limit, z)),
+  };
+}
+
 function clampCameraWallDist(
   focusX: number,
   focusZ: number,
@@ -433,7 +567,7 @@ function clampCameraWallDist(
   dirZ: number,
   desiredDist: number
 ): number {
-  const wallLimit = ARENA_HALF - 0.35;
+  const wallLimit = DIB3D_ARENA_HALF - 0.5;
   let maxDist = desiredDist;
 
   if (Math.abs(dirX) > 1e-4) {
@@ -575,35 +709,66 @@ export function Dib3DArena({
     scene.add(flashlight);
     scene.add(flashlight.target);
 
-    // 3. Build 3D Moroccan Derb Environment
+    // 3. Build 3D Moroccan Medina Labyrinth Environment (76m x 76m)
     const envGroup = new THREE.Group();
     scene.add(envGroup);
 
     const floorMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(36, 36),
+      new THREE.PlaneGeometry(80, 80),
       new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 })
     );
     floorMesh.rotation.x = -Math.PI / 2;
     floorMesh.receiveShadow = true;
     envGroup.add(floorMesh);
 
-    const grid = new THREE.GridHelper(34, 17, 0x38bdf8, 0x1e293b);
+    const grid = new THREE.GridHelper(76, 38, 0x38bdf8, 0x1e293b);
     grid.position.y = 0.015;
     envGroup.add(grid);
 
-    // Outer Derb Terracotta Walls
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.8 });
+    // Outer Medina Rampart Terracotta Walls (76x76m)
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.82 });
+    const innerWallMat = new THREE.MeshStandardMaterial({
+      color: 0x9a3412,
+      roughness: 0.78,
+    });
+    const trimMat = new THREE.MeshStandardMaterial({
+      color: 0x0284c7,
+      roughness: 0.4,
+    });
+
+    const outerBound = DIB3D_ARENA_HALF - 0.4;
+    const outerSpan = DIB3D_ARENA_HALF * 2;
     for (const ws of [
-      { x: 0, z: -16.8, w: 34.6, d: 0.9 },
-      { x: 0, z: 16.8, w: 34.6, d: 0.9 },
-      { x: -16.8, z: 0, w: 0.9, d: 34.6 },
-      { x: 16.8, z: 0, w: 0.9, d: 34.6 },
+      { x: 0, z: -outerBound, w: outerSpan, d: 1.1 },
+      { x: 0, z: outerBound, w: outerSpan, d: 1.1 },
+      { x: -outerBound, z: 0, w: 1.1, d: outerSpan },
+      { x: outerBound, z: 0, w: 1.1, d: outerSpan },
     ]) {
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(ws.w, 3.6, ws.d), wallMat);
-      wall.position.set(ws.x, 1.8, ws.z);
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(ws.w, 4.4, ws.d), wallMat);
+      wall.position.set(ws.x, 2.2, ws.z);
       wall.receiveShadow = true;
       wall.castShadow = true;
       envGroup.add(wall);
+    }
+
+    // Interior Medina Labyrinth Walls & Courtyards (block line-of-sight!)
+    for (const seg of DIB3D_WALL_SEGMENTS) {
+      const wall = new THREE.Mesh(
+        new THREE.BoxGeometry(seg.w, seg.h, seg.d),
+        innerWallMat
+      );
+      wall.position.set(seg.x, seg.h / 2, seg.z);
+      wall.receiveShadow = true;
+      wall.castShadow = true;
+      envGroup.add(wall);
+
+      // Moroccan Zellige Blue Base Strip
+      const trim = new THREE.Mesh(
+        new THREE.BoxGeometry(seg.w + 0.08, 0.45, seg.d + 0.08),
+        trimMat
+      );
+      trim.position.set(seg.x, 0.225, seg.z);
+      envGroup.add(trim);
     }
 
     // Central Emergency Drum Station at (0, 0)
@@ -939,11 +1104,11 @@ export function Dib3DArena({
         if (mag > 0.04) {
           localMoving = true;
           const move = cameraRelativeMove(jx, jy, localPosRef.current.camYaw);
-          const baseSpeed = !amIAlive ? 7.6 : role === "WOLF" ? 6.8 : 6.4;
+          const baseSpeed = !amIAlive ? 8.2 : role === "WOLF" ? 7.3 : 6.8;
 
           const rawX = localPosRef.current.x + move.x * baseSpeed * dt;
           const rawZ = localPosRef.current.z + move.z * baseSpeed * dt;
-          const resolved = resolveCollisions(rawX, rawZ, 0.45, STATIC_COLLIDERS);
+          const resolved = resolveDib3DCollisions(rawX, rawZ, 0.45, !amIAlive);
 
           localPosRef.current.x = resolved.x;
           localPosRef.current.z = resolved.z;
@@ -1029,10 +1194,10 @@ export function Dib3DArena({
         }
       }
 
-      // Check nearest uncompleted Task Station (within 3.2m)
+      // Check nearest uncompleted Task Station (within 3.4m)
       let nearestTaskStationId: Dib3DTaskStationId | null = null;
       if (role !== "WOLF") {
-        let bestTaskDist = 3.2;
+        let bestTaskDist = 3.4;
         for (const st of DIB3D_TASK_STATIONS) {
           if (
             assignedTasksRef.current.includes(st.id) &&
@@ -1049,21 +1214,23 @@ export function Dib3DArena({
 
       // Check Electric Box, Central Drum, and Sewer Vents
       const nearElectricBox =
-        Math.hypot(DIB3D_ELECTRIC_BOX.x - myX, DIB3D_ELECTRIC_BOX.z - myZ) <= 3.5;
+        Math.hypot(DIB3D_ELECTRIC_BOX.x - myX, DIB3D_ELECTRIC_BOX.z - myZ) <= 3.6;
       const nearCentralDrum =
-        Math.hypot(DIB3D_CENTRAL_DRUM.x - myX, DIB3D_CENTRAL_DRUM.z - myZ) <= 3.5;
+        Math.hypot(DIB3D_CENTRAL_DRUM.x - myX, DIB3D_CENTRAL_DRUM.z - myZ) <= 3.6;
 
       let nearVentId: string | null = null;
       if (role === "WOLF" && amIAlive) {
         for (const v of DIB3D_VENTS) {
-          if (Math.hypot(v.x - myX, v.z - myZ) <= 3.2) {
+          if (Math.hypot(v.x - myX, v.z - myZ) <= 3.4) {
             nearVentId = v.id;
             break;
           }
         }
       }
 
-      const proxKey = `${nearestTargetId || ""}|${nearestBodyId || ""}|${nearestTaskStationId || ""}|${nearElectricBox ? 1 : 0}|${nearCentralDrum ? 1 : 0}|${nearVentId || ""}`;
+      const gridX = Math.round(myX * 2) / 2;
+      const gridZ = Math.round(myZ * 2) / 2;
+      const proxKey = `${nearestTargetId || ""}|${nearestBodyId || ""}|${nearestTaskStationId || ""}|${nearElectricBox ? 1 : 0}|${nearCentralDrum ? 1 : 0}|${nearVentId || ""}|${gridX},${gridZ}`;
       if (proxKey !== lastProxKey) {
         lastProxKey = proxKey;
         onProxChangeRef.current?.({
@@ -1074,6 +1241,9 @@ export function Dib3DArena({
           nearElectricBox,
           nearCentralDrum,
           nearVentId,
+          playerX: myX,
+          playerZ: myZ,
+          playerRotY: localPosRef.current.rotY,
         });
       }
 

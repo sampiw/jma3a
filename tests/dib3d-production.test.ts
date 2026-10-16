@@ -151,13 +151,13 @@ describe("DIB 3D (الذيب 3D: الدرب المظلم) Engine", () => {
     expect(state.winnerTeam).toBe("VILLAGERS");
   });
 
-  it("handles Sheriff shooting an innocent (Sheriff dies from guilt) vs shooting the Wolf", () => {
+  it("handles Sheriff shooting an innocent (target dies & Sheriff gun breaks forever)", () => {
     let state = Dib3DEngine.createInitialState(mockPlayers, Dib3DEngine.defaultSettings);
 
     const sheriff = Object.values(state.entities).find((e) => e.role === "SHERIFF")!;
     const villager = Object.values(state.entities).find((e) => e.role === "VILLAGER")!;
 
-    // Sheriff mistakenly shoots an innocent Villager -> Sheriff dies, Villager lives!
+    // Sheriff mistakenly shoots an innocent Villager -> Villager dies, Sheriff stays alive & gun breaks!
     state = Dib3DEngine.handleAction(makeCtx(state), sheriff.playerId, {
       type: "SHERIFF_SHOOT",
       targetId: villager.playerId,
@@ -165,10 +165,12 @@ describe("DIB 3D (الذيب 3D: الدرب المظلم) Engine", () => {
       z: sheriff.z,
     }).newState;
 
-    expect(state.entities[sheriff.playerId].isAlive).toBe(false);
-    expect(state.entities[villager.playerId].isAlive).toBe(true);
+    expect(state.entities[villager.playerId].isAlive).toBe(false);
+    expect(state.entities[sheriff.playerId].isAlive).toBe(true);
+    expect(state.entities[sheriff.playerId].sheriffGunBroken).toBe(true);
+    expect(state.entities[sheriff.playerId].sheriffBullets).toBe(0);
     expect(state.deadBodies.length).toBe(1);
-    expect(state.deadBodies[0].victimId).toBe(sheriff.playerId);
+    expect(state.deadBodies[0].victimId).toBe(villager.playerId);
   });
 
   it("awards Task Victory to Villagers when 100% of Moroccan Derb tasks are completed", () => {

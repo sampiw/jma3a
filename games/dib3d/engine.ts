@@ -11,6 +11,7 @@ import {
   PublicGameView,
 } from "@/lib/types";
 import {
+  DIB3D_ARENA_HALF,
   DIB3D_CENTRAL_DRUM,
   DIB3D_ELECTRIC_BOX,
   DIB3D_TASK_STATIONS,
@@ -39,15 +40,16 @@ const DERB_OUTFIT_COLORS = [
 ];
 
 function clampArena(val: number): number {
-  return Math.max(-15.5, Math.min(15.5, val));
+  const limit = DIB3D_ARENA_HALF - 1.5;
+  return Math.max(-limit, Math.min(limit, val));
 }
 
 function getZoneNameAt(x: number, z: number): string {
-  if (Math.hypot(x, z) < 4.2) return DIB3D_CENTRAL_DRUM.zoneName;
-  if (Math.hypot(x - DIB3D_ELECTRIC_BOX.x, z - DIB3D_ELECTRIC_BOX.z) < 4.5) {
+  if (Math.hypot(x, z) < 5.5) return DIB3D_CENTRAL_DRUM.zoneName;
+  if (Math.hypot(x - DIB3D_ELECTRIC_BOX.x, z - DIB3D_ELECTRIC_BOX.z) < 5.5) {
     return DIB3D_ELECTRIC_BOX.zoneName;
   }
-  let best = "زناقي الدرب";
+  let best = "زناقي المدينة القديمة";
   let bestD = Infinity;
   for (const st of DIB3D_TASK_STATIONS) {
     const d = Math.hypot(x - st.x, z - st.z);
@@ -81,7 +83,7 @@ function buildFreshMatchState(
   const now = Date.now();
   const count = players.length;
   const numWolves = count >= 7 ? 2 : 1;
-  const tasksPerPlayer = Math.max(2, Math.min(5, settings.tasksPerPlayer || 4));
+  const tasksPerPlayer = Math.max(3, Math.min(8, settings.tasksPerPlayer || 6));
 
   // Build role pool: Wolves + Sheriff + Seer + Villagers
   const rolePool: Dib3DRole[] = [];
@@ -120,6 +122,8 @@ function buildFreshMatchState(
       assignedTasks,
       completedTasks: [],
       sheriffBullets: role === "SHERIFF" ? 1 : 0,
+      sheriffGunBroken: false,
+      lastSheriffShotAt: now - 5000,
       seerScansLeft: role === "SEER" ? 2 : 0,
       meetingsLeft: 1,
       lastKillAt: now - 4000, // short initial grace period
@@ -309,7 +313,7 @@ export const Dib3DEngine: GameDefinition<
   maxPlayers: 16,
   capabilities: ["MULTI_PHONE", "REALTIME", "SCORES", "TIMERS", "ANONYMOUS_VOTING"],
   defaultSettings: {
-    tasksPerPlayer: 4,
+    tasksPerPlayer: 6,
     killCooldownSec: 12,
     meetingDurationSec: 55,
     interactionMode: "MULTI_PHONE",
@@ -491,6 +495,7 @@ export const Dib3DEngine: GameDefinition<
           !actorEnt.isAlive ||
           actorEnt.role !== "SHERIFF" ||
           actorEnt.sheriffBullets <= 0 ||
+          actorEnt.sheriffGunBroken ||
           state.phase !== "ROAM_3D"
         ) {
           return { success: true, newState: state, newPhase: state.phase };
@@ -500,37 +505,36 @@ export const Dib3DEngine: GameDefinition<
           return { success: true, newState: state, newPhase: state.phase };
         }
 
-        actorEnt.sheriffBullets -= 1;
+        // The shot hits the target regardless of alignment!
+        target.isAlive = false;
+        actorEnt.lastSheriffShotAt = now;
+
+        const targetName =
+          ctx.players.find((p) => p.id === target.playerId)?.nickname || "ضحية";
+        state.deadBodies.push({
+          id: `body_${now}_${target.playerId}`,
+          victimId: target.playerId,
+          victimName: targetName,
+          x: target.x,
+          z: target.z,
+          outfitColor: target.outfitColor,
+          zoneName: getZoneNameAt(target.x, target.z),
+          createdAt: now,
+        });
 
         if (target.role === "WOLF") {
-          // Direct hit on the Wolf!
-          target.isAlive = false;
-          const targetName =
-            ctx.players.find((p) => p.id === target.playerId)?.nickname || "الذيب";
-          state.deadBodies.push({
-            id: `body_${now}_${target.playerId}`,
-            victimId: target.playerId,
-            victimName: targetName,
-            x: target.x,
-            z: target.z,
-            outfitColor: target.outfitColor,
-            zoneName: getZoneNameAt(target.x, target.z),
-            createdAt: now,
-          });
+          // Direct hit on the Wolf! Keep bullet if more wolves remain
+          const remainingWolves = Object.values(state.entities).filter(
+            (e) => e.role === "WOLF" && e.isAlive
+          );
+          actorEnt.sheriffBullets = remainingWolves.length > 0 ? 1 : 0;
+          actorEnt.lastNotice = `🎯 برافو القناص! صدتِ الذيب (${targetName}) بالرصاصة الفضية!`;
           state.scores[actorPlayerId] = (state.scores[actorPlayerId] || 0) + 150;
         } else {
-          // MISFIRE ON AN INNOCENT VILLAGER! Sheriff dies from guilt!
-          actorEnt.isAlive = false;
-          state.deadBodies.push({
-            id: `body_${now}_${actorPlayerId}`,
-            victimId: actorPlayerId,
-            victimName: actorName,
-            x: action.x,
-            z: action.z,
-            outfitColor: actorEnt.outfitColor,
-            zoneName: getZoneNameAt(action.x, action.z),
-            createdAt: now,
-          });
+          // Innocent villager was shot! Target dies, AND Hunter's gun breaks forever!
+          actorEnt.sheriffBullets = 0;
+          actorEnt.sheriffGunBroken = true;
+          actorEnt.lastNotice = `💥 قتلتي ${targetName} وكان ولد الدرب بريء! تهرسات المكحلة ديالك للأبد!`;
         }
 
         checkAndApplyWinCondition(state, ctx.players);
