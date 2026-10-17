@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { sound } from "@/lib/sound";
 import { DibWolfIcon } from "@/components/icons/DibWolfIcon";
 import { Dib3DIcon } from "@/components/icons/Dib3DIcon";
+import { Riyad3DIcon } from "@/components/icons/Riyad3DIcon";
 import { GhammadaIcon } from "@/components/icons/GhammadaIcon";
 import { SandalaIcon } from "@/components/icons/SandalaIcon";
 import {
@@ -34,6 +35,18 @@ interface GameInfo {
 }
 
 const GAMES: GameInfo[] = [
+  {
+    id: "riyad3d",
+    title: "سرقة الرياض المسكون 3D 🏺🚐",
+    tagline: "R.E.P.O. × Lethal Company مغربية 3D 🔥💎",
+    description:
+      "سرق الكنوز الغالية من الرياض المظلم وحطّها فـ سطافيط الهوندا! حظي راسك لا تزدح الكنز مع الحيط ويتهرّس، تخبّا تحت الطبلة من الغول، أو دْفَع صاحبك وسرق ليه الغنيمة!",
+    players: "2-8 لاعبين",
+    duration: "4-8 دقائق",
+    modes: ["كل واحد بتليفونو 📱"],
+    icon: <Riyad3DIcon className="w-14 h-14" />,
+    badgeColor: "from-amber-500/40 to-emerald-950/60 border-amber-400/60 text-amber-200",
+  },
   {
     id: "dib3d",
     title: "الذيب 3D: الدرب المظلم 🐺🔪",
@@ -91,7 +104,7 @@ export default function HomePage() {
 
   // Create room modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<GameId>("dib3d");
+  const [selectedGame, setSelectedGame] = useState<GameId>("riyad3d");
   const [hostNickname, setHostNickname] = useState("");
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("MULTI_PHONE");
   const [isCreating, setIsCreating] = useState(false);
@@ -114,7 +127,12 @@ export default function HomePage() {
   const openCreateForGame = (gameId: GameId) => {
     sound.playCardFlip();
     setSelectedGame(gameId);
-    if (gameId === "dib3d" || gameId === "ghammada" || gameId === "sandala") {
+    if (
+      gameId === "riyad3d" ||
+      gameId === "dib3d" ||
+      gameId === "ghammada" ||
+      gameId === "sandala"
+    ) {
       setInteractionMode("MULTI_PHONE");
     }
     setCreateModalOpen(true);

@@ -1,4 +1,5 @@
 import { registerGame, getGameDefinition, getAllGameDefinitions } from "./registry";
+import { Riyad3DEngine } from "./riyad3d/engine";
 import { Dib3DEngine } from "./dib3d/engine";
 import { GhammadaEngine } from "./ghammada/engine";
 import { SandalaEngine } from "./sandala/engine";
@@ -10,6 +11,7 @@ import { Mamnou3Engine } from "./mamnou3/engine";
 import { MissionSirriyaEngine } from "./mission-sirriya/engine";
 
 // Register all production games
+registerGame(Riyad3DEngine);
 registerGame(Dib3DEngine);
 registerGame(GhammadaEngine);
 registerGame(SandalaEngine);
@@ -23,6 +25,7 @@ registerGame(MissionSirriyaEngine);
 export {
   getGameDefinition,
   getAllGameDefinitions,
+  Riyad3DEngine,
   Dib3DEngine,
   GhammadaEngine,
   SandalaEngine,

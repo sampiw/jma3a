@@ -329,6 +329,90 @@ class SoundEngine {
     osc.start(now);
     osc.stop(now + 0.46);
   }
+
+  /** High-pitched ceramic/glass crack when fragile treasure takes bump damage */
+  playGlassCrack() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    [1420, 1960].forEach((freq, i) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(freq, now + i * 0.04);
+      osc.frequency.exponentialRampToValueAtTime(620, now + i * 0.04 + 0.11);
+      gain.gain.setValueAtTime(0.28, now + i * 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.04 + 0.12);
+      osc.connect(gain);
+      gain.connect(this.ctx!.destination);
+      osc.start(now + i * 0.04);
+      osc.stop(now + i * 0.04 + 0.12);
+    });
+  }
+
+  /** Dramatic glass/ceramic shatter when fragile treasure reaches 0% durability */
+  playGlassShatter() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    [1850, 1480, 1120, 780, 520].forEach((freq, i) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(freq, now + i * 0.045);
+      gain.gain.setValueAtTime(0.24, now + i * 0.045);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.045 + 0.14);
+      osc.connect(gain);
+      gain.connect(this.ctx!.destination);
+      osc.start(now + i * 0.045);
+      osc.stop(now + i * 0.045 + 0.14);
+    });
+  }
+
+  /** Ka-ching cash register bell when treasure is extracted at the Honda Van! */
+  playCashRegister() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    [1046.5, 1567.98, 2093.0].forEach((freq, i) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, now + i * 0.07);
+      gain.gain.setValueAtTime(0.28, now + i * 0.07);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.07 + 0.25);
+      osc.connect(gain);
+      gain.connect(this.ctx!.destination);
+      osc.start(now + i * 0.07);
+      osc.stop(now + i * 0.07 + 0.25);
+    });
+  }
+
+  /** Deep haunting Ghoul roar when the Haunted Riyad Monster attacks or spots you */
+  playMonsterRoar() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(140, now);
+    osc.frequency.exponentialRampToValueAtTime(48, now + 0.55);
+    gain.gain.setValueAtTime(0.35, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.58);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.58);
+  }
 }
 
 export const sound = new SoundEngine();
