@@ -41,9 +41,6 @@ const PIECE_EMOJI: Record<PieceKind, string> = {
   STUDENT: "🥋",
 };
 
-/**
- * Renders the 5x5 miniature movement matrix on each Onitama Martial Arts Scroll Card
- */
 function OnitamaScrollCard({
   card,
   side,
@@ -76,18 +73,18 @@ function OnitamaScrollCard({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`relative flex items-center gap-2.5 rounded-2xl border-2 transition-all select-none ${
-        compact ? "px-2.5 py-1.5" : "px-3.5 py-2.5"
+      className={`relative flex items-center gap-2 rounded-2xl border-2 transition-all select-none ${
+        compact ? "px-2 py-1.5" : "px-3 py-2"
       } ${
         selected
-          ? "border-amber-300 bg-gradient-to-br from-amber-500/30 to-slate-900 shadow-[0_0_22px_rgba(251,191,36,0.55)] -translate-y-1 scale-[1.03]"
-          : "border-slate-700/90 bg-slate-950/90 hover:border-slate-500"
+          ? "border-amber-400 bg-gradient-to-br from-amber-500/25 to-slate-900 shadow-[0_0_16px_rgba(251,191,36,0.45)]"
+          : "border-slate-700/90 bg-slate-900/90 hover:border-slate-500"
       } ${disabled ? "opacity-85 cursor-default" : "cursor-pointer active:scale-95"}`}
     >
       {/* 5x5 Mini Grid */}
       <div
-        className={`grid grid-cols-5 gap-0.5 rounded-lg bg-slate-900 p-1 border border-slate-700 ${
-          compact ? "w-11 h-11" : "w-14 h-14 sm:w-16 sm:h-16"
+        className={`grid grid-cols-5 gap-0.5 rounded-lg bg-slate-950 p-1 border border-slate-700 shrink-0 ${
+          compact ? "w-10 h-10" : "w-12 h-12 sm:w-14 sm:h-14"
         }`}
       >
         {Array.from({ length: 25 }).map((_, idx) => {
@@ -103,36 +100,31 @@ function OnitamaScrollCard({
                   ? "bg-amber-300 shadow-[0_0_4px_#fde047]"
                   : isMove
                   ? "bg-emerald-400 shadow-[0_0_5px_#34d399]"
-                  : "bg-slate-800/80"
+                  : "bg-slate-800/90"
               }`}
             />
           );
         })}
       </div>
 
-      {/* Card Title & Stamp */}
-      <div className="text-right">
+      {/* Card Title */}
+      <div className="text-right min-w-0">
         {badgeText && (
-          <div className="text-[9px] font-black text-sky-300 mb-0.5">
+          <div className="text-[9px] font-black text-amber-300 truncate">
             {badgeText}
           </div>
         )}
         <div
-          className={`font-black text-white flex items-center gap-1 ${
-            compact ? "text-xs" : "text-sm sm:text-base"
+          className={`font-black text-white flex items-center gap-1 truncate ${
+            compact ? "text-[11px]" : "text-xs sm:text-sm"
           }`}
         >
           <span>{card.emoji}</span>
-          <span>{card.nameAr}</span>
+          <span className="truncate">{card.nameAr}</span>
         </div>
-        <div className="text-[10px] font-bold text-slate-400">
+        <div className="text-[9px] font-bold text-slate-400 truncate">
           {card.nameEn}
         </div>
-        {selected && !compact && (
-          <div className="mt-1 inline-block rounded-full bg-amber-400/20 border border-amber-400/50 px-2 py-0.5 text-[10px] font-black text-amber-200">
-            ✓ البطاقة المختارة
-          </div>
-        )}
       </div>
     </button>
   );
@@ -154,7 +146,8 @@ export function Onitama3DGameView({
     | "PLAYING"
     | "GAME_OVER";
   const mode = (publicData?.mode as BoardGameMode) ?? "ONITAMA";
-  const boardSize = (publicData?.boardSize as 5 | 8) ?? (mode === "ONITAMA" ? 5 : 8);
+  const boardSize =
+    (publicData?.boardSize as 5 | 8) ?? (mode === "ONITAMA" ? 5 : 8);
   const turn = (publicData?.turn as PieceSide) ?? "GOLD";
   const goldPlayerId = String(publicData?.goldPlayerId ?? "");
   const crimsonPlayerId = String(publicData?.crimsonPlayerId ?? "");
@@ -168,7 +161,8 @@ export function Onitama3DGameView({
   ];
   const sideCard = String(publicData?.sideCard ?? "rabbit");
   const capturedByGold = (publicData?.capturedByGold as PieceKind[]) ?? [];
-  const capturedByCrimson = (publicData?.capturedByCrimson as PieceKind[]) ?? [];
+  const capturedByCrimson =
+    (publicData?.capturedByCrimson as PieceKind[]) ?? [];
   const inCheckSide = (publicData?.inCheckSide as PieceSide | null) ?? null;
   const lastMove = (publicData?.lastMove as MoveRecord | null) ?? null;
   const winnerSide =
@@ -180,23 +174,25 @@ export function Onitama3DGameView({
 
   const goldPlayerName = useMemo(() => {
     return (
-      players.find((p: any) => p.id === goldPlayerId)?.nickname || "الجيش الذهبي"
+      players.find((p: any) => p.id === goldPlayerId)?.nickname || "الذهبي"
     );
   }, [players, goldPlayerId]);
 
   const crimsonPlayerName = useMemo(() => {
-    if (aiEnabled) return "🤖 الذكاء الاصطناعي";
+    if (aiEnabled) return "🤖 البوت الذكي";
     return (
-      players.find((p: any) => p.id === crimsonPlayerId)?.nickname ||
-      "الجيش الأحمر"
+      players.find((p: any) => p.id === crimsonPlayerId)?.nickname || "الأحمر"
     );
   }, [players, crimsonPlayerId, aiEnabled]);
 
-  // Determine whether this device can control the current turn
   const canControlCurrentTurn = useMemo(() => {
     if (phase !== "PLAYING") return false;
     if (aiEnabled && turn === "CRIMSON") return false;
-    if (sharedControl || players.length < 2 || goldPlayerId === crimsonPlayerId) {
+    if (
+      sharedControl ||
+      players.length < 2 ||
+      goldPlayerId === crimsonPlayerId
+    ) {
       return true;
     }
     const activeTurnPlayerId =
@@ -222,27 +218,36 @@ export function Onitama3DGameView({
   );
   const [showRulesModal, setShowRulesModal] = useState(false);
 
-  // Sync default selected card when turn or hand changes
+  // Sync default selected card and auto-select a piece with legal moves on turn start so green tiles appear immediately!
   useEffect(() => {
     const activeHand = turn === "GOLD" ? goldCards : crimsonCards;
-    if (activeHand.length > 0 && !activeHand.includes(selectedCardId)) {
-      setSelectedCardId(activeHand[0]);
+    const nextCard =
+      activeHand.length > 0 && activeHand.includes(selectedCardId)
+        ? selectedCardId
+        : activeHand[0] ?? "tiger";
+    if (nextCard !== selectedCardId) {
+      setSelectedCardId(nextCard);
     }
-    setSelectedPieceId(null);
-  }, [turn, goldCards, crimsonCards, selectedCardId, mode]);
 
-  // Auto-perspective when not in TOP view if playing on separate phones
-  useEffect(() => {
-    if (
-      !sharedControl &&
-      players.length >= 2 &&
-      goldPlayerId !== crimsonPlayerId &&
-      myPlayerId === crimsonPlayerId &&
-      cameraPreset === "GOLD"
-    ) {
-      setCameraPreset("CRIMSON");
+    // Auto-select King/Master (or first movable piece) in Onitama so player immediately sees green tiles on the board!
+    if (mode === "ONITAMA") {
+      const myPieces = pieces.filter((p) => p.side === turn);
+      const king = myPieces.find((p) => p.kind === "KING");
+      if (
+        king &&
+        getOnitamaLegalMovesForPiece(pieces, king, nextCard).length > 0
+      ) {
+        setSelectedPieceId(king.id);
+        return;
+      }
+      const firstMovable = myPieces.find(
+        (p) => getOnitamaLegalMovesForPiece(pieces, p, nextCard).length > 0
+      );
+      setSelectedPieceId(firstMovable?.id ?? null);
+    } else {
+      setSelectedPieceId(null);
     }
-  }, [sharedControl, players.length, goldPlayerId, crimsonPlayerId, myPlayerId, cameraPreset]);
+  }, [turn, mode, pieces.length, lastMove?.id]);
 
   // Trigger confetti on game over
   useEffect(() => {
@@ -262,11 +267,10 @@ export function Onitama3DGameView({
     const timer = setTimeout(() => {
       sound.playCardFlip();
       onAction({ type: "AI_STEP" });
-    }, 680);
+    }, 650);
     return () => clearTimeout(timer);
   }, [phase, aiEnabled, turn, onAction, lastMove?.id]);
 
-  // Compute legal destination squares for the currently selected piece
   const legalDestinations = useMemo(() => {
     if (!selectedPieceId || !canControlCurrentTurn) return [];
     const piece = pieces.find((p) => p.id === selectedPieceId);
@@ -295,7 +299,7 @@ export function Onitama3DGameView({
     async (r: number, c: number) => {
       if (!canControlCurrentTurn) return;
 
-      // 1. If a piece is already selected and (r, c) is a legal destination -> Execute Move!
+      // 1. If a piece is selected and (r, c) is a legal destination -> Execute Move!
       if (
         selectedPieceId &&
         legalDestinations.some((d) => d.r === r && d.c === c)
@@ -333,9 +337,7 @@ export function Onitama3DGameView({
       );
       if (clickedFriendly) {
         sound.playCardFlip();
-        setSelectedPieceId((prev) =>
-          prev === clickedFriendly.id ? null : clickedFriendly.id
-        );
+        setSelectedPieceId(clickedFriendly.id);
         return;
       }
 
@@ -356,17 +358,132 @@ export function Onitama3DGameView({
   );
 
   const activeHandIds = turn === "GOLD" ? goldCards : crimsonCards;
-  const waitingHandIds = turn === "GOLD" ? crimsonCards : goldCards;
 
   if (!mounted) return null;
 
   const content = (
     <div
       dir="rtl"
-      className="fixed inset-0 z-[9999] w-screen h-screen overflow-hidden bg-[#070b14] text-white select-none font-sans flex flex-col justify-between"
+      className="fixed inset-0 z-[9999] w-screen h-screen overflow-hidden bg-[#0b1120] text-white select-none font-sans flex flex-col"
     >
-      {/* 3D Three.js Chess & Onitama Board Canvas */}
-      <div className="absolute inset-0 z-0">
+      {/* ZONE 1: COMPACT DOCKED TOP HEADER BAR (Never covers the 3D board!) */}
+      <header className="shrink-0 z-20 bg-slate-950/95 border-b border-slate-800 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+        {/* Mode Switcher + Turn Badge */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center rounded-xl border border-amber-400/40 bg-slate-900 p-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                sound.playCardFlip();
+                onAction({ type: "SWITCH_MODE", mode: "ONITAMA" });
+              }}
+              className={`rounded-lg px-2.5 py-1 text-xs font-black transition-all ${
+                mode === "ONITAMA"
+                  ? "bg-amber-500 text-slate-950 shadow"
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              🐉 أونيتاما (5×5)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                sound.playCardFlip();
+                onAction({ type: "SWITCH_MODE", mode: "CHESS" });
+              }}
+              className={`rounded-lg px-2.5 py-1 text-xs font-black transition-all ${
+                mode === "CHESS"
+                  ? "bg-emerald-500 text-slate-950 shadow"
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              ♟️ شطرنج (8×8)
+            </button>
+          </div>
+
+          <div
+            className={`rounded-xl border px-3 py-1 flex items-center gap-1.5 text-xs font-black ${
+              turn === "GOLD"
+                ? "border-amber-400/60 bg-amber-500/15 text-amber-200"
+                : "border-rose-400/60 bg-rose-500/15 text-rose-200"
+            }`}
+          >
+            <span>{turn === "GOLD" ? "👑" : "🐉"}</span>
+            <span>
+              دور: {turn === "GOLD" ? goldPlayerName : crimsonPlayerName}
+            </span>
+            {inCheckSide && (
+              <span className="text-red-400 animate-pulse mr-1">
+                ⚠️ كش ملك!
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Compact Action Controls */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              sound.playCardFlip();
+              setCameraPreset((prev) =>
+                prev === "GOLD" ? "TOP" : prev === "TOP" ? "CRIMSON" : "GOLD"
+              );
+            }}
+            className="rounded-xl border border-sky-400/40 bg-slate-900 px-2.5 py-1 text-[11px] font-black text-sky-200 hover:border-sky-300 active:scale-95"
+          >
+            🎥{" "}
+            {cameraPreset === "GOLD"
+              ? "منظور الذهبي"
+              : cameraPreset === "CRIMSON"
+              ? "منظور الأحمر"
+              : "علوي 2D"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              sound.playCardFlip();
+              onAction({ type: "TOGGLE_AI" });
+            }}
+            className={`rounded-xl border px-2.5 py-1 text-[11px] font-black transition-all active:scale-95 ${
+              aiEnabled
+                ? "border-emerald-400 bg-emerald-500/20 text-emerald-200"
+                : "border-slate-700 bg-slate-900 text-slate-300"
+            }`}
+          >
+            🤖 البوت: {aiEnabled ? "مفعّل ✓" : "مغلق"}
+          </button>
+
+          {players.length >= 2 && !aiEnabled && (
+            <button
+              type="button"
+              onClick={() => {
+                sound.playCardFlip();
+                onAction({ type: "TOGGLE_SHARED_CONTROL" });
+              }}
+              className={`rounded-xl border px-2.5 py-1 text-[11px] font-black transition-all active:scale-95 ${
+                sharedControl
+                  ? "border-amber-400 bg-amber-500/20 text-amber-200"
+                  : "border-slate-700 bg-slate-900 text-slate-300"
+              }`}
+            >
+              📱 مشترك: {sharedControl ? "نعم" : "لا"}
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowRulesModal(true)}
+            className="rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] font-black text-amber-300"
+          >
+            📜 القواعد
+          </button>
+        </div>
+      </header>
+
+      {/* ZONE 2: UNOBSTRUCTED 3D BOARD VIEWPORT (Center flex-1) */}
+      <main className="relative flex-1 min-h-0 w-full overflow-hidden">
         <Onitama3DBoard
           mode={mode}
           boardSize={boardSize}
@@ -379,234 +496,95 @@ export function Onitama3DGameView({
           cameraPreset={cameraPreset}
           onSelectTileOrPiece={handleSelectTileOrPiece}
         />
-      </div>
 
-      {/* TOP BAR: Mode Switcher + Turn Banner + Camera & AI Controls */}
-      <div className="relative z-20 pointer-events-none p-3 flex flex-wrap items-start justify-between gap-2">
-        {/* Right Group: Mode Switcher & Turn Indicator */}
-        <div className="pointer-events-auto flex flex-wrap items-center gap-2">
-          {/* Mode Toggle Pill: Onitama 3D vs Chess 3D */}
-          <div className="flex items-center rounded-2xl border border-amber-400/40 bg-slate-950/90 backdrop-blur-md p-1 shadow-xl">
-            <button
-              type="button"
-              onClick={() => {
-                sound.playCardFlip();
-                onAction({ type: "SWITCH_MODE", mode: "ONITAMA" });
-              }}
-              className={`rounded-xl px-3 py-1.5 text-xs sm:text-sm font-black transition-all ${
-                mode === "ONITAMA"
-                  ? "bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-md"
-                  : "text-slate-300 hover:text-white"
-              }`}
-            >
-              🐉 أونيتاما 3D (5×5)
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                sound.playCardFlip();
-                onAction({ type: "SWITCH_MODE", mode: "CHESS" });
-              }}
-              className={`rounded-xl px-3 py-1.5 text-xs sm:text-sm font-black transition-all ${
-                mode === "CHESS"
-                  ? "bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 shadow-md"
-                  : "text-slate-300 hover:text-white"
-              }`}
-            >
-              ♟️ شطرنج 3D (8×8)
-            </button>
-          </div>
-
-          {/* Turn & Match Banner */}
-          <div
-            className={`rounded-2xl border px-3.5 py-2 backdrop-blur-md shadow-xl flex items-center gap-2.5 ${
-              turn === "GOLD"
-                ? "border-amber-400/60 bg-amber-950/80 text-amber-200"
-                : "border-rose-400/60 bg-rose-950/80 text-rose-200"
-            }`}
-          >
-            <span className="text-lg">{turn === "GOLD" ? "👑" : "🐉"}</span>
-            <div>
-              <div className="text-xs sm:text-sm font-black">
-                دور:{" "}
-                {turn === "GOLD"
-                  ? `${goldPlayerName} (الذهبي)`
-                  : `${crimsonPlayerName} (الأحمر)`}
-              </div>
-              <div className="text-[10px] text-slate-300 font-bold">
-                {inCheckSide
-                  ? "⚠️ كش ملك! احمِ السلطان فوراً!"
-                  : mode === "ONITAMA"
-                  ? "اختر بطاقة ⬅ اضغط على قطعتك ⬅ اضغط على الخانة الخضراء"
-                  : "اضغط على قطعتك في الـ 3D ثم اختر الخانة المتاحة"}
-              </div>
-            </div>
+        {/* Subtle Top-Center Instruction Pill */}
+        <div className="pointer-events-none absolute top-2 inset-x-0 flex justify-center px-3">
+          <div className="rounded-full bg-slate-950/80 border border-slate-700/80 px-3.5 py-1 text-[11px] font-bold text-slate-200 shadow">
+            {selectedPieceId
+              ? "🟢 اضغط على إحدى الخانات الخضراء في الطاولة للتحرك إليها!"
+              : "👆 اضغط على أي قطعة من قطعك في الطاولة لتحديدها"}
           </div>
         </div>
+      </main>
 
-        {/* Left Group: Opponent Cards (in Onitama) + Camera & AI Controls */}
-        <div className="pointer-events-auto flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              sound.playCardFlip();
-              setCameraPreset((prev) =>
-                prev === "GOLD" ? "TOP" : prev === "TOP" ? "CRIMSON" : "GOLD"
-              );
-            }}
-            className="rounded-2xl border border-sky-400/40 bg-slate-950/85 backdrop-blur-md px-3 py-2 text-xs font-black text-sky-200 hover:border-sky-300 active:scale-95"
-          >
-            🎥 زاوية الكاميرا:{" "}
-            {cameraPreset === "GOLD"
-              ? "الذهبي 3D"
-              : cameraPreset === "CRIMSON"
-              ? "الأحمر 3D"
-              : "علوية 2D/3D"}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              sound.playCardFlip();
-              onAction({ type: "TOGGLE_AI" });
-            }}
-            className={`rounded-2xl border px-3 py-2 text-xs font-black backdrop-blur-md transition-all active:scale-95 ${
-              aiEnabled
-                ? "border-emerald-400 bg-emerald-950/85 text-emerald-200"
-                : "border-slate-700 bg-slate-950/85 text-slate-300"
-            }`}
-          >
-            🤖 ضد الذكاء الاصطناعي: {aiEnabled ? "مفعّل ✓" : "مغلق"}
-          </button>
-
-          {players.length >= 2 && !aiEnabled && (
-            <button
-              type="button"
-              onClick={() => {
-                sound.playCardFlip();
-                onAction({ type: "TOGGLE_SHARED_CONTROL" });
-              }}
-              className={`rounded-2xl border px-3 py-2 text-xs font-black backdrop-blur-md transition-all active:scale-95 ${
-                sharedControl
-                  ? "border-amber-400 bg-amber-950/85 text-amber-200"
-                  : "border-slate-700 bg-slate-950/85 text-slate-300"
-              }`}
-            >
-              📱 تليفون مشترك: {sharedControl ? "نعم" : "كل واحد بتليفونو"}
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setShowRulesModal(true)}
-            className="rounded-2xl border border-slate-700 bg-slate-950/85 px-3 py-2 text-xs font-black text-amber-300 hover:border-amber-400"
-          >
-            📜 القواعد
-          </button>
-        </div>
-      </div>
-
-      {/* MIDDLE SIDEBARS: Center Spare Card (Onitama) or Captured Pieces (Chess) */}
-      <div className="relative z-20 pointer-events-none px-3 flex items-center justify-between">
-        {/* Right Floating Panel: Center Rotating Card (Onitama) or Captured Tray */}
+      {/* ZONE 3: DOCKED BOTTOM TACTICAL BAR (Never overlaps the 3D board!) */}
+      <footer className="shrink-0 z-20 bg-slate-950/95 border-t border-slate-800 px-3 py-2">
         {mode === "ONITAMA" ? (
-          <div className="pointer-events-auto flex flex-col gap-2">
-            <OnitamaScrollCard
-              card={getCardDef(sideCard)}
-              side={turn}
-              disabled
-              compact
-              badgeText="🔄 البطاقة الوسطى (تتبادل بعد الحركة)"
-            />
-          </div>
-        ) : (
-          <div className="pointer-events-auto rounded-2xl border border-slate-700/80 bg-slate-950/85 backdrop-blur-md p-3 shadow-xl space-y-2 max-w-[210px]">
-            <div className="text-[11px] font-black text-amber-300">
-              👑 غنائم الذهبي:{" "}
-              {capturedByGold.length > 0
-                ? capturedByGold.map((k, i) => (
-                    <span key={i} className="text-base mr-0.5">
-                      {PIECE_EMOJI[k]}
-                    </span>
-                  ))
-                : "—"}
-            </div>
-            <div className="text-[11px] font-black text-rose-300">
-              🐉 غنائم الأحمر:{" "}
-              {capturedByCrimson.length > 0
-                ? capturedByCrimson.map((k, i) => (
-                    <span key={i} className="text-base mr-0.5">
-                      {PIECE_EMOJI[k]}
-                    </span>
-                  ))
-                : "—"}
-            </div>
-          </div>
-        )}
-
-        {/* Left Floating Panel: Opponent's 2 Cards in Onitama */}
-        {mode === "ONITAMA" && (
-          <div className="pointer-events-auto hidden sm:flex flex-col gap-1.5 items-end">
-            <div className="text-[10px] font-black text-slate-400 px-1">
-              بطاقات الطرف الآخر ({turn === "GOLD" ? "الأحمر 🐉" : "الذهبي 👑"}):
-            </div>
-            <div className="flex gap-2">
-              {waitingHandIds.map((cid) => (
+          <div className="max-w-4xl mx-auto flex flex-wrap items-center justify-center sm:justify-between gap-2">
+            {/* Active Player's 2 Cards */}
+            <div className="flex items-center gap-2">
+              {activeHandIds.map((cid) => (
                 <OnitamaScrollCard
                   key={cid}
                   card={getCardDef(cid)}
-                  side={turn === "GOLD" ? "CRIMSON" : "GOLD"}
-                  disabled
-                  compact
+                  side={turn}
+                  selected={selectedCardId === cid}
+                  disabled={!canControlCurrentTurn}
+                  badgeText={
+                    selectedCardId === cid
+                      ? "✓ البطاقة المختارة"
+                      : "اضغط لاختيارها"
+                  }
+                  onClick={() => {
+                    sound.playCardFlip();
+                    setSelectedCardId(cid);
+                  }}
                 />
               ))}
             </div>
-          </div>
-        )}
-      </div>
 
-      {/* BOTTOM TACTICAL DECK: Active Hand Cards (Onitama) or Move Feed (Chess) */}
-      <div className="relative z-20 pointer-events-none p-3 flex flex-col items-center gap-2">
-        {lastMove && (
-          <div className="rounded-full border border-slate-700/80 bg-slate-950/85 backdrop-blur-md px-4 py-1 text-xs font-bold text-slate-200 shadow-lg">
-            ⚡ آخر حركة: {lastMove.textAr}
-          </div>
-        )}
-
-        {mode === "ONITAMA" ? (
-          <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-3">
-            {activeHandIds.map((cid) => (
+            {/* Center Rotating Spare Card */}
+            <div className="flex items-center gap-2">
               <OnitamaScrollCard
-                key={cid}
-                card={getCardDef(cid)}
+                card={getCardDef(sideCard)}
                 side={turn}
-                selected={selectedCardId === cid}
-                disabled={!canControlCurrentTurn}
-                badgeText={
-                  turn === "GOLD"
-                    ? "👑 بطاقة الذهبي"
-                    : "🐉 بطاقة الأحمر"
-                }
-                onClick={() => {
-                  sound.playCardFlip();
-                  setSelectedCardId(cid);
-                }}
+                disabled
+                compact
+                badgeText="🔄 البطاقة القادمة"
               />
-            ))}
+            </div>
           </div>
         ) : (
-          <div className="pointer-events-auto flex items-center gap-2 rounded-2xl border border-slate-700/80 bg-slate-950/85 backdrop-blur-md px-4 py-2 text-xs font-bold text-slate-300">
-            <span>💡 نصيحة: اسحب الشاشة لتدوير الطاولة 360°، أو اضغط على أي قطعة لتحريكها!</span>
+          <div className="max-w-4xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-4">
+              <span className="font-black text-amber-300">
+                👑 أسر الذهبي:{" "}
+                {capturedByGold.length > 0
+                  ? capturedByGold.map((k, i) => (
+                      <span key={i} className="text-sm mr-0.5">
+                        {PIECE_EMOJI[k]}
+                      </span>
+                    ))
+                  : "—"}
+              </span>
+              <span className="font-black text-rose-300">
+                🐉 أسر الأحمر:{" "}
+                {capturedByCrimson.length > 0
+                  ? capturedByCrimson.map((k, i) => (
+                      <span key={i} className="text-sm mr-0.5">
+                        {PIECE_EMOJI[k]}
+                      </span>
+                    ))
+                  : "—"}
+              </span>
+            </div>
+
+            {lastMove && (
+              <span className="text-slate-300 font-bold truncate max-w-xs">
+                ⚡ {lastMove.textAr}
+              </span>
+            )}
+
             <button
               type="button"
               onClick={() => onAction({ type: "RESTART_GAME" })}
-              className="rounded-xl bg-slate-800 hover:bg-slate-700 px-3 py-1 text-amber-300 font-black"
+              className="rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 px-3 py-1.5 text-amber-300 font-black"
             >
-              🔄 إعادة الجولة
+              🔄 جولة جديدة
             </button>
           </div>
         )}
-      </div>
+      </footer>
 
       {/* RULES MODAL */}
       {showRulesModal && (
@@ -617,20 +595,26 @@ export function Onitama3DGameView({
             </h3>
             <div className="space-y-2 text-xs sm:text-sm text-slate-200 leading-relaxed">
               <p>
-                <strong className="text-amber-300">🐉 وضع أونيتاما 3D (5×5):</strong>{" "}
-                لعبة فنون قتالية تكتيكية! كل لاعب عندو معلّم كبير (السلطان ♔) و4 تلاميذ، وبطاقتين ديال الحركة.
+                <strong className="text-amber-300">
+                  🐉 وضع أونيتاما 3D (5×5):
+                </strong>{" "}
+                كل لاعب عندو سلطان (♔) و4 تلاميذ (🥋)، وبطاقتين ديال الحركة.
               </p>
               <p>
                 • المربعات الخضراء فـ البطاقة كاتورّيك فين تقدر تنقّز بالقطعة ديالك من المربع الأصفر الوسطي.
               </p>
               <p>
-                • ملّي كتلعب ببطاقة، كاتمشي للوسط وكاتاخد البطاقة الوسطى بلاصتها!
+                • ملّي كتلعب ببطاقة، كاتمشي للوسط وكاتاخد البطاقة القادمة بلاصتها!
               </p>
               <p>
-                • <strong className="text-emerald-300">كيفاش تربح فـ أونيتاما؟</strong> إما تاكل سلطان الخصم (<strong className="text-white">طريق الحجر 🗡️</strong>)، أو توصل بسلطانك لقوس معبد الخصم (<strong className="text-white">طريق الجدول ⛩️</strong>)!
+                • <strong className="text-emerald-300">كيفاش تربح؟</strong> إما تاكل سلطان الخصم (
+                <strong className="text-white">طريق الحجر 🗡️</strong>)، أو توصل بسلطانك لقوس معبد الخصم (
+                <strong className="text-white">طريق الجدول ⛩️</strong>)!
               </p>
               <p>
-                <strong className="text-sky-300">♟️ وضع الشطرنج الملكي 3D (8×8):</strong>{" "}
+                <strong className="text-sky-300">
+                  ♟️ وضع الشطرنج الملكي 3D (8×8):
+                </strong>{" "}
                 شطرنج كامل بجميع القواعد القانونية، الترقية لوزير (♕)، وكش مات (👑)!
               </p>
             </div>
@@ -676,7 +660,8 @@ export function Onitama3DGameView({
                 onClick={() => onAction({ type: "RESTART_GAME" })}
                 className="flex-1 rounded-2xl bg-gradient-to-r from-amber-500 to-emerald-500 py-3.5 text-sm font-black text-slate-950 shadow-xl hover:brightness-110 active:scale-95"
               >
-                🔄 جولة جديدة ({mode === "ONITAMA" ? "أونيتاما 3D" : "شطرنج 3D"})
+                🔄 جولة جديدة (
+                {mode === "ONITAMA" ? "أونيتاما 3D" : "شطرنج 3D"})
               </button>
               <button
                 type="button"
