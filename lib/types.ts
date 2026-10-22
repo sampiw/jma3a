@@ -28,7 +28,7 @@ export interface DeviceSession {
   lastSeenAt: number;
 }
 
-export type GameId = 'riyad3d' | 'dib3d' | 'ghammada' | 'sandala' | 'dib' | 'intrus' | 'chkon-fina' | 'mettelha' | 'mamnou3' | 'mission-sirriya';
+export type GameId = 'onitama3d' | 'dib3d' | 'ghammada' | 'sandala' | 'dib' | 'intrus' | 'chkon-fina' | 'mettelha' | 'mamnou3' | 'mission-sirriya';
 
 export type GameCapability =
   | 'MULTI_PHONE'

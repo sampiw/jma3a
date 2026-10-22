@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { sound } from "@/lib/sound";
 import { DibWolfIcon } from "@/components/icons/DibWolfIcon";
 import { Dib3DIcon } from "@/components/icons/Dib3DIcon";
-import { Riyad3DIcon } from "@/components/icons/Riyad3DIcon";
+import { Onitama3DIcon } from "@/components/icons/Onitama3DIcon";
 import { GhammadaIcon } from "@/components/icons/GhammadaIcon";
 import { SandalaIcon } from "@/components/icons/SandalaIcon";
 import {
@@ -36,16 +36,16 @@ interface GameInfo {
 
 const GAMES: GameInfo[] = [
   {
-    id: "riyad3d",
-    title: "سرقة الرياض المسكون 3D 🏺🚐",
-    tagline: "R.E.P.O. × Lethal Company مغربية 3D 🔥💎",
+    id: "onitama3d",
+    title: "شطرنج وأونيتاما 3D ♟️🐉",
+    tagline: "طاولة أونيتاما بالبطاقات (5×5) + الشطرنج الملكي 3D (8×8) 🔥👑",
     description:
-      "سرق الكنوز الغالية من الرياض المظلم وحطّها فـ سطافيط الهوندا! حظي راسك لا تزدح الكنز مع الحيط ويتهرّس، تخبّا تحت الطبلة من الغول، أو دْفَع صاحبك وسرق ليه الغنيمة!",
-    players: "2-8 لاعبين",
-    duration: "4-8 دقائق",
-    modes: ["كل واحد بتليفونو 📱"],
-    icon: <Riyad3DIcon className="w-14 h-14" />,
-    badgeColor: "from-amber-500/40 to-emerald-950/60 border-amber-400/60 text-amber-200",
+      "لعبة ذكاء وتكتيك ثلاثية الأبعاد بوضعين فـ لعبة وحدة! لعب أونيتاما 3D بـ 16 بطاقة فنون قتالية (النمر، التنين، الكوبرا...) أو الشطرنج الكلاسيكي 3D بكاميرا 360°، ضد صاحبك أو ضد الذكاء الاصطناعي!",
+    players: "1-8 لاعبين",
+    duration: "5-15 دقيقة",
+    modes: ["كل واحد بتليفونو 📱", "تليفون واحد", "ضد الذكاء الاصطناعي 🤖"],
+    icon: <Onitama3DIcon className="w-14 h-14" />,
+    badgeColor: "from-amber-500/40 to-rose-950/60 border-amber-400/60 text-amber-200",
   },
   {
     id: "dib3d",
@@ -104,7 +104,7 @@ export default function HomePage() {
 
   // Create room modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<GameId>("riyad3d");
+  const [selectedGame, setSelectedGame] = useState<GameId>("onitama3d");
   const [hostNickname, setHostNickname] = useState("");
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("MULTI_PHONE");
   const [isCreating, setIsCreating] = useState(false);
@@ -128,7 +128,7 @@ export default function HomePage() {
     sound.playCardFlip();
     setSelectedGame(gameId);
     if (
-      gameId === "riyad3d" ||
+      gameId === "onitama3d" ||
       gameId === "dib3d" ||
       gameId === "ghammada" ||
       gameId === "sandala"
