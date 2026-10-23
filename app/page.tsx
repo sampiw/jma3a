@@ -320,9 +320,39 @@ export default function HomePage() {
       </section>
 
       {/* Footer */}
-      <footer className="w-full border-t border-jma3a-border/40 py-6 text-center text-xs text-jma3a-muted">
+      <footer className="w-full border-t border-jma3a-border/40 py-6 px-4 text-center text-xs text-jma3a-muted space-y-2.5">
         <p>JMA3A (جماعة) — منصة ألعاب اجتماعية مغربية للأوقات الواقعية الحية ❤️</p>
-        <p className="mt-1 text-[11px] text-jma3a-muted/60">بنيت للمة، للضحك، وللأصحاب بلا شاشات معقدة</p>
+        <p className="text-[11px] text-jma3a-muted/60">بنيت للمة، للضحك، وللأصحاب بلا شاشات معقدة</p>
+        <div
+          dir="ltr"
+          className="pt-1 flex flex-wrap items-center justify-center gap-2 text-[11px] font-bold text-jma3a-sand/90"
+        >
+          <span className="text-jma3a-muted">Created by:</span>
+          <a
+            href="https://www.instagram.com/sampiw/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-2.5 py-1 rounded-full bg-jma3a-surface/90 border border-pink-500/40 text-pink-300 hover:border-pink-400 hover:text-white transition-all"
+          >
+            📸 Instagram @sampiw
+          </a>
+          <a
+            href="https://github.com/sampiw"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-2.5 py-1 rounded-full bg-jma3a-surface/90 border border-slate-500/40 text-slate-200 hover:border-white/60 hover:text-white transition-all"
+          >
+            💻 GitHub @sampiw
+          </a>
+          <a
+            href="https://t.me/sampiw"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-2.5 py-1 rounded-full bg-jma3a-surface/90 border border-sky-500/40 text-sky-300 hover:border-sky-400 hover:text-white transition-all"
+          >
+            ✈️ Telegram @sampiw
+          </a>
+        </div>
       </footer>
 
       {/* Create Room Modal */}

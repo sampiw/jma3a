@@ -38,6 +38,10 @@ function gridToWorld(
   };
 }
 
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
 /**
  * Generates high-resolution procedural textures for the 3D board tiles & wooden frame
  */
@@ -115,7 +119,6 @@ function createBoardTextures() {
     ctx.lineWidth = 6;
     ctx.strokeRect(10, 10, 236, 236);
 
-    // Sacred sun/lotus emblem
     ctx.beginPath();
     ctx.arc(128, 128, 68, 0, Math.PI * 2);
     ctx.stroke();
@@ -195,30 +198,33 @@ const KIND_SYMBOL: Record<PieceKind, string> = {
 };
 
 function createSculpted3DPiece(kind: PieceKind, side: PieceSide): THREE.Group {
-  const group = new THREE.Group();
+  const outer = new THREE.Group();
+  const bodyPivot = new THREE.Group();
+  bodyPivot.name = "bodyPivot";
+  outer.add(bodyPivot);
 
   const isGold = side === "GOLD";
   const mainMat = new THREE.MeshStandardMaterial({
     color: isGold ? 0xf59e0b : 0xe11d48,
-    metalness: 0.45,
-    roughness: 0.22,
+    metalness: 0.48,
+    roughness: 0.2,
     emissive: isGold ? 0x451a03 : 0x4c0519,
     emissiveIntensity: 0.25,
   });
 
   const trimMat = new THREE.MeshStandardMaterial({
     color: isGold ? 0xfef08a : 0xfecdd3,
-    metalness: 0.75,
-    roughness: 0.15,
+    metalness: 0.78,
+    roughness: 0.14,
   });
 
-  // Invisible generous touch cylinder so clicking/tapping a piece never misses!
+  // Invisible generous touch cylinder so clicking/tapping a piece never misses
   const hitBox = new THREE.Mesh(
     new THREE.CylinderGeometry(0.52, 0.52, 1.8, 12),
     new THREE.MeshBasicMaterial({ visible: false })
   );
   hitBox.position.y = 0.9;
-  group.add(hitBox);
+  outer.add(hitBox);
 
   // Pedestal base
   const base1 = new THREE.Mesh(
@@ -228,7 +234,7 @@ function createSculpted3DPiece(kind: PieceKind, side: PieceSide): THREE.Group {
   base1.position.y = 0.075;
   base1.castShadow = true;
   base1.receiveShadow = true;
-  group.add(base1);
+  bodyPivot.add(base1);
 
   const baseRing = new THREE.Mesh(
     new THREE.TorusGeometry(0.39, 0.04, 10, 24),
@@ -236,7 +242,7 @@ function createSculpted3DPiece(kind: PieceKind, side: PieceSide): THREE.Group {
   );
   baseRing.rotation.x = Math.PI / 2;
   baseRing.position.y = 0.15;
-  group.add(baseRing);
+  bodyPivot.add(baseRing);
 
   let badgeHeight = 1.25;
 
@@ -248,28 +254,29 @@ function createSculpted3DPiece(kind: PieceKind, side: PieceSide): THREE.Group {
       );
       stem.position.y = 0.62;
       stem.castShadow = true;
-      group.add(stem);
+      bodyPivot.add(stem);
 
       const collar = new THREE.Mesh(
         new THREE.CylinderGeometry(0.35, 0.27, 0.16, 20),
         trimMat
       );
       collar.position.y = 1.12;
-      group.add(collar);
+      bodyPivot.add(collar);
 
       const crown = new THREE.Mesh(
         new THREE.CylinderGeometry(0.34, 0.23, 0.3, 12),
         mainMat
       );
       crown.position.y = 1.35;
-      group.add(crown);
+      bodyPivot.add(crown);
 
       const orb = new THREE.Mesh(
         new THREE.OctahedronGeometry(0.18, 0),
         trimMat
       );
       orb.position.y = 1.66;
-      group.add(orb);
+      orb.name = "crownOrb";
+      bodyPivot.add(orb);
       badgeHeight = 2.05;
       break;
     }
@@ -281,21 +288,21 @@ function createSculpted3DPiece(kind: PieceKind, side: PieceSide): THREE.Group {
       );
       stem.position.y = 0.56;
       stem.castShadow = true;
-      group.add(stem);
+      bodyPivot.add(stem);
 
       const coronet = new THREE.Mesh(
         new THREE.CylinderGeometry(0.31, 0.21, 0.24, 16),
         trimMat
       );
       coronet.position.y = 1.08;
-      group.add(coronet);
+      bodyPivot.add(coronet);
 
       const dome = new THREE.Mesh(
         new THREE.SphereGeometry(0.21, 18, 14),
         mainMat
       );
       dome.position.y = 1.26;
-      group.add(dome);
+      bodyPivot.add(dome);
       badgeHeight = 1.78;
       break;
     }
@@ -307,14 +314,14 @@ function createSculpted3DPiece(kind: PieceKind, side: PieceSide): THREE.Group {
       );
       tower.position.y = 0.5;
       tower.castShadow = true;
-      group.add(tower);
+      bodyPivot.add(tower);
 
       const battlement = new THREE.Mesh(
         new THREE.CylinderGeometry(0.35, 0.33, 0.24, 8),
         trimMat
       );
       battlement.position.y = 0.96;
-      group.add(battlement);
+      bodyPivot.add(battlement);
       badgeHeight = 1.45;
       break;
     }
@@ -326,14 +333,14 @@ function createSculpted3DPiece(kind: PieceKind, side: PieceSide): THREE.Group {
       );
       stem.position.y = 0.48;
       stem.castShadow = true;
-      group.add(stem);
+      bodyPivot.add(stem);
 
       const mitre = new THREE.Mesh(
         new THREE.ConeGeometry(0.27, 0.46, 20),
         mainMat
       );
       mitre.position.y = 1.02;
-      group.add(mitre);
+      bodyPivot.add(mitre);
       badgeHeight = 1.55;
       break;
     }
@@ -344,7 +351,7 @@ function createSculpted3DPiece(kind: PieceKind, side: PieceSide): THREE.Group {
         mainMat
       );
       ped.position.y = 0.36;
-      group.add(ped);
+      bodyPivot.add(ped);
 
       const neck = new THREE.Mesh(
         new THREE.BoxGeometry(0.28, 0.56, 0.38),
@@ -353,14 +360,14 @@ function createSculpted3DPiece(kind: PieceKind, side: PieceSide): THREE.Group {
       neck.position.set(0, 0.8, 0);
       neck.rotation.x = isGold ? -0.25 : 0.25;
       neck.castShadow = true;
-      group.add(neck);
+      bodyPivot.add(neck);
 
       const snout = new THREE.Mesh(
         new THREE.BoxGeometry(0.22, 0.22, 0.44),
         trimMat
       );
       snout.position.set(0, 0.98, isGold ? -0.14 : 0.14);
-      group.add(snout);
+      bodyPivot.add(snout);
       badgeHeight = 1.48;
       break;
     }
@@ -374,7 +381,7 @@ function createSculpted3DPiece(kind: PieceKind, side: PieceSide): THREE.Group {
       );
       body.position.y = 0.42;
       body.castShadow = true;
-      group.add(body);
+      bodyPivot.add(body);
 
       const collar = new THREE.Mesh(
         new THREE.TorusGeometry(0.19, 0.035, 8, 20),
@@ -382,7 +389,7 @@ function createSculpted3DPiece(kind: PieceKind, side: PieceSide): THREE.Group {
       );
       collar.rotation.x = Math.PI / 2;
       collar.position.y = 0.68;
-      group.add(collar);
+      bodyPivot.add(collar);
 
       const head = new THREE.Mesh(
         new THREE.SphereGeometry(0.2, 18, 16),
@@ -390,7 +397,7 @@ function createSculpted3DPiece(kind: PieceKind, side: PieceSide): THREE.Group {
       );
       head.position.y = 0.85;
       head.castShadow = true;
-      group.add(head);
+      bodyPivot.add(head);
       badgeHeight = 1.32;
       break;
     }
@@ -398,9 +405,9 @@ function createSculpted3DPiece(kind: PieceKind, side: PieceSide): THREE.Group {
 
   const badge = createPieceBadgeSprite(KIND_SYMBOL[kind], side);
   badge.position.y = badgeHeight;
-  group.add(badge);
+  outer.add(badge);
 
-  return group;
+  return outer;
 }
 
 function buildTempleArch(side: PieceSide): THREE.Group {
@@ -437,6 +444,29 @@ function buildTempleArch(side: PieceSide): THREE.Group {
   arch.add(beam2);
 
   return arch;
+}
+
+interface ShockwaveEffect {
+  ring: THREE.Mesh;
+  sparks: Array<{
+    mesh: THREE.Mesh;
+    vx: number;
+    vy: number;
+    vz: number;
+  }>;
+  age: number;
+  maxAge: number;
+}
+
+interface KnockoutPieceAnim {
+  group: THREE.Group;
+  waitUntilSec: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  rotVx: number;
+  rotVz: number;
+  age: number;
 }
 
 export default function Onitama3DBoard({
@@ -500,7 +530,7 @@ export default function Onitama3DBoard({
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
 
-    // Warm Royal Studio Lighting
+    // Studio Lighting
     const hemiLight = new THREE.HemisphereLight(0xf8fafc, 0x1e293b, 1.35);
     scene.add(hemiLight);
 
@@ -526,6 +556,71 @@ export default function Onitama3DBoard({
     const piecesGroup = new THREE.Group();
     scene.add(piecesGroup);
 
+    const fxGroup = new THREE.Group();
+    scene.add(fxGroup);
+
+    const activeEffects: ShockwaveEffect[] = [];
+    const knockoutPieces: KnockoutPieceAnim[] = [];
+    let cameraShake = 0;
+
+    const spawnLandingShockwave = (
+      x: number,
+      z: number,
+      colorHex: number,
+      isCapture = false
+    ) => {
+      const ringGeo = new THREE.RingGeometry(0.18, 0.34, 32);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.95,
+        side: THREE.DoubleSide,
+      });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(x, TILE_TOP_Y + 0.025, z);
+      fxGroup.add(ring);
+
+      const sparks: ShockwaveEffect["sparks"] = [];
+      const sparkCount = isCapture ? 18 : 10;
+      const sparkGeo = new THREE.OctahedronGeometry(
+        isCapture ? 0.075 : 0.05,
+        0
+      );
+
+      for (let i = 0; i < sparkCount; i++) {
+        const angle = (i / sparkCount) * Math.PI * 2 + Math.random() * 0.3;
+        const speed = (isCapture ? 2.4 : 1.4) + Math.random() * 1.4;
+        const sMesh = new THREE.Mesh(
+          sparkGeo,
+          new THREE.MeshBasicMaterial({
+            color: i % 2 === 0 ? colorHex : 0xfef08a,
+            transparent: true,
+            opacity: 1,
+          })
+        );
+        sMesh.position.set(x, TILE_TOP_Y + 0.12, z);
+        fxGroup.add(sMesh);
+        sparks.push({
+          mesh: sMesh,
+          vx: Math.cos(angle) * speed,
+          vy: (isCapture ? 3.2 : 2.0) + Math.random() * 1.5,
+          vz: Math.sin(angle) * speed,
+        });
+      }
+
+      activeEffects.push({
+        ring,
+        sparks,
+        age: 0,
+        maxAge: isCapture ? 0.65 : 0.45,
+      });
+
+      if (isCapture) {
+        cameraShake = 0.22;
+      }
+    };
+
     let tileMeshes: Array<{ mesh: THREE.Mesh; r: number; c: number }> = [];
     let builtBoardSize = 0;
     let builtMode: BoardGameMode | null = null;
@@ -538,7 +633,6 @@ export default function Onitama3DBoard({
 
       const boardSpan = size * TILE_SIZE;
 
-      // 1. Carved Walnut Outer Table Base (strictly BELOW y = 0.0!)
       const tableBase = new THREE.Mesh(
         new THREE.BoxGeometry(boardSpan + 1.15, 0.36, boardSpan + 1.15),
         new THREE.MeshStandardMaterial({
@@ -547,11 +641,10 @@ export default function Onitama3DBoard({
           metalness: 0.15,
         })
       );
-      tableBase.position.y = -0.18; // Top surface at y = 0.00
+      tableBase.position.y = -0.18;
       tableBase.receiveShadow = true;
       boardGroup.add(tableBase);
 
-      // Golden brass border trim (top at y = 0.02, well below tile top at y = +0.12!)
       const brassBorder = new THREE.Mesh(
         new THREE.BoxGeometry(boardSpan + 0.28, 0.38, boardSpan + 0.28),
         new THREE.MeshStandardMaterial({
@@ -560,10 +653,9 @@ export default function Onitama3DBoard({
           roughness: 0.28,
         })
       );
-      brassBorder.position.y = -0.17; // Top surface at y = +0.02
+      brassBorder.position.y = -0.17;
       boardGroup.add(brassBorder);
 
-      // 2. Textured Checkered 3D Tiles sitting proudly from y = 0.02 to y = +0.12!
       const lightTileMat = new THREE.MeshStandardMaterial({
         map: textures.lightTex,
         roughness: 0.28,
@@ -601,7 +693,6 @@ export default function Onitama3DBoard({
             new THREE.BoxGeometry(TILE_SIZE * 0.94, 0.12, TILE_SIZE * 0.94),
             mat
           );
-          // Bottom at y = 0.00, Top at y = +0.12 (TILE_TOP_Y)
           tileMesh.position.set(x, 0.06, z);
           tileMesh.receiveShadow = true;
           tileMesh.userData = { r, c };
@@ -610,7 +701,6 @@ export default function Onitama3DBoard({
         }
       }
 
-      // Add Onitama Temple Arches on the outer edge of (0, 2) and (4, 2)
       if (currentMode === "ONITAMA") {
         const crimsonPos = gridToWorld(0, 2, 5);
         const crimsonArch = buildTempleArch("CRIMSON");
@@ -628,13 +718,21 @@ export default function Onitama3DBoard({
       string,
       {
         group: THREE.Group;
+        bodyPivot: THREE.Object3D;
         kind: PieceKind;
         side: PieceSide;
+        startX: number;
+        startZ: number;
         currX: number;
         currZ: number;
         targetX: number;
         targetZ: number;
         jumpT: number;
+        jumpDuration: number;
+        peakHeight: number;
+        spinY: number;
+        settleTimer: number;
+        currHoverY: number;
       }
     >();
 
@@ -682,7 +780,6 @@ export default function Onitama3DBoard({
 
       raycaster.setFromCamera(pointerNdc, camera);
 
-      // 1. Check legal destination tiles FIRST if a piece is already selected!
       const hitTiles = raycaster.intersectObjects(
         tileMeshes.map((t) => t.mesh),
         false
@@ -701,7 +798,6 @@ export default function Onitama3DBoard({
         }
       }
 
-      // 2. Check Piece intersection FIRST so angled clicks on tall 3D pieces always select the piece!
       const hitPieces = raycaster.intersectObjects(piecesGroup.children, true);
       if (hitPieces.length > 0) {
         let obj: THREE.Object3D | null = hitPieces[0].object;
@@ -719,7 +815,6 @@ export default function Onitama3DBoard({
         }
       }
 
-      // 3. Fallback to any tapped tile
       if (hitTiles.length > 0) {
         const { r, c } = hitTiles[0].object.userData as {
           r: number;
@@ -746,6 +841,7 @@ export default function Onitama3DBoard({
     let animId = 0;
     let lastTime = performance.now();
     let lastHighlightHash = "";
+    const pulsingBeacons: THREE.Mesh[] = [];
 
     const animate = (now: number) => {
       animId = requestAnimationFrame(animate);
@@ -784,7 +880,6 @@ export default function Onitama3DBoard({
         }
       }
 
-      // Aspect-ratio aware zoom so mobile portrait never clips the left/right edges of the board!
       const aspect =
         container.clientWidth / Math.max(1, container.clientHeight);
       const portraitZoomMult =
@@ -796,21 +891,73 @@ export default function Onitama3DBoard({
       orbitYaw += (targetYaw - orbitYaw) * Math.min(1, dt * 7);
       orbitPitch += (targetPitch - orbitPitch) * Math.min(1, dt * 7);
 
+      const shakeOffsetX =
+        cameraShake > 0.005 ? (Math.random() - 0.5) * cameraShake : 0;
+      const shakeOffsetY =
+        cameraShake > 0.005 ? (Math.random() - 0.5) * cameraShake : 0;
+      cameraShake = Math.max(0, cameraShake - dt * 0.85);
+
       const camX = Math.sin(orbitYaw) * Math.cos(orbitPitch) * cameraDist;
       const camY = Math.sin(orbitPitch) * cameraDist;
       const camZ = Math.cos(orbitYaw) * Math.cos(orbitPitch) * cameraDist;
-      camera.position.set(camX, camY, camZ);
+      camera.position.set(camX + shakeOffsetX, camY + shakeOffsetY, camZ);
       camera.lookAt(0, 0.15, 0);
 
-      // Sync Pieces & Animate Parabolic Leaps
+      // Handle Captured Pieces: Launch them in a dramatic knockout arc when hit!
       const activeIds = new Set(curPieces.map((p) => p.id));
       for (const [id, node] of pieceNodes.entries()) {
         if (!activeIds.has(id)) {
           piecesGroup.remove(node.group);
           pieceNodes.delete(id);
+
+          // Turn into a knockout flying piece!
+          fxGroup.add(node.group);
+          const awayAngle = Math.atan2(node.currZ, node.currX);
+          knockoutPieces.push({
+            group: node.group,
+            waitUntilSec: 0.24, // Wait until attacker reaches the tile!
+            vx: Math.cos(awayAngle) * 4.5 + (Math.random() - 0.5) * 2,
+            vy: 6.2,
+            vz: Math.sin(awayAngle) * 4.5 + (Math.random() - 0.5) * 2,
+            rotVx: (Math.random() > 0.5 ? 1 : -1) * 9.5,
+            rotVz: (Math.random() - 0.5) * 8.0,
+            age: 0,
+          });
         }
       }
 
+      // Animate Knockout Captured Pieces
+      for (let i = knockoutPieces.length - 1; i >= 0; i--) {
+        const kp = knockoutPieces[i];
+        if (kp.waitUntilSec > 0) {
+          kp.waitUntilSec -= dt;
+          if (kp.waitUntilSec <= 0) {
+            spawnLandingShockwave(
+              kp.group.position.x,
+              kp.group.position.z,
+              0xf43f5e,
+              true
+            );
+          }
+          continue;
+        }
+        kp.age += dt;
+        kp.vy -= 18 * dt;
+        kp.group.position.x += kp.vx * dt;
+        kp.group.position.y += kp.vy * dt;
+        kp.group.position.z += kp.vz * dt;
+        kp.group.rotation.x += kp.rotVx * dt;
+        kp.group.rotation.z += kp.rotVz * dt;
+        const shrink = Math.max(0.01, 1 - kp.age * 1.1);
+        kp.group.scale.setScalar(shrink);
+
+        if (kp.age > 0.85) {
+          fxGroup.remove(kp.group);
+          knockoutPieces.splice(i, 1);
+        }
+      }
+
+      // Sync & Smoothly Animate Active 3D Pieces
       for (const p of curPieces) {
         const worldPos = gridToWorld(p.r, p.c, curSize);
         let node = pieceNodes.get(p.id);
@@ -821,47 +968,155 @@ export default function Onitama3DBoard({
           group.userData = { pieceId: p.id };
           group.position.set(worldPos.x, TILE_TOP_Y, worldPos.z);
           piecesGroup.add(group);
+          const bodyPivot = group.getObjectByName("bodyPivot") || group;
           node = {
             group,
+            bodyPivot,
             kind: p.kind,
             side: p.side,
+            startX: worldPos.x,
+            startZ: worldPos.z,
             currX: worldPos.x,
             currZ: worldPos.z,
             targetX: worldPos.x,
             targetZ: worldPos.z,
             jumpT: 1,
+            jumpDuration: 0.46,
+            peakHeight: 1.25,
+            spinY: 0,
+            settleTimer: 0,
+            currHoverY: 0,
           };
           pieceNodes.set(p.id, node);
         }
 
+        // Detect new move for this piece
         if (
           Math.abs(node.targetX - worldPos.x) > 0.01 ||
           Math.abs(node.targetZ - worldPos.z) > 0.01
         ) {
+          node.startX = node.currX;
+          node.startZ = node.currZ;
           node.targetX = worldPos.x;
           node.targetZ = worldPos.z;
+          const dist = Math.hypot(
+            node.targetX - node.startX,
+            node.targetZ - node.startZ
+          );
+          node.jumpDuration = Math.min(0.58, Math.max(0.38, 0.32 + dist * 0.06));
+          node.peakHeight = Math.min(1.85, Math.max(0.95, 0.7 + dist * 0.25));
+          node.spinY = curMode === "ONITAMA" ? Math.PI * 2 : 0;
           node.jumpT = 0;
         }
 
+        // Advance Parametric Leap Animation (1:1 synced horizontal + vertical arc!)
+        let jumpArcY = 0;
         if (node.jumpT < 1) {
-          node.jumpT = Math.min(1, node.jumpT + dt * 3.4);
-          node.currX += (node.targetX - node.currX) * Math.min(1, dt * 11);
-          node.currZ += (node.targetZ - node.currZ) * Math.min(1, dt * 11);
+          node.jumpT = Math.min(1, node.jumpT + dt / node.jumpDuration);
+          const eased = easeInOutCubic(node.jumpT);
+          node.currX = node.startX + (node.targetX - node.startX) * eased;
+          node.currZ = node.startZ + (node.targetZ - node.startZ) * eased;
+
+          // Smooth parabolic arc peaking at t = 0.5
+          jumpArcY = Math.sin(node.jumpT * Math.PI) * node.peakHeight;
+
+          // Dynamic forward banking tilt along velocity direction + martial arts spin
+          const moveDx = node.targetX - node.startX;
+          const moveDz = node.targetZ - node.startZ;
+          const moveLen = Math.max(0.001, Math.hypot(moveDx, moveDz));
+          const tiltAmount = Math.sin(node.jumpT * Math.PI * 2) * 0.28;
+          node.bodyPivot.rotation.x = (moveDz / moveLen) * tiltAmount;
+          node.bodyPivot.rotation.z = -(moveDx / moveLen) * tiltAmount;
+          node.bodyPivot.rotation.y = eased * node.spinY;
+
+          // Stretch slightly in mid-air
+          const stretch = 1 + Math.sin(node.jumpT * Math.PI) * 0.14;
+          node.bodyPivot.scale.set(
+            1 / Math.sqrt(stretch),
+            stretch,
+            1 / Math.sqrt(stretch)
+          );
+
+          if (node.jumpT >= 1) {
+            node.currX = node.targetX;
+            node.currZ = node.targetZ;
+            node.bodyPivot.rotation.set(0, 0, 0);
+            node.settleTimer = 0.28;
+            spawnLandingShockwave(
+              node.targetX,
+              node.targetZ,
+              node.side === "GOLD" ? 0xfacc15 : 0xfb7185,
+              false
+            );
+          }
         } else {
           node.currX = node.targetX;
           node.currZ = node.targetZ;
+
+          // Elastic Landing Squash & Settle
+          if (node.settleTimer > 0) {
+            node.settleTimer = Math.max(0, node.settleTimer - dt);
+            const prog = 1 - node.settleTimer / 0.28;
+            const squash =
+              1 - Math.sin(prog * Math.PI) * Math.exp(-prog * 3) * 0.22;
+            node.bodyPivot.scale.set(
+              1 / Math.sqrt(squash),
+              squash,
+              1 / Math.sqrt(squash)
+            );
+          } else {
+            node.bodyPivot.scale.set(1, 1, 1);
+          }
         }
 
+        // Smooth Selection Levitation (lerped instead of jarring snap!)
         const isSelected = p.id === curSelectedId;
-        const jumpArcY =
-          node.jumpT < 1 ? Math.sin(node.jumpT * Math.PI) * 1.15 : 0;
-        const hoverY = isSelected ? 0.32 + Math.sin(now * 0.008) * 0.08 : 0;
+        const targetHoverY = isSelected
+          ? 0.28 + Math.sin(now * 0.006) * 0.07
+          : 0;
+        node.currHoverY +=
+          (targetHoverY - node.currHoverY) * Math.min(1, dt * 12);
+
+        if (isSelected && node.jumpT >= 1) {
+          node.bodyPivot.rotation.y = Math.sin(now * 0.003) * 0.25;
+        } else if (node.jumpT >= 1) {
+          node.bodyPivot.rotation.y *= 0.85;
+        }
 
         node.group.position.set(
           node.currX,
-          TILE_TOP_Y + jumpArcY + hoverY,
+          TILE_TOP_Y + jumpArcY + node.currHoverY,
           node.currZ
         );
+      }
+
+      // Animate Shockwave Rings & Sparks
+      for (let i = activeEffects.length - 1; i >= 0; i--) {
+        const eff = activeEffects[i];
+        eff.age += dt;
+        const t = Math.min(1, eff.age / eff.maxAge);
+        const scale = 1 + t * 2.6;
+        eff.ring.scale.set(scale, scale, 1);
+        (eff.ring.material as THREE.MeshBasicMaterial).opacity = (1 - t) * 0.9;
+
+        for (const sp of eff.sparks) {
+          sp.vy -= 9.5 * dt;
+          sp.mesh.position.x += sp.vx * dt;
+          sp.mesh.position.y = Math.max(
+            TILE_TOP_Y + 0.02,
+            sp.mesh.position.y + sp.vy * dt
+          );
+          sp.mesh.position.z += sp.vz * dt;
+          sp.mesh.rotation.x += 6 * dt;
+          sp.mesh.rotation.y += 6 * dt;
+          (sp.mesh.material as THREE.MeshBasicMaterial).opacity = 1 - t;
+        }
+
+        if (eff.age >= eff.maxAge) {
+          fxGroup.remove(eff.ring);
+          for (const sp of eff.sparks) fxGroup.remove(sp.mesh);
+          activeEffects.splice(i, 1);
+        }
       }
 
       // Rebuild Tile Highlights ABOVE TILE_TOP_Y (+0.12)
@@ -872,6 +1127,7 @@ export default function Onitama3DBoard({
       if (highlightHash !== lastHighlightHash) {
         lastHighlightHash = highlightHash;
         highlightsGroup.clear();
+        pulsingBeacons.length = 0;
 
         if (curLastMove) {
           for (const pt of [
@@ -915,7 +1171,6 @@ export default function Onitama3DBoard({
             (p) => p.r === dest.r && p.c === dest.c
           );
 
-          // Glowing tile pad + 3D beacon so legal moves are impossible to miss!
           const pad = new THREE.Mesh(
             new THREE.PlaneGeometry(TILE_SIZE * 0.86, TILE_SIZE * 0.86),
             new THREE.MeshBasicMaterial({
@@ -932,7 +1187,7 @@ export default function Onitama3DBoard({
           const marker = new THREE.Mesh(
             hasEnemy
               ? new THREE.RingGeometry(0.38, 0.55, 28)
-              : new THREE.CylinderGeometry(0.24, 0.24, 0.1, 24),
+              : new THREE.CylinderGeometry(0.22, 0.22, 0.09, 24),
             new THREE.MeshBasicMaterial({
               color: hasEnemy ? 0xff0040 : 0x34d399,
               side: THREE.DoubleSide,
@@ -945,6 +1200,7 @@ export default function Onitama3DBoard({
             marker.position.set(wp.x, TILE_TOP_Y + 0.06, wp.z);
           }
           highlightsGroup.add(marker);
+          pulsingBeacons.push(marker);
         }
 
         if (curCheckSide) {
@@ -965,6 +1221,12 @@ export default function Onitama3DBoard({
             highlightsGroup.add(checkRing);
           }
         }
+      }
+
+      // Pulse legal move beacons smoothly every frame
+      const pulseScale = 1 + Math.sin(now * 0.007) * 0.14;
+      for (const b of pulsingBeacons) {
+        b.scale.set(pulseScale, 1, pulseScale);
       }
 
       renderer.render(scene, camera);

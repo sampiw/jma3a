@@ -584,6 +584,39 @@ export function Onitama3DGameView({
             </button>
           </div>
         )}
+
+        <div
+          dir="ltr"
+          className="mt-1.5 pt-1 border-t border-slate-800/80 flex flex-wrap items-center justify-center gap-3 text-[10px] font-bold text-slate-400"
+        >
+          <span>Created by sampiw:</span>
+          <a
+            href="https://www.instagram.com/sampiw/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-pink-400 hover:text-pink-300 underline-offset-2 hover:underline"
+          >
+            Instagram
+          </a>
+          <span>•</span>
+          <a
+            href="https://github.com/sampiw"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-slate-200 hover:text-white underline-offset-2 hover:underline"
+          >
+            GitHub
+          </a>
+          <span>•</span>
+          <a
+            href="https://t.me/sampiw"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sky-400 hover:text-sky-300 underline-offset-2 hover:underline"
+          >
+            Telegram @sampiw
+          </a>
+        </div>
       </footer>
 
       {/* RULES MODAL */}

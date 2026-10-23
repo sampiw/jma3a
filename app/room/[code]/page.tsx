@@ -772,6 +772,38 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         )}
       </main>
 
+      {/* Room Footer with Creator Credits */}
+      <footer
+        dir="ltr"
+        className="w-full border-t border-jma3a-border/40 py-4 px-4 text-center text-[11px] font-bold text-jma3a-muted flex flex-wrap items-center justify-center gap-2.5"
+      >
+        <span>Created by sampiw:</span>
+        <a
+          href="https://www.instagram.com/sampiw/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-2.5 py-0.5 rounded-full bg-jma3a-surface/90 border border-pink-500/40 text-pink-300 hover:border-pink-400 hover:text-white transition-all"
+        >
+          📸 Instagram @sampiw
+        </a>
+        <a
+          href="https://github.com/sampiw"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-2.5 py-0.5 rounded-full bg-jma3a-surface/90 border border-slate-500/40 text-slate-200 hover:border-white/60 hover:text-white transition-all"
+        >
+          💻 GitHub @sampiw
+        </a>
+        <a
+          href="https://t.me/sampiw"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-2.5 py-0.5 rounded-full bg-jma3a-surface/90 border border-sky-500/40 text-sky-300 hover:border-sky-400 hover:text-white transition-all"
+        >
+          ✈️ Telegram @sampiw
+        </a>
+      </footer>
+
       {/* QR Code Modal */}
       <QRCodeModal isOpen={qrOpen} onClose={() => setQrOpen(false)} roomCode={room.code} />
 
