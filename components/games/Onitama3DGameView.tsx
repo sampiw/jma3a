@@ -43,7 +43,8 @@ const PIECE_EMOJI: Record<PieceKind, string> = {
 
 function OnitamaScrollCard({
   card,
-  side,
+  cardSide,
+  viewSide,
   selected,
   disabled,
   compact,
@@ -51,7 +52,8 @@ function OnitamaScrollCard({
   onClick,
 }: {
   card: OnitamaCardDef;
-  side: PieceSide;
+  cardSide: PieceSide;
+  viewSide: PieceSide;
   selected?: boolean;
   disabled?: boolean;
   compact?: boolean;
@@ -60,13 +62,17 @@ function OnitamaScrollCard({
 }) {
   const moveSet = useMemo(() => {
     const s = new Set<string>();
+    // When cardSide === viewSide (viewing your own cards from your own side of the table),
+    // forward is UP (dr < 0) and right is RIGHT (dc > 0) on your screen.
+    // When viewing a card belonging to the opposite side of the current camera view, rotate 180 deg.
+    const flipForCamera = cardSide !== viewSide;
     for (const [dr, dc] of card.moves) {
-      const actualDr = side === "GOLD" ? dr : -dr;
-      const actualDc = side === "GOLD" ? dc : -dc;
-      s.add(`${2 + actualDr},${2 + actualDc}`);
+      const screenDr = flipForCamera ? -dr : dr;
+      const screenDc = flipForCamera ? -dc : dc;
+      s.add(`${2 + screenDr},${2 + screenDc}`);
     }
     return s;
-  }, [card.moves, side]);
+  }, [card.moves, cardSide, viewSide]);
 
   return (
     <button
@@ -81,8 +87,9 @@ function OnitamaScrollCard({
           : "border-slate-700/90 bg-slate-900/90 hover:border-slate-500"
       } ${disabled ? "opacity-85 cursor-default" : "cursor-pointer active:scale-95"}`}
     >
-      {/* 5x5 Mini Grid */}
+      {/* 5x5 Mini Grid — Explicit dir="ltr" so RTL never mirrors left/right moves! */}
       <div
+        dir="ltr"
         className={`grid grid-cols-5 gap-0.5 rounded-lg bg-slate-950 p-1 border border-slate-700 shrink-0 ${
           compact ? "w-10 h-10" : "w-12 h-12 sm:w-14 sm:h-14"
         }`}
@@ -172,6 +179,29 @@ export function Onitama3DGameView({
 
   const myPlayerId = activePlayerId || String(privateData?.playerId ?? "");
 
+  // Determine which seat (GOLD or CRIMSON) this specific phone/player belongs to
+  const myAssignedSide: PieceSide | null = useMemo(() => {
+    if (
+      myPlayerId &&
+      myPlayerId === crimsonPlayerId &&
+      goldPlayerId !== crimsonPlayerId
+    ) {
+      return "CRIMSON";
+    }
+    if (myPlayerId && myPlayerId === goldPlayerId) {
+      return "GOLD";
+    }
+    if (privateData?.mySide === "CRIMSON") return "CRIMSON";
+    if (privateData?.mySide === "GOLD") return "GOLD";
+    return null;
+  }, [myPlayerId, goldPlayerId, crimsonPlayerId, privateData?.mySide]);
+
+  const isSingleDevicePassPlay =
+    !aiEnabled &&
+    (players.length < 2 || goldPlayerId === crimsonPlayerId || !myAssignedSide);
+
+  const playerPerspectiveSide: PieceSide = myAssignedSide ?? turn;
+
   const goldPlayerName = useMemo(() => {
     return (
       players.find((p: any) => p.id === goldPlayerId)?.nickname || "الذهبي"
@@ -209,24 +239,54 @@ export function Onitama3DGameView({
     myPlayerId,
   ]);
 
+  // Which side's 2 cards are displayed in this phone's bottom hand bar
+  const displayHandSide: PieceSide =
+    !sharedControl && myAssignedSide ? myAssignedSide : turn;
+  const activeHandIds = displayHandSide === "GOLD" ? goldCards : crimsonCards;
+  const opponentSide: PieceSide =
+    displayHandSide === "GOLD" ? "CRIMSON" : "GOLD";
+  const opponentHandIds = opponentSide === "GOLD" ? goldCards : crimsonCards;
+
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string>(
-    turn === "GOLD" ? goldCards[0] : crimsonCards[0]
+    activeHandIds[0] ?? "tiger"
   );
   const [cameraPreset, setCameraPreset] = useState<"GOLD" | "CRIMSON" | "TOP">(
-    "GOLD"
+    playerPerspectiveSide
   );
   const [showRulesModal, setShowRulesModal] = useState(false);
 
+  // Automatically orient each phone's camera to its own seat (GOLD or CRIMSON),
+  // or follow the active turn when playing pass-and-play on a single phone!
+  useEffect(() => {
+    if (myAssignedSide && !isSingleDevicePassPlay) {
+      setCameraPreset((prev) => (prev === "TOP" ? "TOP" : myAssignedSide));
+    } else if (isSingleDevicePassPlay) {
+      setCameraPreset((prev) => (prev === "TOP" ? "TOP" : turn));
+    }
+  }, [myAssignedSide, isSingleDevicePassPlay, turn, goldPlayerId, crimsonPlayerId]);
+
+  const viewSide: PieceSide =
+    cameraPreset === "CRIMSON"
+      ? "CRIMSON"
+      : cameraPreset === "GOLD"
+      ? "GOLD"
+      : playerPerspectiveSide;
+
   // Sync default selected card and auto-select a piece with legal moves on turn start so green tiles appear immediately!
   useEffect(() => {
-    const activeHand = turn === "GOLD" ? goldCards : crimsonCards;
+    const handToUse = displayHandSide === "GOLD" ? goldCards : crimsonCards;
     const nextCard =
-      activeHand.length > 0 && activeHand.includes(selectedCardId)
+      handToUse.length > 0 && handToUse.includes(selectedCardId)
         ? selectedCardId
-        : activeHand[0] ?? "tiger";
+        : handToUse[0] ?? "tiger";
     if (nextCard !== selectedCardId) {
       setSelectedCardId(nextCard);
+    }
+
+    if (!canControlCurrentTurn) {
+      setSelectedPieceId(null);
+      return;
     }
 
     // Auto-select King/Master (or first movable piece) in Onitama so player immediately sees green tiles on the board!
@@ -247,7 +307,14 @@ export function Onitama3DGameView({
     } else {
       setSelectedPieceId(null);
     }
-  }, [turn, mode, pieces.length, lastMove?.id]);
+  }, [
+    turn,
+    displayHandSide,
+    canControlCurrentTurn,
+    mode,
+    pieces.length,
+    lastMove?.id,
+  ]);
 
   // Trigger confetti on game over
   useEffect(() => {
@@ -357,8 +424,6 @@ export function Onitama3DGameView({
     ]
   );
 
-  const activeHandIds = turn === "GOLD" ? goldCards : crimsonCards;
-
   if (!mounted) return null;
 
   const content = (
@@ -418,6 +483,22 @@ export function Onitama3DGameView({
               </span>
             )}
           </div>
+
+          {myAssignedSide && (
+            <div
+              className={`rounded-xl border px-2.5 py-1 flex items-center gap-1 text-[11px] font-black ${
+                myAssignedSide === "GOLD"
+                  ? "border-amber-400/40 bg-amber-500/10 text-amber-300"
+                  : "border-rose-400/40 bg-rose-500/10 text-rose-300"
+              }`}
+            >
+              <span>
+                {myAssignedSide === "GOLD"
+                  ? "👑 مقعدك: الذهبي"
+                  : "🐉 مقعدك: الأحمر"}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Compact Action Controls */}
@@ -427,7 +508,7 @@ export function Onitama3DGameView({
             onClick={() => {
               sound.playCardFlip();
               setCameraPreset((prev) =>
-                prev === "GOLD" ? "TOP" : prev === "TOP" ? "CRIMSON" : "GOLD"
+                prev === "GOLD" ? "CRIMSON" : prev === "CRIMSON" ? "TOP" : "GOLD"
               );
             }}
             className="rounded-xl border border-sky-400/40 bg-slate-900 px-2.5 py-1 text-[11px] font-black text-sky-200 hover:border-sky-300 active:scale-95"
@@ -439,6 +520,19 @@ export function Onitama3DGameView({
               ? "منظور الأحمر"
               : "علوي 2D"}
           </button>
+
+          {players.length >= 2 && !aiEnabled && (
+            <button
+              type="button"
+              onClick={() => {
+                sound.playCardFlip();
+                onAction({ type: "SWAP_SEATS" });
+              }}
+              className="rounded-xl border border-purple-400/40 bg-slate-900 px-2.5 py-1 text-[11px] font-black text-purple-200 hover:border-purple-300 active:scale-95"
+            >
+              🔀 عكس الألوان
+            </button>
+          )}
 
           <button
             type="button"
@@ -494,13 +588,16 @@ export function Onitama3DGameView({
           lastMove={lastMove}
           inCheckSide={inCheckSide}
           cameraPreset={cameraPreset}
+          playerSide={playerPerspectiveSide}
           onSelectTileOrPiece={handleSelectTileOrPiece}
         />
 
         {/* Subtle Top-Center Instruction Pill */}
         <div className="pointer-events-none absolute top-2 inset-x-0 flex justify-center px-3">
           <div className="rounded-full bg-slate-950/80 border border-slate-700/80 px-3.5 py-1 text-[11px] font-bold text-slate-200 shadow">
-            {selectedPieceId
+            {!canControlCurrentTurn
+              ? `⏳ دور ${turn === "GOLD" ? goldPlayerName : crimsonPlayerName} الآن — خطّط لحركتك القادمة!`
+              : selectedPieceId
               ? "🟢 اضغط على إحدى الخانات الخضراء في الطاولة للتحرك إليها!"
               : "👆 اضغط على أي قطعة من قطعك في الطاولة لتحديدها"}
           </div>
@@ -510,16 +607,16 @@ export function Onitama3DGameView({
       {/* ZONE 3: DOCKED BOTTOM TACTICAL BAR (Never overlaps the 3D board!) */}
       <footer className="shrink-0 z-20 bg-slate-950/95 border-t border-slate-800 px-3 py-2">
         {mode === "ONITAMA" ? (
-          <div className="max-w-4xl mx-auto flex flex-wrap items-center justify-center sm:justify-between gap-2">
-            {/* Active Player's 2 Cards */}
+          <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-center sm:justify-between gap-2">
+            {/* This Phone's / Active Player's 2 Cards */}
             <div className="flex items-center gap-2">
               {activeHandIds.map((cid) => (
                 <OnitamaScrollCard
                   key={cid}
                   card={getCardDef(cid)}
-                  side={turn}
+                  cardSide={displayHandSide}
+                  viewSide={viewSide}
                   selected={selectedCardId === cid}
-                  disabled={!canControlCurrentTurn}
                   badgeText={
                     selectedCardId === cid
                       ? "✓ البطاقة المختارة"
@@ -528,20 +625,56 @@ export function Onitama3DGameView({
                   onClick={() => {
                     sound.playCardFlip();
                     setSelectedCardId(cid);
+                    if (canControlCurrentTurn) {
+                      const myPieces = pieces.filter((p) => p.side === turn);
+                      const curPiece = myPieces.find(
+                        (p) => p.id === selectedPieceId
+                      );
+                      if (
+                        !curPiece ||
+                        getOnitamaLegalMovesForPiece(pieces, curPiece, cid)
+                          .length === 0
+                      ) {
+                        const movable = myPieces.find(
+                          (p) =>
+                            getOnitamaLegalMovesForPiece(pieces, p, cid)
+                              .length > 0
+                        );
+                        if (movable) setSelectedPieceId(movable.id);
+                      }
+                    }
                   }}
                 />
               ))}
             </div>
 
-            {/* Center Rotating Spare Card */}
-            <div className="flex items-center gap-2">
+            {/* Center Rotating Spare Card + Opponent's Cards Preview */}
+            <div className="flex items-center gap-2 flex-wrap justify-center">
               <OnitamaScrollCard
                 card={getCardDef(sideCard)}
-                side={turn}
+                cardSide={displayHandSide}
+                viewSide={viewSide}
                 disabled
                 compact
                 badgeText="🔄 البطاقة القادمة"
               />
+              <div className="hidden md:flex items-center gap-1.5 opacity-80">
+                {opponentHandIds.map((cid) => (
+                  <OnitamaScrollCard
+                    key={`opp_${cid}`}
+                    card={getCardDef(cid)}
+                    cardSide={opponentSide}
+                    viewSide={viewSide}
+                    disabled
+                    compact
+                    badgeText={
+                      opponentSide === "GOLD"
+                        ? "بطاقة الذهبي"
+                        : "بطاقة الأحمر"
+                    }
+                  />
+                ))}
+              </div>
             </div>
           </div>
         ) : (

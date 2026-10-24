@@ -20,6 +20,7 @@ interface Onitama3DBoardProps {
   lastMove: MoveRecord | null;
   inCheckSide: PieceSide | null;
   cameraPreset: "GOLD" | "CRIMSON" | "TOP";
+  playerSide?: PieceSide;
   onSelectTileOrPiece: (r: number, c: number) => void;
 }
 
@@ -478,6 +479,7 @@ export default function Onitama3DBoard({
   lastMove,
   inCheckSide,
   cameraPreset,
+  playerSide = "GOLD",
   onSelectTileOrPiece,
 }: Onitama3DBoardProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -491,6 +493,7 @@ export default function Onitama3DBoard({
     lastMove,
     inCheckSide,
     cameraPreset,
+    playerSide,
     onSelectTileOrPiece,
   });
   propsRef.current = {
@@ -502,6 +505,7 @@ export default function Onitama3DBoard({
     lastMove,
     inCheckSide,
     cameraPreset,
+    playerSide,
     onSelectTileOrPiece,
   };
 
@@ -544,6 +548,10 @@ export default function Onitama3DBoard({
     const rimLight = new THREE.PointLight(0x38bdf8, 1.5, 32);
     rimLight.position.set(-10, 12, -10);
     scene.add(rimLight);
+
+    const crimsonFillLight = new THREE.DirectionalLight(0xfffbeb, 1.45);
+    crimsonFillLight.position.set(-8, 16, -11);
+    scene.add(crimsonFillLight);
 
     const textures = createBoardTextures();
 
@@ -737,12 +745,19 @@ export default function Onitama3DBoard({
     >();
 
     // Camera Orbit State
-    let orbitYaw = 0;
+    const initialYaw =
+      propsRef.current.cameraPreset === "CRIMSON" ||
+      (propsRef.current.cameraPreset === "TOP" &&
+        propsRef.current.playerSide === "CRIMSON")
+        ? Math.PI
+        : 0;
+    let orbitYaw = initialYaw;
     let orbitPitch = 0.88;
-    let targetYaw = 0;
+    let targetYaw = initialYaw;
     let targetPitch = 0.88;
     let cameraDist = 11.5;
     let lastPreset: "GOLD" | "CRIMSON" | "TOP" | null = null;
+    let lastPlayerSide: PieceSide | null = null;
 
     let pointerDownPos: { x: number; y: number } | null = null;
     let isDraggingOrbit = false;
@@ -857,6 +872,7 @@ export default function Onitama3DBoard({
         lastMove: curLastMove,
         inCheckSide: curCheckSide,
         cameraPreset: curPreset,
+        playerSide: curPlayerSide,
       } = propsRef.current;
 
       if (curSize !== builtBoardSize || curMode !== builtMode) {
@@ -866,8 +882,10 @@ export default function Onitama3DBoard({
         lastHighlightHash = "";
       }
 
-      if (curPreset !== lastPreset) {
+      if (curPreset !== lastPreset || curPlayerSide !== lastPlayerSide) {
+        const isFirstSync = lastPreset === null;
         lastPreset = curPreset;
+        lastPlayerSide = curPlayerSide;
         if (curPreset === "GOLD") {
           targetYaw = 0;
           targetPitch = 0.88;
@@ -875,8 +893,12 @@ export default function Onitama3DBoard({
           targetYaw = Math.PI;
           targetPitch = 0.88;
         } else {
-          targetYaw = 0;
+          targetYaw = curPlayerSide === "CRIMSON" ? Math.PI : 0;
           targetPitch = 1.46;
+        }
+        if (isFirstSync) {
+          orbitYaw = targetYaw;
+          orbitPitch = targetPitch;
         }
       }
 

@@ -134,4 +134,25 @@ describe("Onitama 3D & Royal Chess 3D Engine", () => {
     expect(aiRes.success).toBe(true);
     expect(aiRes.newState!.turn).toBe("GOLD");
   });
+
+  it("assigns distinct GOLD and CRIMSON perspectives to 2 phones and aligns right/left card moves", () => {
+    const state = Onitama3DEngine.createInitialState(
+      mockPlayers,
+      Onitama3DEngine.defaultSettings
+    );
+    const ctx = makeCtx(state);
+
+    const p1View = Onitama3DEngine.getPlayerView(ctx, "p1");
+    const p2View = Onitama3DEngine.getPlayerView(ctx, "p2");
+    expect(p1View.privateData.mySide).toBe("GOLD");
+    expect(p2View.privateData.mySide).toBe("CRIMSON");
+
+    // Swap seats and verify both phones flip sides
+    const swapped = Onitama3DEngine.handleAction(ctx, "p1", {
+      type: "SWAP_SEATS",
+    }).newState!;
+    const swappedCtx = makeCtx(swapped);
+    expect(Onitama3DEngine.getPlayerView(swappedCtx, "p1").privateData.mySide).toBe("CRIMSON");
+    expect(Onitama3DEngine.getPlayerView(swappedCtx, "p2").privateData.mySide).toBe("GOLD");
+  });
 });

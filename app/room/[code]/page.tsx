@@ -184,6 +184,27 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       return;
     }
 
+    // Auto-switch local player on 1-device multi-player in Onitama/Chess 3D
+    if (
+      gameState?.room?.selectedGameId === "onitama3d" &&
+      devPlayers.length > 1 &&
+      gameData
+    ) {
+      const boardTurnPlayerId =
+        gameData.turn === "GOLD"
+          ? gameData.goldPlayerId
+          : gameData.crimsonPlayerId;
+      if (
+        typeof boardTurnPlayerId === "string" &&
+        devPlayers.some((p) => p.id === boardTurnPlayerId)
+      ) {
+        if (activeLocalPlayerId !== boardTurnPlayerId) {
+          setActiveLocalPlayerId(boardTurnPlayerId);
+        }
+        return;
+      }
+    }
+
     // 1. Check DIB One-Phone relay turn
     const relayTurnId = (gameState?.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId;
     if (relayTurnId && devPlayers.some((p) => p.id === relayTurnId)) {
@@ -211,7 +232,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       setActiveLocalPlayerId(gameState.player.id);
     }
   }, [
+    gameState?.room?.selectedGameId,
     gameState?.room?.gameView?.publicData.phase,
+    gameState?.room?.gameView?.publicData.turn,
+    gameState?.room?.gameView?.publicData.goldPlayerId,
+    gameState?.room?.gameView?.publicData.crimsonPlayerId,
     gameState?.room?.gameView?.publicData.currentShooterId,
     (gameState?.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId,
     gameState?.passThePhone?.currentPlayerId,
