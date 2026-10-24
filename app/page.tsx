@@ -6,6 +6,7 @@ import { sound } from "@/lib/sound";
 import { DibWolfIcon } from "@/components/icons/DibWolfIcon";
 import { Dib3DIcon } from "@/components/icons/Dib3DIcon";
 import { Onitama3DIcon } from "@/components/icons/Onitama3DIcon";
+import { Pirates3DIcon } from "@/components/icons/Pirates3DIcon";
 import { GhammadaIcon } from "@/components/icons/GhammadaIcon";
 import { SandalaIcon } from "@/components/icons/SandalaIcon";
 import {
@@ -35,6 +36,18 @@ interface GameInfo {
 }
 
 const GAMES: GameInfo[] = [
+  {
+    id: "pirates3d",
+    title: "قراصنة سلا 3D: حرب السفن 🏴‍☠️💣",
+    tagline: "معركة سفن القراصنة ثلاثية الأبعاد بالأمواج والمدافع وكنوز الذهب! 🌊🔥",
+    description:
+      "قُد سفينة القراصنة الخشبية 3D وسط أمواج المحيط وقلعة السقالة! صوّب خط المدفع الذكي مع القفل التلقائي (Auto-Lock)، أطلق الوابل الثلاثي، واجمع صناديق البارود والذهب باش تربح لقب أمير قراصنة سلا!",
+    players: "1-8 لاعبين",
+    duration: "3-10 دقائق",
+    modes: ["كل واحد بتليفونو 📱", "مع أسطول البوت 🤖"],
+    icon: <Pirates3DIcon className="w-14 h-14" />,
+    badgeColor: "from-sky-500/40 to-amber-950/60 border-sky-400/60 text-sky-200",
+  },
   {
     id: "onitama3d",
     title: "شطرنج وأونيتاما 3D ♟️🐉",
@@ -104,7 +117,7 @@ export default function HomePage() {
 
   // Create room modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<GameId>("onitama3d");
+  const [selectedGame, setSelectedGame] = useState<GameId>("pirates3d");
   const [hostNickname, setHostNickname] = useState("");
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("MULTI_PHONE");
   const [isCreating, setIsCreating] = useState(false);

@@ -9,6 +9,7 @@ import { DibGameView } from "@/components/games/DibGameView";
 import { DibNightTimer } from "@/components/games/DibNightTimer";
 import { Dib3DGameView } from "@/components/games/Dib3DGameView";
 import { Onitama3DGameView } from "@/components/games/Onitama3DGameView";
+import { Pirates3DGameView } from "@/components/games/Pirates3DGameView";
 import { GhammadaGameView } from "@/components/games/GhammadaGameView";
 import { SandalaGameView } from "@/components/games/SandalaGameView";
 import { IntrusGameView } from "@/components/games/IntrusGameView";
@@ -40,10 +41,11 @@ import {
   Minimize,
 } from "lucide-react";
 
-// Active flagship games: Onitama & Chess 3D, DIB 3D, Sandala 3D, Ghammada 3D & Classic DIB
-const ACTIVE_GAMES: GameId[] = ["onitama3d", "dib3d", "sandala", "ghammada", "dib"];
+// Active flagship games: Pirates 3D, Onitama & Chess 3D, DIB 3D, Sandala 3D, Ghammada 3D & Classic DIB
+const ACTIVE_GAMES: GameId[] = ["pirates3d", "onitama3d", "dib3d", "sandala", "ghammada", "dib"];
 
 const GAME_NAMES: Record<GameId, string> = {
+  pirates3d: "قراصنة سلا 3D: حرب السفن 🏴‍☠️💣",
   onitama3d: "شطرنج وأونيتاما 3D ♟️🐉",
   dib3d: "الذيب 3D: الدرب المظلم 🐺🔪",
   sandala: "صندالة الواليدة 3D 🩴🔥",
@@ -1092,6 +1094,19 @@ function renderActiveGameView(
   onRefresh?: () => void
 ) {
   switch (gameId) {
+    case "pirates3d":
+      return (
+        <Pirates3DGameView
+          publicData={publicData}
+          privateData={privateData}
+          isHost={isHost}
+          onAction={onAction}
+          players={players}
+          activePlayerId={activePlayerId}
+          roomCode={roomCode}
+          onRefresh={onRefresh}
+        />
+      );
     case "onitama3d":
       return (
         <Onitama3DGameView
