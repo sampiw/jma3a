@@ -593,34 +593,16 @@ export function Pirates3DGameView({
       {/* ZONE 3: SLIM CREDITS FOOTER */}
       <footer
         dir="ltr"
-        className="shrink-0 z-20 bg-slate-950/95 border-t border-sky-900/60 py-1.5 px-3 flex flex-wrap items-center justify-center gap-3 text-[10px] font-bold text-slate-400"
+        className="shrink-0 z-20 bg-slate-950/95 border-t border-sky-900/60 py-1.5 px-3 flex flex-wrap items-center justify-center gap-2 text-[10px] font-bold text-slate-400"
       >
         <span>Created by sampiw:</span>
-        <a
-          href="https://www.instagram.com/sampiw/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-pink-400 hover:text-pink-300 underline-offset-2 hover:underline"
-        >
-          Instagram
-        </a>
-        <span>•</span>
         <a
           href="https://github.com/sampiw"
           target="_blank"
           rel="noopener noreferrer"
           className="text-slate-200 hover:text-white underline-offset-2 hover:underline"
         >
-          GitHub
-        </a>
-        <span>•</span>
-        <a
-          href="https://t.me/sampiw"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sky-400 hover:text-sky-300 underline-offset-2 hover:underline"
-        >
-          Telegram @sampiw
+          GitHub @sampiw
         </a>
       </footer>
 
