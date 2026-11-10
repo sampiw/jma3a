@@ -8,10 +8,7 @@ import { PassThePhoneCurtain } from "@/components/PassThePhoneCurtain";
 import { DibGameView } from "@/components/games/DibGameView";
 import { DibNightTimer } from "@/components/games/DibNightTimer";
 import { Dib3DGameView } from "@/components/games/Dib3DGameView";
-import { Onitama3DGameView } from "@/components/games/Onitama3DGameView";
-import { Pirates3DGameView } from "@/components/games/Pirates3DGameView";
 import { GhammadaGameView } from "@/components/games/GhammadaGameView";
-import { SandalaGameView } from "@/components/games/SandalaGameView";
 import { IntrusGameView } from "@/components/games/IntrusGameView";
 import { ChkonFinaGameView } from "@/components/games/ChkonFinaGameView";
 import { MettelhaGameView } from "@/components/games/MettelhaGameView";
@@ -41,14 +38,11 @@ import {
   Minimize,
 } from "lucide-react";
 
-// Active flagship games: Pirates 3D, Onitama & Chess 3D, DIB 3D, Sandala 3D, Ghammada 3D & Classic DIB
-const ACTIVE_GAMES: GameId[] = ["pirates3d", "onitama3d", "dib3d", "sandala", "ghammada", "dib"];
+// Active flagship games: DIB 3D, Ghammada 3D & Classic DIB
+const ACTIVE_GAMES: GameId[] = ["dib3d", "ghammada", "dib"];
 
 const GAME_NAMES: Record<GameId, string> = {
-  pirates3d: "قراصنة سلا 3D: حرب السفن 🏴‍☠️💣",
-  onitama3d: "شطرنج وأونيتاما 3D ♟️🐉",
   dib3d: "الذيب 3D: الدرب المظلم 🐺🔪",
-  sandala: "صندالة الواليدة 3D 🩴🔥",
   ghammada: "غمّيضة 3D (Prop Hunt) 📦🔨",
   dib: "الذيب الكلاسيكي (DIB) 🐺",
   intrus: "الدخيل (L'Intrus)",
@@ -186,27 +180,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       return;
     }
 
-    // Auto-switch local player on 1-device multi-player in Onitama/Chess 3D
-    if (
-      gameState?.room?.selectedGameId === "onitama3d" &&
-      devPlayers.length > 1 &&
-      gameData
-    ) {
-      const boardTurnPlayerId =
-        gameData.turn === "GOLD"
-          ? gameData.goldPlayerId
-          : gameData.crimsonPlayerId;
-      if (
-        typeof boardTurnPlayerId === "string" &&
-        devPlayers.some((p) => p.id === boardTurnPlayerId)
-      ) {
-        if (activeLocalPlayerId !== boardTurnPlayerId) {
-          setActiveLocalPlayerId(boardTurnPlayerId);
-        }
-        return;
-      }
-    }
-
     // 1. Check DIB One-Phone relay turn
     const relayTurnId = (gameState?.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId;
     if (relayTurnId && devPlayers.some((p) => p.id === relayTurnId)) {
@@ -236,9 +209,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   }, [
     gameState?.room?.selectedGameId,
     gameState?.room?.gameView?.publicData.phase,
-    gameState?.room?.gameView?.publicData.turn,
-    gameState?.room?.gameView?.publicData.goldPlayerId,
-    gameState?.room?.gameView?.publicData.crimsonPlayerId,
     gameState?.room?.gameView?.publicData.currentShooterId,
     (gameState?.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId,
     gameState?.passThePhone?.currentPlayerId,
@@ -1078,51 +1048,12 @@ function renderActiveGameView(
   onRefresh?: () => void
 ) {
   switch (gameId) {
-    case "pirates3d":
-      return (
-        <Pirates3DGameView
-          publicData={publicData}
-          privateData={privateData}
-          isHost={isHost}
-          onAction={onAction}
-          players={players}
-          activePlayerId={activePlayerId}
-          roomCode={roomCode}
-          onRefresh={onRefresh}
-        />
-      );
-    case "onitama3d":
-      return (
-        <Onitama3DGameView
-          publicData={publicData}
-          privateData={privateData}
-          isHost={isHost}
-          onAction={onAction}
-          players={players}
-          activePlayerId={activePlayerId}
-          roomCode={roomCode}
-          onRefresh={onRefresh}
-        />
-      );
     case "dib3d":
       return (
         <Dib3DGameView
           publicData={publicData}
           privateData={privateData}
           myRole={myRole}
-          isHost={isHost}
-          onAction={onAction}
-          players={players}
-          activePlayerId={activePlayerId}
-          roomCode={roomCode}
-          onRefresh={onRefresh}
-        />
-      );
-    case "sandala":
-      return (
-        <SandalaGameView
-          publicData={publicData}
-          privateData={privateData}
           isHost={isHost}
           onAction={onAction}
           players={players}

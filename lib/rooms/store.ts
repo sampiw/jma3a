@@ -210,6 +210,11 @@ export class RoomStore {
       try {
         const fromRedis = await redis.get<GameRoom>(`jma3a:room:${norm}`);
         if (fromRedis) {
+          if (!getGameDefinition(fromRedis.selectedGameId)) {
+            fromRedis.selectedGameId = "dib3d";
+            fromRedis.status = "LOBBY";
+            fromRedis.activeSessionId = undefined;
+          }
           this.rooms.set(norm, fromRedis);
           return fromRedis;
         }

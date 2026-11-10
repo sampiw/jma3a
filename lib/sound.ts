@@ -131,32 +131,7 @@ class SoundEngine {
     });
   }
 
-  /** Whistling missile sound when Mama throws a flying Sandala */
-  playSandalaThrow() {
-    if (this.isMuted) return;
-    this.init();
-    if (!this.ctx) return;
-
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(620, now);
-    osc.frequency.exponentialRampToValueAtTime(1350, now + 0.14);
-    osc.frequency.exponentialRampToValueAtTime(340, now + 0.38);
-
-    gain.gain.setValueAtTime(0.25, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
-
-    osc.connect(gain);
-    gain.connect(this.ctx.destination);
-
-    osc.start(now);
-    osc.stop(now + 0.38);
-  }
-
-  /** Loud slap/smack when a Sandala or Broom hits a target */
+  /** Punchy smack sound when hitting or pushing a target */
   playSlapSmack() {
     if (this.isMuted) return;
     this.init();
