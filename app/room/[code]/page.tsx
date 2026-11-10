@@ -7,6 +7,7 @@ import { QRCodeModal } from "@/components/QRCodeModal";
 import { PassThePhoneCurtain } from "@/components/PassThePhoneCurtain";
 import { DibGameView } from "@/components/games/DibGameView";
 import { DibNightTimer } from "@/components/games/DibNightTimer";
+import { Carbon3DGameView } from "@/components/games/Carbon3DGameView";
 import { Dib3DGameView } from "@/components/games/Dib3DGameView";
 import { GhammadaGameView } from "@/components/games/GhammadaGameView";
 import { IntrusGameView } from "@/components/games/IntrusGameView";
@@ -38,10 +39,11 @@ import {
   Minimize,
 } from "lucide-react";
 
-// Active flagship games: DIB 3D, Ghammada 3D & Classic DIB
-const ACTIVE_GAMES: GameId[] = ["dib3d", "ghammada", "dib"];
+// Active flagship games: PROTOCOL CARBON 3D, DIB 3D, Ghammada 3D & Classic DIB
+const ACTIVE_GAMES: GameId[] = ["carbon3d", "dib3d", "ghammada", "dib"];
 
 const GAME_NAMES: Record<GameId, string> = {
+  carbon3d: "كاربون 3D: حرب السايبر ⚡🎯",
   dib3d: "الذيب 3D: الدرب المظلم 🐺🔪",
   ghammada: "غمّيضة 3D (Prop Hunt) 📦🔨",
   dib: "الذيب الكلاسيكي (DIB) 🐺",
@@ -588,6 +590,52 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   <span>عرض QR</span>
                 </button>
               </div>
+
+              {/* Carbon 3D Quick Mode Selector in Lobby */}
+              {room.selectedGameId === "carbon3d" && (
+                <div className="mt-4 pt-3.5 border-t border-jma3a-border/50">
+                  <span className="text-[11px] text-cyan-300 font-bold block mb-2">
+                    طور المعركة (1 حتى 8 لاعبين بالويفي أو فردي مع البوتات):
+                  </span>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(
+                      [
+                        { id: "FFA", label: "الكل ضد الكل 🔥" },
+                        { id: "SQUAD", label: "فرق 4v4 ⚡" },
+                        { id: "SURVIVAL", label: "صمود تعاوني 🤖" },
+                      ] as const
+                    ).map((m) => {
+                      const curMode =
+                        ((room.settings.gameSettings as any)?.mode as string) || "FFA";
+                      const active = curMode === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          disabled={!isHost}
+                          onClick={async () => {
+                            sound.playCardFlip();
+                            await fetch(`/api/rooms/${roomCode}/settings`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                gameSettings: { mode: m.id },
+                              }),
+                            });
+                            fetchState();
+                          }}
+                          className={`py-2 px-2 rounded-xl text-[11px] font-black border transition-all ${
+                            active
+                              ? "bg-cyan-950/90 border-cyan-400 text-cyan-200 shadow-md"
+                              : "bg-jma3a-dark/80 border-jma3a-border text-jma3a-muted hover:text-white"
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Players Roster */}
@@ -1048,6 +1096,19 @@ function renderActiveGameView(
   onRefresh?: () => void
 ) {
   switch (gameId) {
+    case "carbon3d":
+      return (
+        <Carbon3DGameView
+          publicData={publicData}
+          privateData={privateData}
+          isHost={isHost}
+          onAction={onAction}
+          players={players}
+          activePlayerId={activePlayerId}
+          roomCode={roomCode}
+          onRefresh={onRefresh}
+        />
+      );
     case "dib3d":
       return (
         <Dib3DGameView

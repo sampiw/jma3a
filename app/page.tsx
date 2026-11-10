@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { sound } from "@/lib/sound";
+import { Carbon3DIcon } from "@/components/icons/Carbon3DIcon";
 import { DibWolfIcon } from "@/components/icons/DibWolfIcon";
 import { Dib3DIcon } from "@/components/icons/Dib3DIcon";
 import { GhammadaIcon } from "@/components/icons/GhammadaIcon";
@@ -33,6 +34,18 @@ interface GameInfo {
 }
 
 const GAMES: GameInfo[] = [
+  {
+    id: "carbon3d",
+    title: "كاربون 3D: حرب السايبر ⚡🎯",
+    tagline: "شووتير خيال علمي 60FPS — فردي أو حتى لـ 8 بالويفي! 🚀🔥",
+    description:
+      "ادخل للأرينا المدارية 3D بدرع الكاربون والنفاثات! 4 أسلحة مستقبلية (رشاش البلازما، شوتغن الصدمة، قناص الليزر XR-1، وقاذف البلازما المرتد)، منصات قفز، تصويب ذكي تلقائي بالهاتف، و 3 أطوار: حرب الكل ضد الكل، حرب الفرق 4v4، وصمود الموجات!",
+    players: "1-8 لاعبين",
+    duration: "3-10 دقائق",
+    modes: ["كل واحد بتليفونو 📱", "لعب فردي Solo ⚡", "تعاوني ضد الآليين 🤖"],
+    icon: <Carbon3DIcon className="w-14 h-14" />,
+    badgeColor: "from-cyan-500/40 to-rose-950/60 border-cyan-400/60 text-cyan-200",
+  },
   {
     id: "dib3d",
     title: "الذيب 3D: الدرب المظلم 🐺🔪",
@@ -78,10 +91,11 @@ export default function HomePage() {
 
   // Create room modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<GameId>("dib3d");
+  const [selectedGame, setSelectedGame] = useState<GameId>("carbon3d");
   const [hostNickname, setHostNickname] = useState("");
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("MULTI_PHONE");
   const [isCreating, setIsCreating] = useState(false);
+  const [launchingSolo, setLaunchingSolo] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   const toggleSound = () => {
@@ -101,10 +115,36 @@ export default function HomePage() {
   const openCreateForGame = (gameId: GameId) => {
     sound.playCardFlip();
     setSelectedGame(gameId);
-    if (gameId === "dib3d" || gameId === "ghammada") {
+    if (gameId === "carbon3d" || gameId === "dib3d" || gameId === "ghammada") {
       setInteractionMode("MULTI_PHONE");
     }
     setCreateModalOpen(true);
+  };
+
+  const handleInstantSoloCarbon = async () => {
+    if (launchingSolo) return;
+    setLaunchingSolo(true);
+    sound.playCardFlip();
+    try {
+      const res = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hostNickname: "STRIKER-1",
+          gameId: "carbon3d",
+          mode: "MULTI_PHONE",
+          locale: "darija",
+          avatarSeed: "avatar_1",
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.roomCode) {
+        await fetch(`/api/rooms/${data.roomCode}/start`, { method: "POST" });
+        router.push(`/room/${data.roomCode}`);
+        return;
+      }
+    } catch {}
+    setLaunchingSolo(false);
   };
 
   const handleCreateRoom = async () => {
@@ -274,14 +314,34 @@ export default function HomePage() {
                 </div>
 
                 {/* Play CTA Button */}
-                <button
-                  onClick={() => openCreateForGame(game.id)}
-                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold text-sm shadow-lg shadow-jma3a-terracotta/20 hover:shadow-jma3a-terracotta/40 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
-                >
-                  <Play className="w-4 h-4 fill-white" />
-                  <span>بدا هاد اللعبة</span>
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
+                {game.id === "carbon3d" ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      onClick={() => openCreateForGame(game.id)}
+                      className="py-3.5 px-3 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold text-xs sm:text-sm shadow-lg shadow-jma3a-terracotta/20 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <Play className="w-4 h-4 fill-white shrink-0" />
+                      <span>غرفة بالويفي (1-8)</span>
+                    </button>
+                    <button
+                      onClick={handleInstantSoloCarbon}
+                      disabled={launchingSolo}
+                      className="py-3.5 px-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-700 border border-cyan-400/50 text-white font-bold text-xs sm:text-sm shadow-lg shadow-cyan-500/20 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-60"
+                    >
+                      <Sparkles className="w-4 h-4 text-cyan-200 shrink-0" />
+                      <span>{launchingSolo ? "جاري الدخول..." : "لعب بوحدك Solo ⚡"}</span>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => openCreateForGame(game.id)}
+                    className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold text-sm shadow-lg shadow-jma3a-terracotta/20 hover:shadow-jma3a-terracotta/40 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    <span>بدا هاد اللعبة</span>
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
           ))}
