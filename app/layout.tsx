@@ -7,6 +7,11 @@ export const metadata: Metadata = {
   title: "JMA3A | جماعة — ألعاب جماعية مغربية",
   description: "ألعاب جماعية تفاعلية مغربية للأصدقاء والعائلة: الذيب، الدخيل، شكون فينا، مثلها، ممنوع، ومهمة سرية. بلا تحميل وبلا تسجيل!",
   manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "JMA3A",
+  },
   icons: {
     icon: "/icon.svg",
     apple: "/icon.svg",
@@ -18,6 +23,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  viewportFit: "cover",
   themeColor: "#0B0E14",
 };
 

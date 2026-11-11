@@ -84,22 +84,21 @@ describe("PROTOCOL: CARBON 3D Engine & Physics", () => {
     expect(bossWave.some((b) => b.archetype === "BOSS_MECH")).toBe(true);
   });
 
-  it("computes multi-elevation ramp & platform heights, obstacle raycasts, and AI bot ticks", () => {
-    // Central platform top height when already elevated
-    expect(sampleArenaGroundHeight(0, 0, CORE_PLATFORM_HEIGHT)).toBeCloseTo(CORE_PLATFORM_HEIGHT);
-    // Midpoint of North core ramp
-    const rampMidY = sampleArenaGroundHeight(0, -7.2, 0.5);
-    expect(rampMidY).toBeGreaterThan(0.3);
-    expect(rampMidY).toBeLessThan(CORE_PLATFORM_HEIGHT);
+  it("computes flat stadium ground height, low-cover obstacle raycasts, airborne jump-over, and AI bot ticks", () => {
+    expect(sampleArenaGroundHeight(0, 0, CORE_PLATFORM_HEIGHT)).toBe(0);
 
-    // Raycast against North spawn shield wall at z = -16.8
-    const hit = raycastArenaWorld(0, 1.2, -21, 0, 0, 1, 10);
+    // Raycast against North spawn sandstone cover wall at z = -12.4 (height 1.45m)
+    const hit = raycastArenaWorld(0, 0.95, -16.5, 0, 0, 1, 10);
     expect(hit).not.toBeNull();
     expect(hit!.t).toBeLessThan(5);
 
-    // Sliding collision clamps inside octagonal arena bounds
+    // Sliding collision clamps inside 38m x 38m rounded stadium bounds
     const clamped = resolveArenaMovement(40, 0, 0);
-    expect(clamped.x).toBeLessThan(25);
+    expect(clamped.x).toBeLessThan(19);
+
+    // Airborne hero (y = 1.6m from Jump-Pad) flies smoothly OVER low 1.45m cover walls!
+    const airborneOverWall = resolveArenaMovement(0, 1.6, -12.4);
+    expect(airborneOverWall.z).toBeCloseTo(-12.4);
 
     // Step AI bots safely
     const players = makePlayers(1);
