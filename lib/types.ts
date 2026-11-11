@@ -28,7 +28,7 @@ export interface DeviceSession {
   lastSeenAt: number;
 }
 
-export type GameId = 'diib-cards' | 'carbon3d' | 'dib3d' | 'ghammada' | 'dib' | 'intrus' | 'chkon-fina' | 'mettelha' | 'mamnou3' | 'mission-sirriya';
+export type GameId = 'ksida3d' | 'diib-cards' | 'carbon3d' | 'dib3d' | 'ghammada' | 'dib' | 'intrus' | 'chkon-fina' | 'mettelha' | 'mamnou3' | 'mission-sirriya';
 
 export type GameCapability =
   | 'MULTI_PHONE'

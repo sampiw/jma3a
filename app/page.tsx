@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { sound } from "@/lib/sound";
+import { Ksida3DIcon } from "@/components/icons/Ksida3DIcon";
 import { Carbon3DIcon } from "@/components/icons/Carbon3DIcon";
 import { DiibCardsIcon } from "@/components/icons/DiibCardsIcon";
 import { DibWolfIcon } from "@/components/icons/DibWolfIcon";
@@ -35,6 +36,18 @@ interface GameInfo {
 }
 
 const GAMES: GameInfo[] = [
+  {
+    id: "ksida3d",
+    title: "كسيدة رويال 3D: حرب الطاكسيات 🚕💥🩴",
+    tagline: "جديد! سباق وتفركيع الطوموبيلات + صندالة الواليدة الموجهة! 🔥🛞",
+    description:
+      "سوق طاكسي صغير حمر، مرسيدس 240 الكبيرة، C15 الخطّاف أو التريبورتور فـ مدار الكورنيش والروندا 3D! دير دريفت مشحر، صيفط صندالة الواليدة وبوطاغاز طائر، ووجد الكونسطا لصحابك بالهاتف والـ PC!",
+    players: "1-8 شيفورات",
+    duration: "3-8 دقائق",
+    modes: ["هاتف + PC بالويفي 📱💻", "لعب فردي Solo ⚡", "سباق + حرب الروندا 💥"],
+    icon: <Ksida3DIcon className="w-14 h-14" />,
+    badgeColor: "from-orange-500/45 to-rose-950/70 border-amber-400/75 text-amber-200",
+  },
   {
     id: "diib-cards",
     title: "DIIB CARDS: كوارط الذيب 🃏👑",
@@ -104,11 +117,11 @@ export default function HomePage() {
 
   // Create room modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<GameId>("carbon3d");
+  const [selectedGame, setSelectedGame] = useState<GameId>("ksida3d");
   const [hostNickname, setHostNickname] = useState("");
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("MULTI_PHONE");
   const [isCreating, setIsCreating] = useState(false);
-  const [launchingSolo, setLaunchingSolo] = useState(false);
+  const [launchingSoloGame, setLaunchingSoloGame] = useState<GameId | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
 
   const toggleSound = () => {
@@ -128,23 +141,28 @@ export default function HomePage() {
   const openCreateForGame = (gameId: GameId) => {
     sound.playCardFlip();
     setSelectedGame(gameId);
-    if (gameId === "carbon3d" || gameId === "dib3d" || gameId === "ghammada") {
+    if (
+      gameId === "ksida3d" ||
+      gameId === "carbon3d" ||
+      gameId === "dib3d" ||
+      gameId === "ghammada"
+    ) {
       setInteractionMode("MULTI_PHONE");
     }
     setCreateModalOpen(true);
   };
 
-  const handleInstantSoloCarbon = async () => {
-    if (launchingSolo) return;
-    setLaunchingSolo(true);
+  const handleInstantSoloLaunch = async (gameId: "ksida3d" | "carbon3d") => {
+    if (launchingSoloGame) return;
+    setLaunchingSoloGame(gameId);
     sound.playCardFlip();
     try {
       const res = await fetch("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          hostNickname: "STRIKER-1",
-          gameId: "carbon3d",
+          hostNickname: gameId === "ksida3d" ? "مول الطاكسي 🚕" : "STRIKER-1",
+          gameId,
           mode: "MULTI_PHONE",
           locale: "darija",
           avatarSeed: "avatar_1",
@@ -157,7 +175,7 @@ export default function HomePage() {
         return;
       }
     } catch {}
-    setLaunchingSolo(false);
+    setLaunchingSoloGame(null);
   };
 
   const handleCreateRoom = async () => {
@@ -327,7 +345,7 @@ export default function HomePage() {
                 </div>
 
                 {/* Play CTA Button */}
-                {game.id === "carbon3d" ? (
+                {game.id === "ksida3d" || game.id === "carbon3d" ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <button
                       onClick={() => openCreateForGame(game.id)}
@@ -337,12 +355,18 @@ export default function HomePage() {
                       <span>غرفة بالويفي (1-8)</span>
                     </button>
                     <button
-                      onClick={handleInstantSoloCarbon}
-                      disabled={launchingSolo}
-                      className="py-3.5 px-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-700 border border-cyan-400/50 text-white font-bold text-xs sm:text-sm shadow-lg shadow-cyan-500/20 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-60"
+                      onClick={() => handleInstantSoloLaunch(game.id as "ksida3d" | "carbon3d")}
+                      disabled={Boolean(launchingSoloGame)}
+                      className={`py-3.5 px-3 rounded-2xl border text-white font-bold text-xs sm:text-sm shadow-lg hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-60 ${
+                        game.id === "ksida3d"
+                          ? "bg-gradient-to-r from-amber-500 to-rose-600 border-amber-300/60 shadow-amber-500/20"
+                          : "bg-gradient-to-r from-cyan-600 to-blue-700 border-cyan-400/50 shadow-cyan-500/20"
+                      }`}
                     >
-                      <Sparkles className="w-4 h-4 text-cyan-200 shrink-0" />
-                      <span>{launchingSolo ? "جاري الدخول..." : "لعب بوحدك Solo ⚡"}</span>
+                      <Sparkles className="w-4 h-4 text-yellow-100 shrink-0" />
+                      <span>
+                        {launchingSoloGame === game.id ? "جاري الدخول..." : "لعب بوحدك Solo ⚡"}
+                      </span>
                     </button>
                   </div>
                 ) : (

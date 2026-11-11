@@ -6,6 +6,7 @@ import { AuthorizedGameState, GameId, DevicePlayerInfo } from "@/lib/types";
 import { QRCodeModal } from "@/components/QRCodeModal";
 import { PassThePhoneCurtain } from "@/components/PassThePhoneCurtain";
 import { DiibCardsGameView } from "@/components/games/DiibCardsGameView";
+import { Ksida3DGameView } from "@/components/games/Ksida3DGameView";
 import { DibGameView } from "@/components/games/DibGameView";
 import { DibNightTimer } from "@/components/games/DibNightTimer";
 import { Carbon3DGameView } from "@/components/games/Carbon3DGameView";
@@ -40,10 +41,11 @@ import {
   Minimize,
 } from "lucide-react";
 
-// Active flagship games: DIIB CARDS, PROTOCOL CARBON 3D, DIB 3D, Ghammada 3D & Classic DIB
-const ACTIVE_GAMES: GameId[] = ["diib-cards", "carbon3d", "dib3d", "ghammada", "dib"];
+// Active flagship games: KSIDA ROYAL 3D, DIIB CARDS, PROTOCOL CARBON 3D, DIB 3D, Ghammada 3D & Classic DIB
+const ACTIVE_GAMES: GameId[] = ["ksida3d", "diib-cards", "carbon3d", "dib3d", "ghammada", "dib"];
 
 const GAME_NAMES: Record<GameId, string> = {
+  ksida3d: "كسيدة رويال 3D: حرب الطاكسيات 🚕💥🩴",
   "diib-cards": "DIIB CARDS: كوارط الذيب 🃏👑",
   carbon3d: "عملية الأطلس 3D: فرقة النخبة 🪖🔥",
   dib3d: "الذيب 3D: الدرب المظلم 🐺🔪",
@@ -679,6 +681,52 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   </div>
                 </div>
               )}
+
+              {/* Ksida Royal 3D Quick Mode Selector in Lobby */}
+              {room.selectedGameId === "ksida3d" && (
+                <div className="mt-4 pt-3.5 border-t border-jma3a-border/50">
+                  <span className="text-[11px] text-amber-300 font-bold block mb-2">
+                    طور كسيدة رويال 3D (1 حتى 8 شيفورات بالويفي أو سولو مع البوتات):
+                  </span>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(
+                      [
+                        { id: "RACE", label: "سباق الكسيدة 🏁" },
+                        { id: "DERBY", label: "حرب الروندا 👑" },
+                        { id: "HOT_BOMB", label: "قنبلة البوطا 💣" },
+                      ] as const
+                    ).map((m) => {
+                      const curMode =
+                        ((room.settings.gameSettings as any)?.mode as string) || "RACE";
+                      const active = curMode === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          disabled={!isHost}
+                          onClick={async () => {
+                            sound.playCardFlip();
+                            await fetch(`/api/rooms/${roomCode}/settings`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                gameSettings: { mode: m.id },
+                              }),
+                            });
+                            fetchState();
+                          }}
+                          className={`py-2 px-2 rounded-xl text-[11px] font-black border transition-all ${
+                            active
+                              ? "bg-amber-950/90 border-amber-400 text-amber-200 shadow-md"
+                              : "bg-jma3a-dark/80 border-jma3a-border text-jma3a-muted hover:text-white"
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Players Roster */}
@@ -1153,6 +1201,19 @@ function renderActiveGameView(
   onRefresh?: () => void
 ) {
   switch (gameId) {
+    case "ksida3d":
+      return (
+        <Ksida3DGameView
+          publicData={publicData}
+          privateData={privateData}
+          isHost={isHost}
+          onAction={onAction}
+          players={players}
+          activePlayerId={activePlayerId}
+          roomCode={roomCode}
+          onRefresh={onRefresh}
+        />
+      );
     case "diib-cards":
       return (
         <DiibCardsGameView

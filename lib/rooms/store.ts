@@ -11,6 +11,7 @@ import {
 import { generateRoomCode, normalizeRoomCode } from "./code";
 import { getGameDefinition } from "@/games";
 import { buildHumanCombatant, DEFAULT_CARBON_SETTINGS } from "@/games/carbon3d/engine";
+import { buildHumanRacer, DEFAULT_KSIDA_SETTINGS } from "@/games/ksida3d/engine";
 import { realtimeHub } from "@/lib/realtime/pubsub";
 import { Redis } from "@upstash/redis";
 import fs from "node:fs";
@@ -273,7 +274,12 @@ export class RoomStore {
       room.status === "ACTIVE" &&
       room.players.filter((p) => p.status !== "LEFT").length < 8;
 
-    if (room.status !== "LOBBY" && !canHotJoinCarbon) {
+    const canHotJoinKsida =
+      room.selectedGameId === "ksida3d" &&
+      room.status === "ACTIVE" &&
+      room.players.filter((p) => p.status !== "LEFT").length < 8;
+
+    if (room.status !== "LOBBY" && !canHotJoinCarbon && !canHotJoinKsida) {
       return { success: false, error: "اللعبة بدات ديجا فهاد الغرفة!" };
     }
 
@@ -326,6 +332,35 @@ export class RoomStore {
           for (const [cid, unit] of Object.entries(session.state.combatants)) {
             if ((unit as any)?.isBot) {
               delete session.state.combatants[cid];
+            }
+          }
+        }
+        session.stateVersion = (session.stateVersion || 1) + 1;
+        await this.persistSession(session);
+      }
+    }
+
+    // Inject late-joining racer directly into an active Ksida Royal 3D match!
+    if (canHotJoinKsida && room.activeSessionId) {
+      const session = await this.getSession(room.activeSessionId);
+      if (session && session.state && session.state.racers) {
+        const settings = {
+          ...DEFAULT_KSIDA_SETTINGS,
+          ...(session.state.settings || {}),
+        };
+        const activeIdx = room.players.filter((p) => p.status !== "LEFT").length - 1;
+        session.state.racers[newPlayer.id] = buildHumanRacer(
+          newPlayer,
+          Math.max(0, activeIdx),
+          settings
+        );
+        const humanTotal = Object.values(session.state.racers).filter(
+          (u: any) => u && !u.isBot
+        ).length;
+        if (humanTotal >= 2 && !settings.botFill) {
+          for (const [rid, unit] of Object.entries(session.state.racers)) {
+            if ((unit as any)?.isBot) {
+              delete session.state.racers[rid];
             }
           }
         }
