@@ -4,6 +4,7 @@ import { POST as livePost } from "@/app/api/rooms/[code]/live/route";
 import { createSurvivalWaveBots, stepArenaBots } from "@/games/carbon3d/ai";
 import {
   ARENA_HALF,
+  ARENA_JUMP_PADS,
   CORE_PLATFORM_HEIGHT,
   createInitialBarrels,
   HARDPOINT_ZONES,
@@ -105,37 +106,38 @@ describe("OPERATION ATLAS 3D Engine, Multi-Level Outpost Physics & Live Relay", 
     expect(bossWave.some((b) => b.archetype === "BOSS_MECH")).toBe(true);
   });
 
-  it("computes 96m x 96m Coastal Outpost multi-level elevation, ramps, retaining walls, raycasts & AI bot ticks", () => {
-    expect(ARENA_HALF).toBe(48);
-    expect(HARDPOINT_ZONES.length).toBe(3);
-    expect(createInitialBarrels().length).toBeGreaterThanOrEqual(8);
+  it("computes 168m x 168m Multi-Sector Island Base elevation, 5 hardpoints, jump pads, ramps, retaining walls & AI bot ticks", () => {
+    expect(ARENA_HALF).toBe(84);
+    expect(HARDPOINT_ZONES.length).toBe(5);
+    expect(ARENA_JUMP_PADS.length).toBe(4);
+    expect(createInitialBarrels().length).toBeGreaterThanOrEqual(14);
 
-    // Central Helipad Deck @ y = 1.6m & East Kasbah Sniper Terrace @ y = 2.0m
-    expect(sampleArenaGroundHeight(0, 0, CORE_PLATFORM_HEIGHT)).toBeCloseTo(1.6);
-    expect(sampleArenaGroundHeight(33.0, 0, 2.0)).toBeCloseTo(2.0);
+    // Central Helipad Deck @ y = 1.8m & East Kasbah Sniper Terrace @ y = 2.2m
+    expect(sampleArenaGroundHeight(0, 0, CORE_PLATFORM_HEIGHT)).toBeCloseTo(1.8);
+    expect(sampleArenaGroundHeight(58.0, 0, 2.2)).toBeCloseTo(2.2);
 
-    // North Helipad Ramp smoothly interpolates between y = 0 (z = -14.2) and y = 1.6 (z = -9.0)
-    const midRampY = sampleArenaGroundHeight(0, -11.6, 0.8);
-    expect(midRampY).toBeGreaterThan(0.6);
-    expect(midRampY).toBeLessThan(1.0);
+    // North Helipad Ramp smoothly interpolates between y = 0 (z = -18.5) and y = 1.8 (z = -12.0)
+    const midRampY = sampleArenaGroundHeight(0, -15.25, 0.9);
+    expect(midRampY).toBeGreaterThan(0.7);
+    expect(midRampY).toBeLessThan(1.1);
 
     // Retaining wall blocks ground-level player walking into side of Helipad off-ramp
-    const blockedByRetainingWall = resolveArenaMovement(6.0, 0, -8.8);
-    expect(blockedByRetainingWall.z).toBeLessThanOrEqual(-9.4);
+    const blockedByRetainingWall = resolveArenaMovement(8.0, 0, -11.8);
+    expect(blockedByRetainingWall.z).toBeLessThanOrEqual(-12.4);
 
     // Ascending ramp near top smoothly enters the Helipad deck without collision snag
-    const smoothRampTop = resolveArenaMovement(0, 1.48, -9.05);
-    expect(smoothRampTop.z).toBeCloseTo(-9.05);
+    const smoothRampTop = resolveArenaMovement(0, 1.68, -12.05);
+    expect(smoothRampTop.z).toBeCloseTo(-12.05);
 
-    // Raycast against North Garrison concrete blast wall at z = -26.5 (height = 2.55m)
-    const hit = raycastArenaWorld(0, 1.2, -31.5, 0, 0, 1, 12);
+    // Raycast against West Cargo ISO shipping container at x = -40.0, z = -13.0 (height = 3.1m)
+    const hit = raycastArenaWorld(-40.0, 1.2, -18.0, 0, 0, 1, 10);
     expect(hit).not.toBeNull();
-    expect(hit!.t).toBeLessThan(6);
+    expect(hit!.t).toBeLessThan(5);
 
-    // Sliding collision clamps inside 96m x 96m island seawall bounds ([-48, +48])
-    const clamped = resolveArenaMovement(62, 0, 0);
-    expect(clamped.x).toBeLessThan(48);
-    expect(clamped.x).toBeGreaterThan(46);
+    // Sliding collision clamps inside 168m x 168m island seawall bounds ([-84, +84])
+    const clamped = resolveArenaMovement(96, 0, 0);
+    expect(clamped.x).toBeLessThan(84);
+    expect(clamped.x).toBeGreaterThan(82);
 
     // Step AI Spec-Ops bots safely with supply drops
     const players = makePlayers(1);
@@ -156,7 +158,11 @@ describe("OPERATION ATLAS 3D Engine, Multi-Level Outpost Physics & Live Relay", 
     expect(Array.isArray(botShots)).toBe(true);
   });
 
-  it("handles CONFIGURE_MATCH, hot-join preserving SYNC_CHECKPOINT, FINISH_MATCH, and RESTART_MATCH", () => {
+  it("handles CONFIGURE_MATCH (including extended match pacing), SYNC_CHECKPOINT, FINISH_MATCH, and RESTART_MATCH", () => {
+    expect(Carbon3DEngine.defaultSettings.targetScoreSquad).toBe(250);
+    expect(Carbon3DEngine.defaultSettings.targetKillsFFA).toBe(25);
+    expect(Carbon3DEngine.defaultSettings.matchDurationSec).toBe(420);
+
     const players = makePlayers(2);
     let state = Carbon3DEngine.createInitialState(players, Carbon3DEngine.defaultSettings);
 
@@ -164,10 +170,12 @@ describe("OPERATION ATLAS 3D Engine, Multi-Level Outpost Physics & Live Relay", 
       type: "CONFIGURE_MATCH",
       mode: "SURVIVAL",
       botDifficulty: "CARBON",
+      matchDurationSec: 600,
     });
     expect(cfgRes.success).toBe(true);
     state = cfgRes.newState;
     expect(state.mode).toBe("SURVIVAL");
+    expect(state.settings.matchDurationSec).toBe(600);
 
     state.combatants["p1"].kills = 12;
     state.combatants["p1"].score = 1400;

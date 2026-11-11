@@ -42,9 +42,9 @@ export const CARBON_WEAPONS: Record<CarbonWeaponId, CarbonWeaponSpec> = {
     damage: 22,
     critMultiplier: 1.45,
     pellets: 1,
-    spreadRad: 0.017,
-    range: 82,
-    projectileSpeed: 94,
+    spreadRad: 0.016,
+    range: 120,
+    projectileSpeed: 105,
     splashRadius: 0,
     bounces: 0,
     knockback: 1.0,
@@ -61,9 +61,9 @@ export const CARBON_WEAPONS: Record<CarbonWeaponId, CarbonWeaponSpec> = {
     damage: 14,
     critMultiplier: 1.35,
     pellets: 7,
-    spreadRad: 0.086,
-    range: 25,
-    projectileSpeed: 76,
+    spreadRad: 0.084,
+    range: 28,
+    projectileSpeed: 82,
     splashRadius: 0,
     bounces: 0,
     knockback: 6.2,
@@ -80,8 +80,8 @@ export const CARBON_WEAPONS: Record<CarbonWeaponId, CarbonWeaponSpec> = {
     damage: 85,
     critMultiplier: 1.95, // 166 headshot damage = instant 1-shot headshot!
     pellets: 1,
-    spreadRad: 0.0025,
-    range: 125,
+    spreadRad: 0.002,
+    range: 205,
     projectileSpeed: 0, // Instant supersonic sniper round
     splashRadius: 0,
     bounces: 0,
@@ -100,8 +100,8 @@ export const CARBON_WEAPONS: Record<CarbonWeaponId, CarbonWeaponSpec> = {
     critMultiplier: 1.15,
     pellets: 1,
     spreadRad: 0.015,
-    range: 62,
-    projectileSpeed: 38,
+    range: 78,
+    projectileSpeed: 42,
     splashRadius: 4.5,
     bounces: 1,
     knockback: 6.5,
@@ -225,6 +225,9 @@ export type CarbonAction =
       mode?: CarbonMode;
       botFill?: boolean;
       botDifficulty?: "NORMAL" | "HARD" | "CARBON";
+      matchDurationSec?: number;
+      targetScoreSquad?: number;
+      targetKillsFFA?: number;
     }
   | {
       type: "SYNC_CHECKPOINT";
@@ -270,6 +273,7 @@ export interface CarbonLivePeerPacket {
   d?: number; // dashing/rolling flag (1 = rolling)
   ab?: number; // airborne flag
   sp?: number; // sprinting flag
+  ts?: number; // turbo sprint ability active flag (1 = turbo)
   t: number; // local receive timestamp
 }
 

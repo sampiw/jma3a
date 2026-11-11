@@ -25,9 +25,9 @@ export const DEFAULT_CARBON_SETTINGS: CarbonSettings = {
   mode: "FFA",
   botFill: false, // Solo (1 human) auto-spawns 4 Spec-Ops bots; 2+ humans = clean PvP unless toggled ON!
   botDifficulty: "HARD",
-  targetKillsFFA: 15,
-  targetScoreSquad: 100,
-  matchDurationSec: 270,
+  targetKillsFFA: 25,
+  targetScoreSquad: 250,
+  matchDurationSec: 420,
 };
 
 export function buildHumanCombatant(
@@ -157,7 +157,7 @@ export const Carbon3DEngine: GameDefinition<CarbonState, CarbonAction, CarbonSet
   version: 3,
   displayNameKey: "عملية الأطلس 3D: فرقة النخبة 🪖🔥",
   shortDescriptionKey:
-    "شووتير تكتيكي بمنظور الكتف (TPS) فـ قاعدة ساحلية عملاقة 96×96م! جنود النخبة، قناص AWP، وبراميل متفجرة بالويفي!",
+    "شووتير تكتيكي بمنظور الكتف (TPS) فـ جزيرة عسكرية عملاقة 168×168م! جري سريع ⚡، منصات قفز، وقناص AWP بالويفي!",
   minPlayers: 1,
   maxPlayers: 8,
   capabilities: ["MULTI_PHONE", "REALTIME", "SCORES", "TIMERS", "TEAM_MODE"],
@@ -214,6 +214,15 @@ export const Carbon3DEngine: GameDefinition<CarbonState, CarbonAction, CarbonSet
           ...(action.mode ? { mode: action.mode } : {}),
           ...(typeof action.botFill === "boolean" ? { botFill: action.botFill } : {}),
           ...(action.botDifficulty ? { botDifficulty: action.botDifficulty } : {}),
+          ...(typeof action.matchDurationSec === "number"
+            ? { matchDurationSec: Math.max(180, Math.min(900, action.matchDurationSec)) }
+            : {}),
+          ...(typeof action.targetScoreSquad === "number"
+            ? { targetScoreSquad: Math.max(80, Math.min(600, action.targetScoreSquad)) }
+            : {}),
+          ...(typeof action.targetKillsFFA === "number"
+            ? { targetKillsFFA: Math.max(10, Math.min(80, action.targetKillsFFA)) }
+            : {}),
         };
         const resetState = createMatchState(ctx.players, nextSettings, state.round + 1);
         return {

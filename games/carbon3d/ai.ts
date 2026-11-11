@@ -212,10 +212,10 @@ export function isStealthedInBush(unit: CarbonCombatant, now: number): boolean {
 }
 
 const HELIPAD_RAMP_ENTRIES = [
-  { x: 0, z: -13.6 },
-  { x: 0, z: 13.6 },
-  { x: -13.6, z: 0 },
-  { x: 13.6, z: 0 },
+  { x: 0, z: -18.0 },
+  { x: 0, z: 18.0 },
+  { x: -18.0, z: 0 },
+  { x: 18.0, z: 0 },
 ];
 
 /**
@@ -237,7 +237,7 @@ export function stepArenaBots(
 
   const fireCadenceMult = difficulty === "CARBON" ? 1.05 : difficulty === "HARD" ? 1.28 : 1.65;
   const aimJitter = difficulty === "CARBON" ? 0.032 : difficulty === "HARD" ? 0.062 : 0.1;
-  const moveSpeedBase = difficulty === "CARBON" ? 5.6 : difficulty === "HARD" ? 5.1 : 4.5;
+  const moveSpeedBase = difficulty === "CARBON" ? 6.9 : difficulty === "HARD" ? 6.2 : 5.4;
 
   const activeHp = HARDPOINT_ZONES[hardpointIndex % HARDPOINT_ZONES.length] || HARDPOINT_ZONES[0];
 
@@ -313,9 +313,9 @@ export function stepArenaBots(
     }
 
     // Smart Ramp Routing when goal is on elevated Helipad (y >= 1.5m) and bot is on ground!
-    if (goalY > 1.0 && bot.y < 0.85 && Math.abs(goalX) < 9.5 && Math.abs(goalZ) < 9.5) {
-      const alignedWithNS = Math.abs(bot.x) <= 2.1 && Math.abs(bot.z) >= 8.8;
-      const alignedWithEW = Math.abs(bot.z) <= 2.1 && Math.abs(bot.x) >= 8.8;
+    if (goalY > 1.0 && bot.y < 0.9 && Math.abs(goalX) < 12.6 && Math.abs(goalZ) < 12.6) {
+      const alignedWithNS = Math.abs(bot.x) <= 2.6 && Math.abs(bot.z) >= 11.8;
+      const alignedWithEW = Math.abs(bot.z) <= 2.6 && Math.abs(bot.x) >= 11.8;
       if (!alignedWithNS && !alignedWithEW) {
         let bestRamp = HELIPAD_RAMP_ENTRIES[0];
         let bestRampD = Infinity;
@@ -340,7 +340,7 @@ export function stepArenaBots(
     let vx = 0;
     let vz = 0;
 
-    if (closestEnemy && closestDist < 52) {
+    if (closestEnemy && closestDist < 78) {
       const toEx = closestEnemy.x - bot.x;
       const toEz = closestEnemy.z - bot.z;
       const len = Math.max(0.001, Math.hypot(toEx, toEz));

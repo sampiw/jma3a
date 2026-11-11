@@ -37,8 +37,8 @@ const POS_BROADCAST_MS = 55; // ~18Hz local physics sampling into coalesced 11Hz
 const POS_HEARTBEAT_MS = 650; // Stationary heartbeat so new joiners see idle peers immediately
 const WORLD_SYNC_MS = 180; // ~5.5Hz authoritative HP/Armor/Hardpoint/Barrels sync
 const CHECKPOINT_API_MS = 10_000; // Persist to Redis every 10s
-const HARDPOINT_ROTATE_MS = 40_000; // Rotate active Hardpoint landmark every 40s!
-const WIN_POINTS_TARGET = 100;
+const HARDPOINT_ROTATE_MS = 45_000; // Rotate active Hardpoint across 5 Island Sectors every 45s!
+const DEFAULT_WIN_POINTS_TARGET = 250;
 
 export interface LocalPlayerPhysicsState {
   x: number;
@@ -52,6 +52,7 @@ export interface LocalPlayerPhysicsState {
   isDashing: boolean;
   isAirborne: boolean;
   isSprinting?: boolean;
+  isTurboSprint?: boolean;
 }
 
 interface UseCarbonNetOptions {
@@ -274,15 +275,17 @@ export function useCarbonNet({
           mode === "SURVIVAL" && victim.isBot ? 0 : now + (mode === "SURVIVAL" ? 4500 : 3000);
 
         if (shooter.id !== victim.id) {
+          const winPtsTarget = settings.targetScoreSquad || DEFAULT_WIN_POINTS_TARGET;
+          const bonusPts = claim.isCrit || claim.weapon === "BARREL" ? 8 : 6;
           shooter.kills += 1;
           shooter.streak += 1;
           shooter.score += victim.archetype === "BOSS_MECH" ? 350 : 100 + shooter.streak * 15;
-          shooter.gems = Math.min(WIN_POINTS_TARGET, (shooter.gems || 0) + 10);
+          shooter.gems = Math.min(winPtsTarget, (shooter.gems || 0) + bonusPts);
 
           if (mode === "SQUAD" && (shooter.team === "CYAN" || shooter.team === "CRIMSON")) {
             teamScoresRef.current[shooter.team] = Math.min(
-              WIN_POINTS_TARGET,
-              teamScoresRef.current[shooter.team] + 10
+              winPtsTarget,
+              teamScoresRef.current[shooter.team] + bonusPts
             );
           }
         }
@@ -446,6 +449,14 @@ export function useCarbonNet({
         const k = payload as CarbonKillEventPacket;
         if (!k) return;
         callbacksRef.current.onKillEvent(k);
+      })
+      .on("broadcast", { event: "stim" }, ({ payload }) => {
+        if (!payload?.playerId) return;
+        const unit = combatantsRef.current[String(payload.playerId)];
+        if (unit && unit.isAlive) {
+          unit.hp = Math.min(unit.maxHp, unit.hp + 28);
+          unit.shield = Math.min(unit.maxShield, unit.shield + 20);
+        }
       })
       .on("broadcast", { event: "world" }, ({ payload }) => {
         const w = payload as CarbonWorldSyncPacket;
@@ -727,13 +738,14 @@ export function useCarbonNet({
       }
 
       // 3. Hardpoint Capture Scoring + Golden Tactical Supply Drops (FFA & SQUAD)
+      const winPtsTarget = settings.targetScoreSquad || DEFAULT_WIN_POINTS_TARGET;
       if (mode !== "SURVIVAL") {
-        // Spawn Golden Supply Crate near active Hardpoint every 11s
-        if (now - lastAirdropAtRef.current >= 11_000) {
+        // Spawn Golden Supply Crate near active Hardpoint every 15s
+        if (now - lastAirdropAtRef.current >= 15_000) {
           lastAirdropAtRef.current = now;
           if (gemsRef.current.length < 4) {
             const ang = Math.random() * Math.PI * 2;
-            const dist = 2.0 + Math.random() * 4.5;
+            const dist = 2.2 + Math.random() * 5.2;
             const pos = resolveArenaMovement(
               activeHp.x + Math.cos(ang) * dist,
               activeHp.y,
@@ -750,12 +762,12 @@ export function useCarbonNet({
           }
         }
 
-        // Collect Golden Supply Crates (+8 Tactical Points + Armor/Overdrive Boost)
+        // Collect Golden Supply Crates (+10 Tactical Points + Armor/Overdrive Boost)
         for (let gIdx = gemsRef.current.length - 1; gIdx >= 0; gIdx--) {
           const drop = gemsRef.current[gIdx];
           const dropY = drop.y ?? 0;
           let collector: CarbonCombatant | null = null;
-          let bestD = 1.65;
+          let bestD = 1.75;
           for (const u of units) {
             if (!u.isAlive || Math.abs(u.y - dropY) > 1.5) continue;
             const d = Math.hypot(u.x - drop.x, u.z - drop.z);
@@ -766,14 +778,14 @@ export function useCarbonNet({
           }
           if (collector) {
             gemsRef.current.splice(gIdx, 1);
-            collector.gems = Math.min(WIN_POINTS_TARGET, (collector.gems || 0) + 8);
-            collector.score += 80;
+            collector.gems = Math.min(winPtsTarget, (collector.gems || 0) + 10);
+            collector.score += 90;
             collector.shield = Math.min(collector.maxShield, collector.shield + 30);
-            collector.overdriveUntil = Math.max(collector.overdriveUntil, now + 5000);
+            collector.overdriveUntil = Math.max(collector.overdriveUntil, now + 5500);
             if (mode === "SQUAD" && (collector.team === "CYAN" || collector.team === "CRIMSON")) {
               teamScoresRef.current[collector.team] = Math.min(
-                WIN_POINTS_TARGET,
-                teamScoresRef.current[collector.team] + 8
+                winPtsTarget,
+                teamScoresRef.current[collector.team] + 10
               );
             }
             if (collector.id === myId) {
@@ -782,7 +794,7 @@ export function useCarbonNet({
           }
         }
 
-        // Evaluate Active Hardpoint Zone Control (+2 Tactical Points / second)
+        // Evaluate Active Hardpoint Zone Control (+2 Tactical Points every 1.5s)
         const holders = units.filter(
           (u) =>
             u.isAlive &&
@@ -791,8 +803,8 @@ export function useCarbonNet({
         );
 
         hardpointScoreAccRef.current += dt;
-        const awardTick = hardpointScoreAccRef.current >= 1.0;
-        if (awardTick) hardpointScoreAccRef.current -= 1.0;
+        const awardTick = hardpointScoreAccRef.current >= 1.5;
+        if (awardTick) hardpointScoreAccRef.current -= 1.5;
 
         if (mode === "SQUAD") {
           const hasCyan = holders.some((h) => h.team === "CYAN");
@@ -803,24 +815,24 @@ export function useCarbonNet({
             coreOwnerRef.current = "CYAN";
             if (awardTick) {
               teamScoresRef.current.CYAN = Math.min(
-                WIN_POINTS_TARGET,
+                winPtsTarget,
                 teamScoresRef.current.CYAN + 2
               );
               for (const h of holders) {
                 h.score += 15;
-                h.gems = Math.min(WIN_POINTS_TARGET, (h.gems || 0) + 2);
+                h.gems = Math.min(winPtsTarget, (h.gems || 0) + 2);
               }
             }
           } else if (hasCrimson) {
             coreOwnerRef.current = "CRIMSON";
             if (awardTick) {
               teamScoresRef.current.CRIMSON = Math.min(
-                WIN_POINTS_TARGET,
+                winPtsTarget,
                 teamScoresRef.current.CRIMSON + 2
               );
               for (const h of holders) {
                 h.score += 15;
-                h.gems = Math.min(WIN_POINTS_TARGET, (h.gems || 0) + 2);
+                h.gems = Math.min(winPtsTarget, (h.gems || 0) + 2);
               }
             }
           } else {
@@ -834,7 +846,7 @@ export function useCarbonNet({
             const sole = holders[0];
             coreOwnerRef.current = sole.id === myId ? "CYAN" : "CRIMSON";
             if (awardTick) {
-              sole.gems = Math.min(WIN_POINTS_TARGET, (sole.gems || 0) + 2);
+              sole.gems = Math.min(winPtsTarget, (sole.gems || 0) + 2);
               sole.score += 20;
             }
           } else {
@@ -915,20 +927,20 @@ export function useCarbonNet({
         });
       }
 
-      // 6. Check Match Win Conditions (First to 100 Tactical Points OR 15 Eliminations OR Time Up)
+      // 6. Check Match Win Conditions (First to 250 Tactical Points OR 25 Eliminations OR Time Up)
       const timeExpired = now >= endsAt;
       if (mode === "FFA") {
         const sorted = [...units].sort(
           (a, b) => (b.gems || 0) - (a.gems || 0) || b.kills - a.kills || b.score - a.score
         );
         const top = sorted[0];
-        const targetKills = settings.targetKillsFFA || 15;
+        const targetKills = settings.targetKillsFFA || 25;
         const reachedGoal =
-          Boolean(top) && ((top.gems || 0) >= WIN_POINTS_TARGET || top.kills >= targetKills);
+          Boolean(top) && ((top.gems || 0) >= winPtsTarget || top.kills >= targetKills);
 
         if ((reachedGoal || timeExpired) && top) {
           finishedSentRef.current = true;
-          const summary = `🪖 ${top.nickname} سيطر على قاعدة الأطلس بـ ${
+          const summary = `🪖 ${top.nickname} سيطر على جزيرة الأطلس بـ ${
             top.gems || 0
           } نقطة تكتيكية و ${top.kills} إقصاء! 🏆`;
           Promise.resolve(
@@ -946,7 +958,7 @@ export function useCarbonNet({
         }
       } else if (mode === "SQUAD") {
         const sc = teamScoresRef.current;
-        const reachedGoal = sc.CYAN >= WIN_POINTS_TARGET || sc.CRIMSON >= WIN_POINTS_TARGET;
+        const reachedGoal = sc.CYAN >= winPtsTarget || sc.CRIMSON >= winPtsTarget;
         if (reachedGoal || timeExpired) {
           finishedSentRef.current = true;
           const winTeam = sc.CYAN >= sc.CRIMSON ? "CYAN" : "CRIMSON";
@@ -1074,7 +1086,7 @@ export function useCarbonNet({
     const me = combatantsRef.current[myId];
     if (!me || !me.isAlive) return;
 
-    const key = `${p.x.toFixed(2)}|${p.y.toFixed(2)}|${p.z.toFixed(2)}|${p.yaw.toFixed(2)}|${p.pitch.toFixed(2)}|${me.weapon}|${p.isDashing ? 1 : 0}`;
+    const key = `${p.x.toFixed(2)}|${p.y.toFixed(2)}|${p.z.toFixed(2)}|${p.yaw.toFixed(2)}|${p.pitch.toFixed(2)}|${me.weapon}|${p.isDashing ? 1 : 0}|${p.isTurboSprint ? 1 : 0}`;
     if (key === lastPosSentRef.current.key && since < POS_HEARTBEAT_MS) return;
     lastPosSentRef.current = { at: now, key };
 
@@ -1091,6 +1103,7 @@ export function useCarbonNet({
       d: p.isDashing ? 1 : 0,
       ab: p.isAirborne ? 1 : 0,
       sp: p.isSprinting ? 1 : 0,
+      ts: p.isTurboSprint ? 1 : 0,
       t: 0,
     };
 
@@ -1162,6 +1175,20 @@ export function useCarbonNet({
     return me.weapon;
   }, [myId]);
 
+  const claimStimBoost = useCallback(() => {
+    const me = combatantsRef.current[myId];
+    if (me && me.isAlive) {
+      me.hp = Math.min(me.maxHp, me.hp + 28);
+      me.shield = Math.min(me.maxShield, me.shield + 20);
+      setHudTick((t) => t + 1);
+    }
+    channelRef.current?.send({
+      type: "broadcast",
+      event: "stim",
+      payload: { playerId: myId },
+    });
+  }, [myId]);
+
   const sendRefresh = useCallback(() => {
     channelRef.current?.send({
       type: "broadcast",
@@ -1190,6 +1217,7 @@ export function useCarbonNet({
     broadcastShot,
     claimHit,
     claimBarrelHit,
+    claimStimBoost,
     swapLocalWeapon,
     sendRefresh,
   };

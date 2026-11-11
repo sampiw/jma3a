@@ -44,7 +44,6 @@ export function loadCarbonHeroAsset(): Promise<GLTF | null> {
     );
   });
 
-  // Warm-cache barrel & airdrop crate GLBs in parallel
   loadExplosiveBarrelAsset();
   loadSupplyCrateAsset();
 
@@ -93,14 +92,29 @@ export function loadSupplyCrateAsset(): Promise<GLTF | null> {
   return crateLoadPromise;
 }
 
+export interface SoldierGripBones {
+  rightShoulder: THREE.Object3D;
+  rightArm: THREE.Object3D;
+  rightForeArm: THREE.Object3D;
+  rightHand: THREE.Object3D;
+  leftShoulder: THREE.Object3D;
+  leftArm: THREE.Object3D;
+  leftForeArm: THREE.Object3D;
+  leftHand: THREE.Object3D;
+  fingerPhalanges: THREE.Object3D[];
+}
+
 export interface StrikerRig {
   root: THREE.Group;
   bodyContainer: THREE.Group;
   groundRingGroup: THREE.Group;
   weaponAnchor: THREE.Group;
+  rightWristSocket: THREE.Object3D;
+  leftWristSocket: THREE.Object3D;
   weaponMeshes: Record<CarbonWeaponId, THREE.Group>;
   muzzleFlash: THREE.Mesh;
   dashTrailCone: THREE.Mesh;
+  turboAuraRing: THREE.Mesh;
   shieldMesh: THREE.Mesh;
   shieldMat: THREE.ShaderMaterial;
   hudSprite: THREE.Sprite;
@@ -109,6 +123,7 @@ export interface StrikerRig {
   lastHudKey: string;
   mixer: THREE.AnimationMixer | null;
   actions: Record<string, THREE.AnimationAction>;
+  gripBones: SoldierGripBones | null;
   currentAnim: string;
   activeWeapon: CarbonWeaponId;
   archetype: CarbonBotArchetype;
@@ -116,6 +131,7 @@ export interface StrikerRig {
   recoil: number;
   shieldFlash: number;
   animPhase: number;
+  heroLoaded?: boolean;
   disposed: boolean;
 }
 
@@ -150,10 +166,8 @@ function getRolePalette(role: HeroVisualRole, archetype: CarbonBotArchetype) {
 
 /**
  * Builds Detailed Grounded Special-Ops 3D Weapons (+Z = Muzzle Forward)
- * 1. CARBINE  -> M4A1 Tactical Carbine with Holo Sight & STANAG Mag
- * 2. SHOTGUN  -> M870 Tactical Pump Breacher
- * 3. RAILGUN  -> AWP Atlas Magnified Sniper Rifle with Scope & Bipod
- * 4. LOBBER   -> M32 6-Shot Rotary Grenade Launcher
+ * Every weapon features an ergonomic Pistol Grip @ (0, -0.065, 0.01) & Foregrip/Handguard @ (0, -0.025, 0.30)
+ * so the 2-Bone IK solver wraps both of the soldier's hands directly onto the weapon!
  */
 export function buildWeaponMesh(weaponId: CarbonWeaponId): THREE.Group {
   const mats = getCarbonPBRMaterials();
@@ -168,27 +182,40 @@ export function buildWeaponMesh(weaponId: CarbonWeaponId): THREE.Group {
     metalness: 0.3,
   });
 
+  // Shared Ergonomic Pistol Grip (Right Hand Trigger Grip)
+  const pistolGrip = new THREE.Mesh(
+    new THREE.BoxGeometry(0.042, 0.115, 0.052),
+    mats.weaponDark
+  );
+  pistolGrip.position.set(0, -0.062, 0.012);
+  pistolGrip.rotation.x = -0.24;
+  g.add(pistolGrip);
+
   if (weaponId === "CARBINE") {
-    // Buttstock
     const stock = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.11, 0.22), mats.weaponDark);
-    stock.position.set(0, -0.01, -0.14);
+    stock.position.set(0, -0.01, -0.13);
     g.add(stock);
 
-    // Upper & Lower Receiver
     const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.11, 0.28), mats.weaponDark);
-    receiver.position.set(0, 0.01, 0.08);
+    receiver.position.set(0, 0.012, 0.09);
     g.add(receiver);
 
-    // Curved Magazine
     const mag = new THREE.Mesh(new THREE.BoxGeometry(0.044, 0.17, 0.075), mats.weaponSteel);
-    mag.position.set(0, -0.1, 0.14);
+    mag.position.set(0, -0.1, 0.145);
     mag.rotation.x = 0.22;
     g.add(mag);
 
-    // Quad-Rail Handguard + Barrel + Suppressor/Compensator
     const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.062, 0.078, 0.28), mats.weaponTan);
     handguard.position.set(0, 0.02, 0.34);
     g.add(handguard);
+
+    // Tactical Vertical Foregrip (Left Hand Support Grip)
+    const foregrip = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.018, 0.02, 0.095, 8),
+      mats.weaponDark
+    );
+    foregrip.position.set(0, -0.042, 0.31);
+    g.add(foregrip);
 
     const barrel = new THREE.Mesh(
       new THREE.CylinderGeometry(0.018, 0.02, 0.28, 10),
@@ -198,7 +225,6 @@ export function buildWeaponMesh(weaponId: CarbonWeaponId): THREE.Group {
     barrel.position.set(0, 0.025, 0.56);
     g.add(barrel);
 
-    // Holographic Optic Housing
     const holo = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.058, 0.09), mats.weaponDark);
     holo.position.set(0, 0.09, 0.1);
     g.add(holo);
@@ -215,7 +241,6 @@ export function buildWeaponMesh(weaponId: CarbonWeaponId): THREE.Group {
     receiver.position.set(0, 0.015, 0.1);
     g.add(receiver);
 
-    // Main Top Barrel + Under-barrel Mag Tube
     const topBarrel = new THREE.Mesh(
       new THREE.CylinderGeometry(0.024, 0.026, 0.52, 12),
       mats.weaponDark
@@ -232,15 +257,13 @@ export function buildWeaponMesh(weaponId: CarbonWeaponId): THREE.Group {
     magTube.position.set(0, -0.005, 0.42);
     g.add(magTube);
 
-    // Tactical Pump Forend
-    const pump = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.22, 10), mats.weaponTan);
+    const pump = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.22, 10), mats.weaponTan);
     pump.rotation.x = Math.PI / 2;
-    pump.position.set(0, -0.008, 0.38);
+    pump.position.set(0, -0.012, 0.33);
     g.add(pump);
   } else if (weaponId === "RAILGUN") {
-    // AWP Atlas Sniper Chassis (Olive/Tan Polymer + Long Fluted Bull Barrel + Magnified Scope)
-    const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.12, 0.54), mats.weaponTan);
-    chassis.position.set(0, 0, 0.06);
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.12, 0.56), mats.weaponTan);
+    chassis.position.set(0, 0.005, 0.1);
     g.add(chassis);
 
     const barrel = new THREE.Mesh(
@@ -248,21 +271,19 @@ export function buildWeaponMesh(weaponId: CarbonWeaponId): THREE.Group {
       mats.weaponDark
     );
     barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0.032, 0.62);
+    barrel.position.set(0, 0.032, 0.64);
     g.add(barrel);
 
-    // Muzzle Brake
     const brake = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.038, 0.085), mats.weaponSteel);
-    brake.position.set(0, 0.032, 0.96);
+    brake.position.set(0, 0.032, 0.98);
     g.add(brake);
 
-    // Long Sniper Scope Tube + Glowing Objective Lens
     const scopeTube = new THREE.Mesh(
       new THREE.CylinderGeometry(0.028, 0.024, 0.34, 14),
       mats.weaponDark
     );
     scopeTube.rotation.x = Math.PI / 2;
-    scopeTube.position.set(0, 0.11, 0.14);
+    scopeTube.position.set(0, 0.11, 0.15);
     g.add(scopeTube);
 
     const scopeLens = new THREE.Mesh(
@@ -270,10 +291,9 @@ export function buildWeaponMesh(weaponId: CarbonWeaponId): THREE.Group {
       opticMat
     );
     scopeLens.rotation.x = Math.PI / 2;
-    scopeLens.position.set(0, 0.11, 0.31);
+    scopeLens.position.set(0, 0.11, 0.32);
     g.add(scopeLens);
   } else {
-    // M32 6-Chamber Rotary Grenade Launcher
     const stock = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.09, 0.22), mats.weaponDark);
     stock.position.set(0, 0, -0.1);
     g.add(stock);
@@ -293,6 +313,13 @@ export function buildWeaponMesh(weaponId: CarbonWeaponId): THREE.Group {
     shroud.rotation.x = Math.PI / 2;
     shroud.position.set(0, 0.02, 0.42);
     g.add(shroud);
+
+    const foregrip = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.019, 0.021, 0.095, 8),
+      mats.weaponDark
+    );
+    foregrip.position.set(0, -0.045, 0.32);
+    g.add(foregrip);
 
     const optic = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 0.06), opticMat);
     optic.position.set(0, 0.11, 0.18);
@@ -326,7 +353,6 @@ export function buildPickupVisual(kind: CarbonPickupKind): THREE.Group {
     w.position.set(0, 0, -0.2);
     g.add(w);
   } else if (kind === "SHIELD_CELL") {
-    // Tactical Ballistic Armor Vest / Medkit Case
     const vestMat = new THREE.MeshStandardMaterial({
       color: 0x0284c7,
       emissive: 0x0369a1,
@@ -346,7 +372,6 @@ export function buildPickupVisual(kind: CarbonPickupKind): THREE.Group {
     );
     g.add(crossH, crossV);
   } else {
-    // OVERDRIVE_AMP (Tactical Adrenaline / Ammo Boost)
     const mat = new THREE.MeshStandardMaterial({
       color: 0xf59e0b,
       emissive: 0xd97706,
@@ -367,16 +392,15 @@ export function buildPickupVisual(kind: CarbonPickupKind): THREE.Group {
 }
 
 /**
- * Shootable Red Hazard Explosive Barrel (uses /models/food/barrel.glb tinted crimson + hazard band)
+ * Shootable Red Hazard Explosive Barrel
  */
 export function buildExplosiveBarrelMesh(): THREE.Group {
   const mats = getCarbonPBRMaterials();
   const group = new THREE.Group();
 
-  // Immediate crisp 55-gallon crimson explosive drum
   const fallbackGroup = new THREE.Group();
   const drum = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.42, 0.42, 1.16, 20),
+    new THREE.CylinderGeometry(0.42, 0.42, 1.16, 18),
     mats.explosiveBarrelRed
   );
   drum.position.y = 0.58;
@@ -386,7 +410,7 @@ export function buildExplosiveBarrelMesh(): THREE.Group {
 
   for (const ry of [0.18, 0.58, 0.98]) {
     const rib = new THREE.Mesh(
-      new THREE.TorusGeometry(0.43, 0.025, 8, 24),
+      new THREE.TorusGeometry(0.43, 0.025, 8, 20),
       mats.weaponDark
     );
     rib.rotation.x = Math.PI / 2;
@@ -395,15 +419,13 @@ export function buildExplosiveBarrelMesh(): THREE.Group {
   }
   group.add(fallbackGroup);
 
-  // Hazard yellow-black warning band around waist (always visible!)
   const hazardBand = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.435, 0.435, 0.22, 20, 1, true),
+    new THREE.CylinderGeometry(0.435, 0.435, 0.22, 18, 1, true),
     mats.hazardStripe
   );
   hazardBand.position.y = 0.58;
   group.add(hazardBand);
 
-  // Upgrade drum body with barrel.glb mesh if loaded while keeping crimson PBR material!
   const applyBarrelGlb = (gltf: GLTF | null) => {
     if (!gltf) return;
     const clone = gltf.scene.clone(true);
@@ -440,7 +462,7 @@ export function buildExplosiveBarrelMesh(): THREE.Group {
 }
 
 /**
- * Golden Tactical Supply Drop Crate (replaces floating gems with Military Airdrop Cases!)
+ * Golden Tactical Supply Drop Crate
  */
 export function buildCrystalGemMesh(): THREE.Group {
   const mats = getCarbonPBRMaterials();
@@ -509,6 +531,17 @@ function buildFallbackSoldierMesh(visorHex: number): THREE.Group {
   torso.castShadow = true;
   g.add(torso);
 
+  // Two-handed rifle arms on fallback mesh while Soldier.glb streams in
+  const rightArm = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.34, 4, 8), camoMat);
+  rightArm.position.set(-0.18, 1.31, 0.08);
+  rightArm.rotation.x = Math.PI / 2.2;
+  g.add(rightArm);
+
+  const leftArm = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.42, 4, 8), camoMat);
+  leftArm.position.set(0.05, 1.32, 0.22);
+  leftArm.rotation.set(Math.PI / 2.1, 0, 0.52);
+  g.add(leftArm);
+
   const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 14), camoMat);
   helmet.position.y = 1.62;
   helmet.castShadow = true;
@@ -546,7 +579,20 @@ function attachAnimatedSoldierGltf(
     metalness: 0.6,
   });
 
+  const boneMap = new Map<string, THREE.Object3D>();
+  const fingerPhalanges: THREE.Object3D[] = [];
+
   cloned.traverse((obj) => {
+    if (obj.name) {
+      const clean = obj.name.replace(/^mixamorig:?/i, "");
+      boneMap.set(clean, obj);
+      if (
+        /^(Right|Left)Hand(Index|Middle|Ring|Pinky)[12]$/.test(clean)
+      ) {
+        fingerPhalanges.push(obj);
+      }
+    }
+
     const mesh = obj as THREE.Mesh;
     if (!mesh.isMesh) return;
     mesh.castShadow = true;
@@ -564,7 +610,6 @@ function attachAnimatedSoldierGltf(
         std.emissive = new THREE.Color(0x451a03);
         std.emissiveIntensity = 0.25;
       } else if (rig.role === "ENEMY") {
-        // Subtle warm crimson rim identification while preserving authentic military PBR textures!
         std.emissive = new THREE.Color(0x450a0a);
         std.emissiveIntensity = 0.18;
       } else if (rig.role === "ALLY") {
@@ -574,6 +619,29 @@ function attachAnimatedSoldierGltf(
       mesh.material = std;
     }
   });
+
+  const rSh = boneMap.get("RightShoulder");
+  const rArm = boneMap.get("RightArm");
+  const rFore = boneMap.get("RightForeArm");
+  const rHand = boneMap.get("RightHand");
+  const lSh = boneMap.get("LeftShoulder");
+  const lArm = boneMap.get("LeftArm");
+  const lFore = boneMap.get("LeftForeArm");
+  const lHand = boneMap.get("LeftHand");
+
+  if (rSh && rArm && rFore && rHand && lSh && lArm && lFore && lHand) {
+    rig.gripBones = {
+      rightShoulder: rSh,
+      rightArm: rArm,
+      rightForeArm: rFore,
+      rightHand: rHand,
+      leftShoulder: lSh,
+      leftArm: lArm,
+      leftForeArm: lFore,
+      leftHand: lHand,
+      fingerPhalanges,
+    };
+  }
 
   rig.bodyContainer.remove(fallbackGroup);
   rig.bodyContainer.add(cloned);
@@ -603,7 +671,7 @@ export function createStrikerRig(
   const root = new THREE.Group();
   const pal = getRolePalette(role, archetype);
 
-  // 1. Tactical Ground Role Indicator Ring (subtle for ME, vivid for ALLY / ENEMY)
+  // 1. Tactical Ground Role Indicator Ring
   const groundRingGroup = new THREE.Group();
   groundRingGroup.position.y = 0.03;
 
@@ -616,7 +684,7 @@ export function createStrikerRig(
     depthWrite: false,
   });
   const baseRing = new THREE.Mesh(
-    new THREE.RingGeometry(ringOuterR - 0.09, ringOuterR, 32),
+    new THREE.RingGeometry(ringOuterR - 0.09, ringOuterR, 28),
     ringMat
   );
   baseRing.rotation.x = -Math.PI / 2;
@@ -630,12 +698,18 @@ export function createStrikerRig(
   const fallbackHero = buildFallbackSoldierMesh(pal.visor);
   bodyContainer.add(fallbackHero);
 
-  // 3. Right-Shoulder/Chest Tactical Weapon Mount
-  // Note: When facing +Z with +Y up, the soldier's RIGHT hand is at -X!
+  // 3. Two-Handed Shouldered Weapon Mount + Explicit Right/Left Wrist IK Sockets
   const scaleMult = archetype === "BOSS_MECH" ? 1.35 : 1.0;
   const weaponAnchor = new THREE.Group();
-  weaponAnchor.position.set(-0.22 * scaleMult, 1.32 * scaleMult, 0.16 * scaleMult);
+  weaponAnchor.position.set(-0.145 * scaleMult, 1.35 * scaleMult, 0.16 * scaleMult);
+  weaponAnchor.rotation.y = 0.13;
   root.add(weaponAnchor);
+
+  const rightWristSocket = new THREE.Object3D();
+  rightWristSocket.position.set(0.0, -0.062 * scaleMult, -0.11 * scaleMult);
+  const leftWristSocket = new THREE.Object3D();
+  leftWristSocket.position.set(0.055 * scaleMult, -0.028 * scaleMult, 0.2 * scaleMult);
+  weaponAnchor.add(rightWristSocket, leftWristSocket);
 
   const weaponMeshes: Record<CarbonWeaponId, THREE.Group> = {
     CARBINE: buildWeaponMesh("CARBINE"),
@@ -661,7 +735,7 @@ export function createStrikerRig(
   muzzleFlash.position.set(0, 0.03, 0.82);
   weaponAnchor.add(muzzleFlash);
 
-  // Tactical Combat Roll / Sprint Dust Wake
+  // Tactical Combat Slide/Dash Wake
   const dashConeGeo = new THREE.ConeGeometry(0.42, 1.4, 12, 1, true);
   dashConeGeo.rotateX(-Math.PI / 2);
   const dashMat = new THREE.MeshBasicMaterial({
@@ -675,14 +749,29 @@ export function createStrikerRig(
   dashTrailCone.position.set(0, 0.65, -0.75);
   root.add(dashTrailCone);
 
+  // Active Ability: Turbo Sprint Adrenaline Speed Ring
+  const turboMat = new THREE.MeshBasicMaterial({
+    color: 0x22d3ee,
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const turboAuraRing = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.62, 0.78, 0.95, 18, 1, true),
+    turboMat
+  );
+  turboAuraRing.position.y = 0.72;
+  root.add(turboAuraRing);
+
   // Ballistic Armor Hit-Flash Rim
   const shieldMat = createHexShieldMaterial(0x38bdf8);
   const shieldRadius = archetype === "BOSS_MECH" ? 1.35 : 0.85;
-  const shieldMesh = new THREE.Mesh(new THREE.SphereGeometry(shieldRadius, 18, 14), shieldMat);
+  const shieldMesh = new THREE.Mesh(new THREE.SphereGeometry(shieldRadius, 16, 12), shieldMat);
   shieldMesh.position.y = archetype === "BOSS_MECH" ? 1.35 : 1.0;
   root.add(shieldMesh);
 
-  // Overhead Enemy / Teammate Nameplate + HP/Armor Bar (hidden for ME in TPS so camera stays clean!)
+  // Overhead Enemy / Teammate Nameplate + HP/Armor Bar
   const hudCanvas = document.createElement("canvas");
   hudCanvas.width = 256;
   hudCanvas.height = 76;
@@ -696,7 +785,11 @@ export function createStrikerRig(
     })
   );
   hudSprite.renderOrder = 25;
-  hudSprite.scale.set(archetype === "BOSS_MECH" ? 2.9 : 2.1, archetype === "BOSS_MECH" ? 0.85 : 0.62, 1);
+  hudSprite.scale.set(
+    archetype === "BOSS_MECH" ? 2.9 : 2.1,
+    archetype === "BOSS_MECH" ? 0.85 : 0.62,
+    1
+  );
   hudSprite.position.y = archetype === "BOSS_MECH" ? 2.85 : 2.18;
   hudSprite.visible = role !== "ME";
   root.add(hudSprite);
@@ -706,9 +799,12 @@ export function createStrikerRig(
     bodyContainer,
     groundRingGroup,
     weaponAnchor,
+    rightWristSocket,
+    leftWristSocket,
     weaponMeshes,
     muzzleFlash,
     dashTrailCone,
+    turboAuraRing,
     shieldMesh,
     shieldMat,
     hudSprite,
@@ -717,6 +813,7 @@ export function createStrikerRig(
     lastHudKey: "",
     mixer: null,
     actions: {},
+    gripBones: null,
     currentAnim: "Idle",
     activeWeapon: initialWeapon,
     archetype,
@@ -768,7 +865,6 @@ export function syncStrikerHudPlate(
 
   ctx.clearRect(0, 0, 256, 76);
 
-  // Tactical Callsign Label
   const shortName = nickname.length > 15 ? nickname.slice(0, 14) + "…" : nickname;
   const label = `${isOverdrive ? "⚡ " : ""}${shortName}`;
   ctx.font = "900 20px system-ui, -apple-system, sans-serif";
@@ -779,7 +875,6 @@ export function syncStrikerHudPlate(
   ctx.fillStyle = isOverdrive ? "#fde047" : "#ffffff";
   ctx.fillText(label, 128, 24);
 
-  // Segmented HP + Ballistic Armor Plate Bar
   const bx = 34;
   const bw = 188;
   ctx.fillStyle = "rgba(2, 6, 23, 0.85)";
@@ -814,6 +909,112 @@ function fadeToSoldierAction(rig: StrikerRig, nextName: string, timeScale = 1) {
   rig.currentAnim = nextName;
 }
 
+// Pre-allocated zero-GC scratch math objects for 60FPS Two-Bone Arm IK!
+const _parentQuat = new THREE.Quaternion();
+const _targetQuat = new THREE.Quaternion();
+const _rootWorldQuat = new THREE.Quaternion();
+const _gunWorldQuat = new THREE.Quaternion();
+const _basisMat = new THREE.Matrix4();
+const _dirY = new THREE.Vector3();
+const _dirZ = new THREE.Vector3();
+const _dirX = new THREE.Vector3();
+const _rootPos = new THREE.Vector3();
+const _elbowPos = new THREE.Vector3();
+const _wristPos = new THREE.Vector3();
+const _toTarget = new THREE.Vector3();
+const _bendDir = new THREE.Vector3();
+const _solvedElbow = new THREE.Vector3();
+const _solvedWrist = new THREE.Vector3();
+const _handEnd = new THREE.Vector3();
+const _rWristTarget = new THREE.Vector3();
+const _lWristTarget = new THREE.Vector3();
+const _rPoleWorld = new THREE.Vector3();
+const _lPoleWorld = new THREE.Vector3();
+const _rRollWorld = new THREE.Vector3();
+const _lRollWorld = new THREE.Vector3();
+const _gunFwdWorld = new THREE.Vector3();
+const _lHandAimWorld = new THREE.Vector3();
+const _shPos = new THREE.Vector3();
+const _shAim = new THREE.Vector3();
+const _shRoll = new THREE.Vector3();
+
+function aimBoneYAxisWorld(
+  bone: THREE.Object3D,
+  worldFrom: THREE.Vector3,
+  worldTo: THREE.Vector3,
+  rollHintWorld: THREE.Vector3
+) {
+  const parent = bone.parent;
+  if (!parent) return;
+  parent.updateMatrixWorld(false);
+  parent.getWorldQuaternion(_parentQuat);
+
+  _dirY.subVectors(worldTo, worldFrom);
+  if (_dirY.lengthSq() < 1e-8) return;
+  _dirY.normalize();
+
+  _dirZ.copy(rollHintWorld).addScaledVector(_dirY, -rollHintWorld.dot(_dirY));
+  if (_dirZ.lengthSq() < 1e-5) {
+    _dirZ.set(0, 1, 0).addScaledVector(_dirY, -_dirY.y);
+  }
+  _dirZ.normalize();
+
+  _dirX.crossVectors(_dirY, _dirZ).normalize();
+  _dirZ.crossVectors(_dirX, _dirY).normalize();
+
+  _basisMat.makeBasis(_dirX, _dirY, _dirZ);
+  _targetQuat.setFromRotationMatrix(_basisMat);
+  bone.quaternion.copy(_parentQuat.invert().multiply(_targetQuat));
+  bone.updateMatrixWorld(true);
+}
+
+function solveTwoBoneArmIK(
+  upperBone: THREE.Object3D,
+  foreBone: THREE.Object3D,
+  handBone: THREE.Object3D,
+  wristTargetWorld: THREE.Vector3,
+  poleWorld: THREE.Vector3,
+  palmRollWorld: THREE.Vector3,
+  handAimWorld: THREE.Vector3
+) {
+  if (upperBone.parent) upperBone.parent.updateMatrixWorld(true);
+  upperBone.getWorldPosition(_rootPos);
+  foreBone.getWorldPosition(_elbowPos);
+  handBone.getWorldPosition(_wristPos);
+
+  const L1 = Math.max(0.12, _rootPos.distanceTo(_elbowPos));
+  const L2 = Math.max(0.12, _elbowPos.distanceTo(_wristPos));
+
+  _toTarget.subVectors(wristTargetWorld, _rootPos);
+  const rawDist = _toTarget.length();
+  const maxReach = (L1 + L2) * 0.992;
+  const minReach = Math.abs(L1 - L2) + 0.03;
+  const dist = Math.max(minReach, Math.min(maxReach, rawDist));
+  if (rawDist > 1e-5) _toTarget.divideScalar(rawDist);
+  else _toTarget.set(0, 0, 1);
+
+  const cosA = Math.max(-1, Math.min(1, (L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist)));
+  const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
+
+  _bendDir.subVectors(poleWorld, _rootPos);
+  _bendDir.addScaledVector(_toTarget, -_bendDir.dot(_toTarget));
+  if (_bendDir.lengthSq() < 1e-5) _bendDir.set(0, -1, 0);
+  _bendDir.normalize();
+
+  _solvedElbow
+    .copy(_rootPos)
+    .addScaledVector(_toTarget, L1 * cosA)
+    .addScaledVector(_bendDir, L1 * sinA);
+  _solvedWrist.copy(_rootPos).addScaledVector(_toTarget, dist);
+
+  aimBoneYAxisWorld(upperBone, _rootPos, _solvedElbow, _bendDir);
+  foreBone.getWorldPosition(_elbowPos);
+  aimBoneYAxisWorld(foreBone, _elbowPos, _solvedWrist, palmRollWorld);
+  handBone.getWorldPosition(_wristPos);
+  _handEnd.copy(_wristPos).add(handAimWorld);
+  aimBoneYAxisWorld(handBone, _wristPos, _handEnd, palmRollWorld);
+}
+
 export function updateStrikerRig(
   rig: StrikerRig,
   dt: number,
@@ -822,15 +1023,20 @@ export function updateStrikerRig(
   isAirborne: boolean,
   isDashing: boolean,
   pitch: number,
-  shieldRatio: number
+  shieldRatio: number,
+  isTurboSprint = false
 ) {
-  // 1. Update Mixamo Skeletal Soldier Animations
+  // 1. Update Mixamo Skeletal Soldier Lower-Body & Torso Animations
   if (rig.mixer) {
-    if (moveSpeed > 3.6 || isDashing) {
-      const runSpeed = isDashing ? 1.55 : Math.min(1.32, Math.max(0.82, moveSpeed / 5.5));
+    if (moveSpeed > 3.6 || isDashing || isTurboSprint) {
+      const runSpeed = isDashing
+        ? 1.6
+        : isTurboSprint
+        ? 1.48
+        : Math.min(1.32, Math.max(0.82, moveSpeed / 6.0));
       fadeToSoldierAction(rig, "Run", runSpeed);
     } else if (moveSpeed > 0.32 && rig.actions["Walk"]) {
-      fadeToSoldierAction(rig, "Walk", Math.min(1.35, Math.max(0.85, moveSpeed / 2.8)));
+      fadeToSoldierAction(rig, "Walk", Math.min(1.35, Math.max(0.85, moveSpeed / 3.0)));
     } else {
       fadeToSoldierAction(rig, "Idle", 1.0);
     }
@@ -841,11 +1047,12 @@ export function updateStrikerRig(
       moveSpeed > 0.35 && !isAirborne ? Math.abs(Math.sin(rig.animPhase)) * 0.05 : 0;
   }
 
-  // Forward tactical lean during combat roll / sprint
-  const targetTiltX = isDashing ? 0.32 : moveSpeed > 6.2 ? 0.08 : 0;
-  rig.bodyContainer.rotation.x += (targetTiltX - rig.bodyContainer.rotation.x) * Math.min(1, dt * 12);
+  // Forward tactical lean during combat slide / turbo sprint
+  const targetTiltX = isDashing ? 0.32 : isTurboSprint ? 0.16 : moveSpeed > 6.8 ? 0.08 : 0;
+  rig.bodyContainer.rotation.x +=
+    (targetTiltX - rig.bodyContainer.rotation.x) * Math.min(1, dt * 12);
 
-  // 2. Active Weapon Visibility, Vertical Aim Pitch (-pitch tilts barrel UP when facing +Z!) & Recoil
+  // 2. Active Weapon Visibility, Shouldered Stance, Vertical Aim Pitch & Recoil
   if (rig.weaponMeshes[rig.activeWeapon] && !rig.weaponMeshes[rig.activeWeapon].visible) {
     (Object.keys(rig.weaponMeshes) as CarbonWeaponId[]).forEach((wid) => {
       rig.weaponMeshes[wid].visible = wid === rig.activeWeapon;
@@ -854,9 +1061,73 @@ export function updateStrikerRig(
 
   rig.recoil = Math.max(0, rig.recoil - dt * 7.5);
   const scaleMult = rig.archetype === "BOSS_MECH" ? 1.35 : 1.0;
-  // Remember: facing +Z, rotation around +X by -pitch raises +Z tip upward when pitch > 0!
-  rig.weaponAnchor.rotation.x = -pitch - rig.recoil * 0.22;
-  rig.weaponAnchor.position.z = 0.16 * scaleMult - rig.recoil * 0.09;
+  const clampedPitch = Math.max(-0.55, Math.min(0.65, pitch));
+  const sprintBob =
+    moveSpeed > 3.5 && !isAirborne ? Math.sin(elapsedSec * (isTurboSprint ? 15 : 11)) * 0.018 : 0;
+
+  // Position rifle snug against right shoulder & chest; angle slightly across chest during Turbo Sprint
+  rig.weaponAnchor.position.set(
+    -0.145 * scaleMult,
+    (1.345 + sprintBob) * scaleMult,
+    (0.165 - rig.recoil * 0.085) * scaleMult
+  );
+  rig.weaponAnchor.rotation.set(
+    -clampedPitch - rig.recoil * 0.22 + (isTurboSprint && rig.recoil < 0.05 ? 0.14 : 0),
+    isTurboSprint && rig.recoil < 0.05 ? 0.34 : 0.13,
+    0
+  );
+
+  // 3. Solve Two-Handed Rifle Grip IK so BOTH Hands Hold the Weapon in 3D!
+  if (rig.gripBones) {
+    rig.root.updateMatrixWorld(true);
+    rig.root.getWorldQuaternion(_rootWorldQuat);
+    rig.weaponAnchor.getWorldQuaternion(_gunWorldQuat);
+
+    const gb = rig.gripBones;
+    // Protract Left Clavicle slightly forward so Left Palm easily reaches the barrel handguard
+    gb.leftShoulder.getWorldPosition(_shPos);
+    _shAim.set(0.72, -0.15, 0.68).applyQuaternion(_rootWorldQuat).add(_shPos);
+    _shRoll.set(0, 0, -1).applyQuaternion(_rootWorldQuat);
+    aimBoneYAxisWorld(gb.leftShoulder, _shPos, _shAim, _shRoll);
+
+    rig.rightWristSocket.getWorldPosition(_rWristTarget);
+    rig.leftWristSocket.getWorldPosition(_lWristTarget);
+
+    _rPoleWorld.set(-0.36 * scaleMult, 1.08 * scaleMult, -0.06 * scaleMult);
+    rig.root.localToWorld(_rPoleWorld);
+    _lPoleWorld.set(0.32 * scaleMult, 1.06 * scaleMult, 0.12 * scaleMult);
+    rig.root.localToWorld(_lPoleWorld);
+
+    _rRollWorld.set(1, 0, 0).applyQuaternion(_rootWorldQuat);
+    _lRollWorld.set(-0.5, 0.85, 0).normalize().applyQuaternion(_rootWorldQuat);
+
+    _gunFwdWorld.set(0, 0, 1).applyQuaternion(_gunWorldQuat);
+    _lHandAimWorld.set(-0.42, 0.08, 0.9).normalize().applyQuaternion(_gunWorldQuat);
+
+    solveTwoBoneArmIK(
+      gb.rightArm,
+      gb.rightForeArm,
+      gb.rightHand,
+      _rWristTarget,
+      _rPoleWorld,
+      _rRollWorld,
+      _gunFwdWorld
+    );
+    solveTwoBoneArmIK(
+      gb.leftArm,
+      gb.leftForeArm,
+      gb.leftHand,
+      _lWristTarget,
+      _lPoleWorld,
+      _lRollWorld,
+      _lHandAimWorld
+    );
+
+    // Curl fingers around pistol grip & foregrip
+    for (let i = 0; i < gb.fingerPhalanges.length; i++) {
+      gb.fingerPhalanges[i].rotation.z = gb.fingerPhalanges[i].name.includes("Right") ? -0.85 : 0.85;
+    }
+  }
 
   const muzzleMat = rig.muzzleFlash.material as THREE.MeshBasicMaterial;
   if (muzzleMat.opacity > 0) {
@@ -864,12 +1135,20 @@ export function updateStrikerRig(
     rig.muzzleFlash.rotation.z += dt * 28;
   }
 
-  // 3. Combat Roll Dust Trail
+  // 4. Combat Slide Trail & Turbo Sprint Speed Aura
   const dashMat = rig.dashTrailCone.material as THREE.MeshBasicMaterial;
-  const targetDashOp = isDashing ? 0.45 : 0;
+  const targetDashOp = isDashing ? 0.48 : 0;
   dashMat.opacity += (targetDashOp - dashMat.opacity) * Math.min(1, dt * 16);
 
-  // 4. Ballistic Armor Hit-Flash
+  const turboMat = rig.turboAuraRing.material as THREE.MeshBasicMaterial;
+  const targetTurboOp = isTurboSprint ? 0.34 + Math.sin(elapsedSec * 14) * 0.08 : 0;
+  turboMat.opacity += (targetTurboOp - turboMat.opacity) * Math.min(1, dt * 14);
+  rig.turboAuraRing.visible = turboMat.opacity > 0.01;
+  if (rig.turboAuraRing.visible) {
+    rig.turboAuraRing.rotation.y = elapsedSec * 6.5;
+  }
+
+  // 5. Ballistic Armor Hit-Flash
   rig.shieldFlash = Math.max(0, rig.shieldFlash - dt * 3.8);
   rig.shieldMat.uniforms.uTime.value = elapsedSec;
   const targetShieldOp = shieldRatio > 0.02 ? rig.shieldFlash * 0.65 : 0;

@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { isFullscreenActive, isIOS, isStandaloneApp } from "@/lib/fullscreen";
 import { sound } from "@/lib/sound";
-import { ARENA_HALF, HARDPOINT_ZONES } from "@/games/carbon3d/arenaLayout";
+import { ARENA_HALF, ARENA_JUMP_PADS, HARDPOINT_ZONES } from "@/games/carbon3d/arenaLayout";
 import {
   CARBON_WEAPONS,
   CarbonAction,
@@ -77,15 +77,32 @@ export function Carbon3DGameView({
   const [isMuted, setIsMuted] = useState(sound.isMuted);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [scoreboardOpen, setScoreboardOpen] = useState(false);
-  const [autoFireAssist, setAutoFireAssist] = useState(false);
+  const [autoFireAssist, setAutoFireAssist] = useState(true);
   const [adsToggled, setAdsToggled] = useState(false);
+  const [adsComboHeld, setAdsComboHeld] = useState(false);
+  const [leftFirePressed, setLeftFirePressed] = useState(false);
+  const [aimSensitivity, setAimSensitivity] = useState<number>(1.0);
   const [isDesktopFinePointer, setIsDesktopFinePointer] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const aimSensitivityRef = useRef(1.0);
+  aimSensitivityRef.current = aimSensitivity;
+  const adsToggledRef = useRef(false);
+  adsToggledRef.current = adsToggled;
 
   useEffect(() => {
     setMounted(true);
     setIsFullscreen(isFullscreenActive() || isStandaloneApp());
-    setIsDesktopFinePointer(Boolean(window.matchMedia?.("(pointer: fine)").matches));
+    const finePointer = Boolean(window.matchMedia?.("(pointer: fine)").matches);
+    setIsDesktopFinePointer(finePointer);
+    // Default Smart Auto-Fire ON for mobile touch screens, OFF for desktop mouse!
+    setAutoFireAssist(!finePointer);
+    try {
+      const savedSens = Number(window.localStorage.getItem("jma3a_tps_sens"));
+      if (savedSens >= 0.5 && savedSens <= 2.0) {
+        setAimSensitivity(savedSens);
+      }
+    } catch {}
 
     let wakeLock: any = null;
     if (typeof navigator !== "undefined" && "wakeLock" in navigator) {
@@ -112,15 +129,17 @@ export function Carbon3DGameView({
   const phase = (publicData?.phase as "PLAYING" | "GAME_OVER") || "PLAYING";
   const mode = (publicData?.mode as CarbonMode) || "FFA";
   const round = Number(publicData?.round ?? 1);
-  const endsAt = Number(publicData?.endsAt ?? Date.now() + 270_000);
+  const endsAt = Number(publicData?.endsAt ?? Date.now() + 420_000);
   const settings = (publicData?.settings as CarbonSettings) || {
     mode: "FFA",
     botFill: false,
     botDifficulty: "HARD",
-    targetKillsFFA: 15,
-    targetScoreSquad: 100,
-    matchDurationSec: 270,
+    targetKillsFFA: 25,
+    targetScoreSquad: 250,
+    matchDurationSec: 420,
   };
+  const winPointsTarget = settings.targetScoreSquad || 250;
+  const winKillsTarget = settings.targetKillsFFA || 25;
   const initialCombatants =
     (publicData?.combatants as Record<string, CarbonCombatant>) || {};
   const initialPickups = (publicData?.pickups as CarbonPickupPad[]) || [];
@@ -159,11 +178,12 @@ export function Carbon3DGameView({
     isAds: false,
     autoFireAssist: false,
   });
-  lookInputRef.current.isAds = adsToggled;
+  lookInputRef.current.isAds = adsToggled || adsComboHeld;
   lookInputRef.current.autoFireAssist = autoFireAssist;
 
   const commandsRef = useRef<ActiveShotCommand>({
     dashRequested: false,
+    turboSprintRequested: false,
     jumpRequested: false,
     grenadeRequested: false,
     reloadRequested: false,
@@ -181,6 +201,8 @@ export function Carbon3DGameView({
     maxAmmo: 30,
     isReloading: false,
     dashCooldownLeft: 0,
+    turboActiveLeft: 0,
+    turboCooldownLeft: 0,
     grenadeCooldownLeft: 0,
     hasTargetLock: false,
     isAdsActive: false,
@@ -259,6 +281,7 @@ export function Carbon3DGameView({
     localPhysRef.current.yaw = yaw;
     localPhysRef.current.pitch = -0.05;
     setAdsToggled(false);
+    setAdsComboHeld(false);
   }, []);
 
   const {
@@ -278,6 +301,7 @@ export function Carbon3DGameView({
     broadcastShot,
     claimHit,
     claimBarrelHit,
+    claimStimBoost,
     swapLocalWeapon,
     sendRefresh,
   } = useCarbonNet({
@@ -326,10 +350,21 @@ export function Carbon3DGameView({
     }
   }, [phase]);
 
-  // --- UN-STICKABLE MOBILE MULTI-TOUCH SYSTEM: LEFT THUMBSTICK + RIGHT FREE-LOOK + DRAG-FIRE BUTTON ---
+  // --- UN-STICKABLE MOBILE MULTI-TOUCH SYSTEM: LEFT STICK + FREE-LOOK + DRAG-FIRE + DRAG-SCOPE + LEFT-FIRE + 1-THUMB ADS+FIRE ---
   const leftTouchRef = useRef<{ id: number; startX: number; startY: number } | null>(null);
   const lookTouchRef = useRef<{ id: number; lastX: number; lastY: number } | null>(null);
   const fireTouchRef = useRef<{ id: number; lastX: number; lastY: number } | null>(null);
+  const adsFireTouchRef = useRef<{ id: number; lastX: number; lastY: number } | null>(null);
+  const leftFireTouchRef = useRef<{ id: number } | null>(null);
+  const scopeTouchRef = useRef<{
+    id: number;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+    moved: boolean;
+    startedWhileAds: boolean;
+  } | null>(null);
 
   const [leftStickVis, setLeftStickVis] = useState<{
     active: boolean;
@@ -343,6 +378,23 @@ export function Carbon3DGameView({
   const [fireBtnPressed, setFireBtnPressed] = useState(false);
 
   const STICK_MAX_R = 52;
+
+  const syncAnyFireHeld = useCallback(() => {
+    lookInputRef.current.fireHeld = Boolean(
+      fireTouchRef.current || adsFireTouchRef.current || leftFireTouchRef.current
+    );
+  }, []);
+
+  const applySwipeAimDelta = useCallback((dx: number, dy: number, baseScale = 1.0) => {
+    const stepPx = Math.hypot(dx, dy);
+    const curve =
+      stepPx < 3.5
+        ? 0.82
+        : 1.0 + Math.min(0.62, Math.max(0, stepPx - 5.5) * 0.038);
+    const sens = aimSensitivityRef.current * curve * baseScale;
+    lookInputRef.current.deltaYaw -= dx * 0.0053 * sens;
+    lookInputRef.current.deltaPitch -= dy * 0.0041 * sens;
+  }, []);
 
   const resetLeftStick = useCallback(() => {
     leftTouchRef.current = null;
@@ -366,7 +418,7 @@ export function Carbon3DGameView({
       ...s,
       knobX: kx,
       knobY: ky,
-      sprinting: -dz > 0.55 && Math.hypot(dx, dz) > 0.88,
+      sprinting: -dz > 0.42 && Math.hypot(dx, dz) > 0.72,
     }));
   }, []);
 
@@ -398,16 +450,36 @@ export function Carbon3DGameView({
           const dy = t.clientY - lookTouchRef.current.lastY;
           lookTouchRef.current.lastX = t.clientX;
           lookTouchRef.current.lastY = t.clientY;
-          lookInputRef.current.deltaYaw -= dx * 0.0054;
-          lookInputRef.current.deltaPitch -= dy * 0.0042;
+          applySwipeAimDelta(dx, dy, 1.0);
         }
         if (fireTouchRef.current && fireTouchRef.current.id === t.identifier) {
           const dx = t.clientX - fireTouchRef.current.lastX;
           const dy = t.clientY - fireTouchRef.current.lastY;
           fireTouchRef.current.lastX = t.clientX;
           fireTouchRef.current.lastY = t.clientY;
-          lookInputRef.current.deltaYaw -= dx * 0.0046;
-          lookInputRef.current.deltaPitch -= dy * 0.0038;
+          applySwipeAimDelta(dx, dy, 0.9);
+        }
+        if (adsFireTouchRef.current && adsFireTouchRef.current.id === t.identifier) {
+          const dx = t.clientX - adsFireTouchRef.current.lastX;
+          const dy = t.clientY - adsFireTouchRef.current.lastY;
+          adsFireTouchRef.current.lastX = t.clientX;
+          adsFireTouchRef.current.lastY = t.clientY;
+          applySwipeAimDelta(dx, dy, 0.88);
+        }
+        if (scopeTouchRef.current && scopeTouchRef.current.id === t.identifier) {
+          const dx = t.clientX - scopeTouchRef.current.lastX;
+          const dy = t.clientY - scopeTouchRef.current.lastY;
+          scopeTouchRef.current.lastX = t.clientX;
+          scopeTouchRef.current.lastY = t.clientY;
+          if (
+            Math.hypot(
+              t.clientX - scopeTouchRef.current.startX,
+              t.clientY - scopeTouchRef.current.startY
+            ) > 9
+          ) {
+            scopeTouchRef.current.moved = true;
+          }
+          applySwipeAimDelta(dx, dy, 0.88);
         }
       }
 
@@ -419,8 +491,25 @@ export function Carbon3DGameView({
       }
       if (fireTouchRef.current && !liveIds.has(fireTouchRef.current.id)) {
         fireTouchRef.current = null;
-        lookInputRef.current.fireHeld = false;
         setFireBtnPressed(false);
+        syncAnyFireHeld();
+      }
+      if (adsFireTouchRef.current && !liveIds.has(adsFireTouchRef.current.id)) {
+        adsFireTouchRef.current = null;
+        setAdsComboHeld(false);
+        syncAnyFireHeld();
+      }
+      if (leftFireTouchRef.current && !liveIds.has(leftFireTouchRef.current.id)) {
+        leftFireTouchRef.current = null;
+        setLeftFirePressed(false);
+        syncAnyFireHeld();
+      }
+      if (scopeTouchRef.current && !liveIds.has(scopeTouchRef.current.id)) {
+        const finishedScope = scopeTouchRef.current;
+        scopeTouchRef.current = null;
+        if (finishedScope.startedWhileAds && !finishedScope.moved) {
+          setAdsToggled(false);
+        }
       }
     };
 
@@ -428,8 +517,13 @@ export function Carbon3DGameView({
       resetLeftStick();
       lookTouchRef.current = null;
       fireTouchRef.current = null;
+      adsFireTouchRef.current = null;
+      leftFireTouchRef.current = null;
+      scopeTouchRef.current = null;
       lookInputRef.current.fireHeld = false;
       setFireBtnPressed(false);
+      setAdsComboHeld(false);
+      setLeftFirePressed(false);
     };
 
     const onVisChange = () => {
@@ -449,15 +543,20 @@ export function Carbon3DGameView({
       window.removeEventListener("blur", forceResetAll);
       document.removeEventListener("visibilitychange", onVisChange);
     };
-  }, [resetLeftStick, updateLeftStickCoords]);
+  }, [applySwipeAimDelta, resetLeftStick, syncAnyFireHeld, updateLeftStickCoords]);
 
   useEffect(() => {
     if (phase !== "PLAYING") {
       resetLeftStick();
       lookTouchRef.current = null;
       fireTouchRef.current = null;
+      adsFireTouchRef.current = null;
+      leftFireTouchRef.current = null;
+      scopeTouchRef.current = null;
       lookInputRef.current.fireHeld = false;
       setFireBtnPressed(false);
+      setAdsComboHeld(false);
+      setLeftFirePressed(false);
     }
   }, [phase, resetLeftStick]);
 
@@ -480,6 +579,7 @@ export function Carbon3DGameView({
   };
 
   const onFireBtnTouchStart = (e: React.TouchEvent<HTMLButtonElement>) => {
+    e.preventDefault();
     e.stopPropagation();
     const t = e.changedTouches[0];
     if (!t) return;
@@ -494,16 +594,114 @@ export function Carbon3DGameView({
   };
 
   const onFireBtnTouchEnd = (e: React.TouchEvent<HTMLButtonElement>) => {
+    e.preventDefault();
     e.stopPropagation();
     if (!fireTouchRef.current) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
       if (e.changedTouches[i].identifier === fireTouchRef.current.id) {
         fireTouchRef.current = null;
-        lookInputRef.current.fireHeld = false;
         setFireBtnPressed(false);
+        syncAnyFireHeld();
         break;
       }
     }
+  };
+
+  const onAdsFireBtnTouchStart = (e: React.TouchEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const t = e.changedTouches[0];
+    if (!t) return;
+    adsFireTouchRef.current = {
+      id: t.identifier,
+      lastX: t.clientX,
+      lastY: t.clientY,
+    };
+    setAdsComboHeld(true);
+    lookInputRef.current.fireHeld = true;
+    lookInputRef.current.fireTap = true;
+  };
+
+  const onAdsFireBtnTouchEnd = (e: React.TouchEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!adsFireTouchRef.current) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === adsFireTouchRef.current.id) {
+        adsFireTouchRef.current = null;
+        setAdsComboHeld(false);
+        syncAnyFireHeld();
+        break;
+      }
+    }
+  };
+
+  const onLeftFireBtnTouchStart = (e: React.TouchEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const t = e.changedTouches[0];
+    if (!t) return;
+    leftFireTouchRef.current = { id: t.identifier };
+    setLeftFirePressed(true);
+    lookInputRef.current.fireHeld = true;
+    lookInputRef.current.fireTap = true;
+  };
+
+  const onLeftFireBtnTouchEnd = (e: React.TouchEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!leftFireTouchRef.current) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === leftFireTouchRef.current.id) {
+        leftFireTouchRef.current = null;
+        setLeftFirePressed(false);
+        syncAnyFireHeld();
+        break;
+      }
+    }
+  };
+
+  const onScopeBtnTouchStart = (e: React.TouchEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const t = e.changedTouches[0];
+    if (!t) return;
+    const wasAds = adsToggledRef.current;
+    scopeTouchRef.current = {
+      id: t.identifier,
+      startX: t.clientX,
+      startY: t.clientY,
+      lastX: t.clientX,
+      lastY: t.clientY,
+      moved: false,
+      startedWhileAds: wasAds,
+    };
+    if (!wasAds) {
+      setAdsToggled(true);
+    }
+  };
+
+  const onScopeBtnTouchEnd = (e: React.TouchEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!scopeTouchRef.current) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === scopeTouchRef.current.id) {
+        const finished = scopeTouchRef.current;
+        scopeTouchRef.current = null;
+        if (finished.startedWhileAds && !finished.moved) {
+          setAdsToggled(false);
+        }
+        break;
+      }
+    }
+  };
+
+  const handleSensitivityChange = (val: number) => {
+    setAimSensitivity(val);
+    try {
+      window.localStorage.setItem("jma3a_tps_sens", String(val));
+    } catch {}
   };
 
   const handleToggleFullscreen = async () => {
@@ -542,8 +740,12 @@ export function Carbon3DGameView({
   const handleModeSwitch = async (
     nextMode: CarbonMode,
     nextDiff?: "NORMAL" | "HARD" | "CARBON",
-    nextBotFill?: boolean
+    nextBotFill?: boolean,
+    nextDurationSec?: number
   ) => {
+    const dur = nextDurationSec ?? (settings.matchDurationSec || 420);
+    const targetScore = dur <= 260 ? 160 : dur >= 540 ? 350 : 250;
+    const targetKills = dur <= 260 ? 18 : dur >= 540 ? 35 : 25;
     setSettingsOpen(false);
     await Promise.resolve(
       onAction({
@@ -551,6 +753,9 @@ export function Carbon3DGameView({
         mode: nextMode,
         botDifficulty: nextDiff ?? settings.botDifficulty,
         botFill: typeof nextBotFill === "boolean" ? nextBotFill : settings.botFill,
+        matchDurationSec: dur,
+        targetScoreSquad: targetScore,
+        targetKillsFFA: targetKills,
       })
     );
     sendRefresh();
@@ -632,6 +837,7 @@ export function Carbon3DGameView({
         onBroadcastShot={broadcastShot}
         onClaimHit={claimHit}
         onClaimBarrelHit={claimBarrelHit}
+        onClaimStimBoost={claimStimBoost}
         onHudWeaponUpdate={setWeaponHud}
       />
 
@@ -728,7 +934,7 @@ export function Carbon3DGameView({
       {phase === "PLAYING" && isDesktopFinePointer && !weaponHud.pointerLocked && (
         <div className="pointer-events-none absolute top-14 inset-x-0 z-25 flex justify-center px-3">
           <div className="px-3.5 py-1.5 rounded-full bg-slate-950/80 border border-sky-400/50 text-[11px] font-bold text-sky-200 backdrop-blur-md shadow-lg">
-            🖱️ كليكي وسط الشاشة باش تصوّب بالماوس + تحرّك بـ WASD + كليك يمين للمنظار (Esc للخروج)
+            🖱️ كليكي وسط الشاشة للتصويب + WASD للحركة + Shift/F للجري السريع ⚡ + كليك يمين للمنظار
           </div>
         </div>
       )}
@@ -759,7 +965,7 @@ export function Carbon3DGameView({
         </div>
       )}
 
-      {/* 6. Top Safe-Area Tactical HUD Bar + Live 96x96m Mini-Radar */}
+      {/* 6. Top Safe-Area Tactical HUD Bar + Live 168x168m Mini-Radar */}
       <div className="pointer-events-none absolute top-0 inset-x-0 z-30 pt-[max(0.5rem,env(safe-area-inset-top))] px-[max(0.6rem,env(safe-area-inset-right))] pl-[max(0.6rem,env(safe-area-inset-left))] flex items-start justify-between gap-2">
         {/* Right (RTL Start): Live Status + Scoreboard Pill + Active Hardpoint Callout */}
         <div className="flex flex-col items-start gap-1.5 min-w-0">
@@ -780,7 +986,7 @@ export function Carbon3DGameView({
               <div className="flex items-center gap-1.5 text-[11px] font-black whitespace-nowrap">
                 <span>🚩</span>
                 <span className="text-sky-300">{teamScoresRef.current.CYAN}</span>
-                <span className="text-slate-500">/100</span>
+                <span className="text-slate-500">/{winPointsTarget}</span>
                 <span className="text-slate-400">-</span>
                 <span className="text-rose-400">{teamScoresRef.current.CRIMSON}</span>
               </div>
@@ -792,13 +998,13 @@ export function Carbon3DGameView({
             ) : (
               <div className="flex items-center gap-1.5 text-[11px] font-black min-w-0">
                 <span className="px-1.5 py-0.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-200 font-mono whitespace-nowrap">
-                  🚩 {myUnit?.gems ?? 0}/100
+                  🚩 {myUnit?.gems ?? 0}/{winPointsTarget}
                 </span>
                 <span className="text-white truncate max-w-[72px] sm:max-w-[115px]">
                   👑 {sortedLeaderboard[0]?.nickname || "—"}
                 </span>
                 <span className="text-amber-300 font-mono whitespace-nowrap">
-                  ({sortedLeaderboard[0]?.kills ?? 0}💀)
+                  ({sortedLeaderboard[0]?.kills ?? 0}/{winKillsTarget}💀)
                 </span>
               </div>
             )}
@@ -838,16 +1044,14 @@ export function Carbon3DGameView({
               </button>
             )}
 
-            {canConfigure && (
-              <button
-                type="button"
-                onClick={() => setSettingsOpen(true)}
-                aria-label="إعدادات المعركة"
-                className="w-8 h-8 rounded-xl bg-slate-950/80 backdrop-blur-md border border-white/20 text-white flex items-center justify-center active:scale-90"
-              >
-                <Settings2 className="w-4 h-4" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="إعدادات المعركة والحساسية"
+              className="w-8 h-8 rounded-xl bg-slate-950/80 backdrop-blur-md border border-white/20 text-white flex items-center justify-center active:scale-90"
+            >
+              <Settings2 className="w-4 h-4" />
+            </button>
 
             <button
               type="button"
@@ -880,12 +1084,23 @@ export function Carbon3DGameView({
             </button>
           </div>
 
-          {/* Live 96m x 96m Tactical Outpost Mini-Radar */}
+          {/* Live 168m x 168m Tactical Island Mini-Radar */}
           {phase === "PLAYING" && (
-            <div className="relative w-[76px] h-[76px] rounded-2xl bg-slate-950/80 border border-sky-400/35 backdrop-blur-md shadow-lg overflow-hidden">
+            <div className="relative w-[78px] h-[78px] rounded-2xl bg-slate-950/80 border border-sky-400/35 backdrop-blur-md shadow-lg overflow-hidden">
               {/* Road crosshairs */}
               <div className="absolute inset-x-1 top-1/2 h-[1px] bg-white/10" />
               <div className="absolute inset-y-1 left-1/2 w-[1px] bg-white/10" />
+              {/* Jump Pad Cyan Dots */}
+              {ARENA_JUMP_PADS.map((jp) => (
+                <span
+                  key={jp.id}
+                  style={{
+                    left: toRadarCoord(jp.x) - 2,
+                    top: toRadarCoord(jp.z) - 2,
+                  }}
+                  className="absolute w-1 h-1 rounded-full bg-cyan-300/75"
+                />
+              ))}
               {/* Active Hardpoint Ring */}
               {mode !== "SURVIVAL" && (
                 <div
@@ -901,9 +1116,8 @@ export function Carbon3DGameView({
                 if (!u.isAlive) return null;
                 const isMe = u.id === myId;
                 const isAlly = myUnit && !isMe && (mode === "SQUAD" || mode === "SURVIVAL") && u.team === myUnit.team;
-                const recentlyFired = nowMs - (u.lastFiredAt || 0) < 2200;
-                // Show self, allies, and enemies who fired recently or are near Hardpoint!
-                if (!isMe && !isAlly && !recentlyFired && Math.hypot(u.x - localPhysRef.current.x, u.z - localPhysRef.current.z) > 28) {
+                const recentlyFired = nowMs - (u.lastFiredAt || 0) < 2600;
+                if (!isMe && !isAlly && !recentlyFired && Math.hypot(u.x - localPhysRef.current.x, u.z - localPhysRef.current.z) > 48) {
                   return null;
                 }
                 const rx = toRadarCoord(isMe ? localPhysRef.current.x : u.x);
@@ -1046,34 +1260,57 @@ export function Carbon3DGameView({
             </div>
           </div>
 
-          {/* Ergonomic Mobile Right-Thumb Combat Cluster (Fire + ADS Scope + Roll + Jump + Grenade) */}
+          {/* Left-Side Scope-Fire Trigger (PUBG / COD Mobile Style: Aim with Right Thumb, Shoot with Left Thumb!) */}
+          {!isDesktopFinePointer && (
+            <button
+              type="button"
+              onTouchStart={onLeftFireBtnTouchStart}
+              onTouchEnd={onLeftFireBtnTouchEnd}
+              onTouchCancel={onLeftFireBtnTouchEnd}
+              style={{
+                left: "max(0.7rem, env(safe-area-inset-left))",
+                top: "38%",
+              }}
+              aria-label="إطلاق يسار"
+              className={`pointer-events-auto fixed z-30 w-[54px] h-[54px] rounded-full border-2 flex flex-col items-center justify-center shadow-xl transition-transform ${
+                leftFirePressed
+                  ? "scale-95 bg-gradient-to-br from-amber-400 to-rose-600 border-white text-white"
+                  : weaponHud.isAdsActive
+                  ? "bg-rose-600/90 border-amber-300 text-white ring-2 ring-amber-300/60"
+                  : "bg-slate-900/70 border-rose-400/75 text-rose-200 backdrop-blur-xs"
+              }`}
+            >
+              <Crosshair className="w-5 h-5" />
+              <span className="text-[8px] font-black">إطلاق</span>
+            </button>
+          )}
+
+          {/* Ergonomic Mobile Right-Thumb Combat Cluster (Fire + 1-Thumb ADS+Fire + Scope + Turbo Sprint + Dash + Jump + Grenade) */}
           {!isDesktopFinePointer && (
             <div
               style={{
                 right: "max(0.65rem, env(safe-area-inset-right))",
-                bottom: "calc(max(0.65rem, env(safe-area-inset-bottom)) + 4.5rem)",
+                bottom: "calc(max(0.65rem, env(safe-area-inset-bottom)) + 4.55rem)",
               }}
               className="pointer-events-auto fixed z-30 flex flex-col items-end gap-2"
             >
-              {/* Upper Utility Row: Frag Grenade + Jump + ADS Scope */}
-              <div className="flex items-center gap-2">
+              {/* Upper Tactical Arc Row: Frag Grenade + Jump + Combat Dash + Fixed ADS Scope */}
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onTouchStart={(e) => {
+                    e.preventDefault();
                     e.stopPropagation();
                     commandsRef.current.grenadeRequested = true;
                   }}
-                  onClick={() => {
-                    commandsRef.current.grenadeRequested = true;
-                  }}
                   disabled={weaponHud.grenadeCooldownLeft > 0.05}
-                  className={`w-11 h-11 rounded-full border-2 flex flex-col items-center justify-center shadow-lg active:scale-90 ${
+                  className={`w-10 h-10 rounded-full border-2 flex flex-col items-center justify-center shadow-lg active:scale-90 ${
                     weaponHud.grenadeCooldownLeft > 0.05
                       ? "bg-slate-900/75 border-slate-600 text-slate-400"
                       : "bg-amber-600/90 border-amber-200 text-white"
                   }`}
                 >
-                  <span className="text-sm leading-none">💣</span>
+                  <span className="text-xs leading-none">💣</span>
                   {weaponHud.grenadeCooldownLeft > 0.05 && (
                     <span className="text-[8px] font-mono font-black">
                       {Math.ceil(weaponHud.grenadeCooldownLeft)}s
@@ -1084,68 +1321,106 @@ export function Carbon3DGameView({
                 <button
                   type="button"
                   onTouchStart={(e) => {
+                    e.preventDefault();
                     e.stopPropagation();
                     commandsRef.current.jumpRequested = true;
                   }}
-                  onClick={() => {
-                    commandsRef.current.jumpRequested = true;
-                  }}
-                  className="w-11 h-11 rounded-full border-2 border-sky-200 bg-sky-600/85 text-white flex flex-col items-center justify-center shadow-lg active:scale-90"
+                  className="w-10 h-10 rounded-full border-2 border-sky-200 bg-sky-600/85 text-white flex flex-col items-center justify-center shadow-lg active:scale-90"
                 >
-                  <span className="text-xs font-black leading-none">⏫</span>
+                  <span className="text-[11px] font-black leading-none">⏫</span>
                   <span className="text-[8px] font-black">قفز</span>
                 </button>
 
                 <button
                   type="button"
                   onTouchStart={(e) => {
+                    e.preventDefault();
                     e.stopPropagation();
-                    setAdsToggled((v) => !v);
-                  }}
-                  onClick={() => setAdsToggled((v) => !v)}
-                  className={`w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center shadow-lg active:scale-90 ${
-                    adsToggled
-                      ? "bg-amber-400 border-white text-slate-950"
-                      : "bg-slate-900/90 border-sky-300/80 text-sky-200"
-                  }`}
-                >
-                  <Focus className="w-5 h-5" />
-                  <span className="text-[8px] font-black">منظار</span>
-                </button>
-              </div>
-
-              {/* Primary Row: Combat Roll + Big Hold/Drag Fire Trigger */}
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  onTouchStart={(e) => {
-                    e.stopPropagation();
-                    commandsRef.current.dashRequested = true;
-                  }}
-                  onClick={() => {
                     commandsRef.current.dashRequested = true;
                   }}
                   disabled={weaponHud.dashCooldownLeft > 0.05}
-                  className={`w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center shadow-lg active:scale-90 ${
+                  className={`w-11 h-11 rounded-full border-2 flex flex-col items-center justify-center shadow-lg active:scale-90 ${
                     weaponHud.dashCooldownLeft > 0.05
                       ? "bg-slate-900/75 border-slate-600 text-slate-400"
                       : "bg-emerald-600/90 border-emerald-200 text-white"
                   }`}
                 >
-                  <Zap className="w-4 h-4" />
+                  <Zap className="w-3.5 h-3.5" />
                   <span className="text-[8px] font-black">
                     {weaponHud.dashCooldownLeft > 0.05
                       ? `${weaponHud.dashCooldownLeft.toFixed(1)}s`
-                      : "دحرجة"}
+                      : "اندفاع"}
                   </span>
                 </button>
 
                 <button
                   type="button"
+                  onTouchStart={onScopeBtnTouchStart}
+                  onTouchEnd={onScopeBtnTouchEnd}
+                  onTouchCancel={onScopeBtnTouchEnd}
+                  className={`w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center shadow-lg transition-transform active:scale-90 ${
+                    adsToggled
+                      ? "bg-amber-400 border-white text-slate-950 ring-2 ring-amber-300/70"
+                      : "bg-slate-900/90 border-sky-300/80 text-sky-200"
+                  }`}
+                >
+                  <Focus className="w-5 h-5" />
+                  <span className="text-[8px] font-black">{adsToggled ? "مكبّر" : "منظار"}</span>
+                </button>
+              </div>
+
+              {/* Primary Action Row: Active Ability Turbo Sprint + 1-Thumb Zoom&Shoot + Big Drag-Fire */}
+              <div className="flex items-center gap-2">
+                {/* Active Ability: ⚡ جري سريع + علاج فوري (+28 HP) */}
+                <button
+                  type="button"
+                  onTouchStart={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    commandsRef.current.turboSprintRequested = true;
+                  }}
+                  disabled={weaponHud.turboCooldownLeft > 0.05 && weaponHud.turboActiveLeft <= 0.05}
+                  className={`w-[52px] h-[52px] rounded-full border-2 flex flex-col items-center justify-center shadow-xl active:scale-90 ${
+                    weaponHud.turboActiveLeft > 0.05
+                      ? "bg-gradient-to-br from-cyan-400 to-emerald-500 border-white text-slate-950 ring-2 ring-cyan-300 animate-pulse"
+                      : weaponHud.turboCooldownLeft > 0.05
+                      ? "bg-slate-900/80 border-slate-600 text-slate-400"
+                      : "bg-gradient-to-br from-cyan-500 to-blue-600 border-cyan-200 text-white"
+                  }`}
+                >
+                  <span className="text-sm leading-none">⚡</span>
+                  <span className="text-[8px] font-black mt-0.5">
+                    {weaponHud.turboActiveLeft > 0.05
+                      ? `${weaponHud.turboActiveLeft.toFixed(1)}s`
+                      : weaponHud.turboCooldownLeft > 0.05
+                      ? `${Math.ceil(weaponHud.turboCooldownLeft)}s`
+                      : "جري سريع"}
+                  </span>
+                </button>
+
+                {/* 1-Thumb Hold & Drag ADS + Fire Combo Button */}
+                <button
+                  type="button"
+                  onTouchStart={onAdsFireBtnTouchStart}
+                  onTouchEnd={onAdsFireBtnTouchEnd}
+                  onTouchCancel={onAdsFireBtnTouchEnd}
+                  className={`w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center shadow-xl transition-transform ${
+                    adsComboHeld
+                      ? "scale-95 bg-gradient-to-br from-amber-300 to-rose-500 border-white text-slate-950"
+                      : "bg-gradient-to-br from-amber-500/90 to-rose-600/90 border-amber-200 text-white"
+                  }`}
+                >
+                  <span className="text-xs leading-none">🎯🔥</span>
+                  <span className="text-[7px] font-black mt-0.5">قنص+نار</span>
+                </button>
+
+                {/* Main Hold & Drag Fire Trigger */}
+                <button
+                  type="button"
                   onTouchStart={onFireBtnTouchStart}
                   onTouchEnd={onFireBtnTouchEnd}
                   onTouchCancel={onFireBtnTouchEnd}
-                  className={`w-[74px] h-[74px] rounded-full border-[3px] flex flex-col items-center justify-center shadow-2xl transition-transform ${
+                  className={`w-[72px] h-[72px] rounded-full border-[3px] flex flex-col items-center justify-center shadow-2xl transition-transform ${
                     fireBtnPressed
                       ? "scale-95 bg-gradient-to-br from-amber-400 to-rose-600 border-white text-white"
                       : "bg-gradient-to-br from-rose-500 to-red-700 border-rose-200 text-white"
@@ -1209,18 +1484,18 @@ export function Carbon3DGameView({
         </div>
       )}
 
-      {/* 10. Host Match Mode & Bot Fill Modal */}
+      {/* 10. Controls Sensitivity & Host Match Mode Modal */}
       {settingsOpen && (
         <div
           onClick={() => setSettingsOpen(false)}
-          className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-3xl bg-slate-900 border border-sky-400/40 p-5 shadow-2xl text-white space-y-4"
+            className="w-full max-w-md max-h-[88dvh] overflow-y-auto rounded-3xl bg-slate-900 border border-sky-400/40 p-5 shadow-2xl text-white space-y-4"
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-black text-sky-300">⚙️ إعدادات عملية الأطلس 3D</h3>
+              <h3 className="text-base font-black text-sky-300">⚙️ إعدادات التحكم والمعركة</h3>
               <button
                 type="button"
                 onClick={() => setSettingsOpen(false)}
@@ -1230,93 +1505,161 @@ export function Carbon3DGameView({
               </button>
             </div>
 
-            <div className="space-y-2">
-              <div className="text-xs font-bold text-slate-300">طور العملية:</div>
-              <div className="grid grid-cols-1 gap-2">
-                {(
-                  [
-                    {
-                      id: "FFA",
-                      title: "🚩 السيطرة الميدانية (Hardpoint + الكل ضد الكل)",
-                      desc: "سيطر على المهبط، الرصيف، والقصبة! أول جندي يوصل لـ 100 نقطة أو 15 إقصاء كيربح!",
-                    },
-                    {
-                      id: "SQUAD",
-                      title: "⚔️ معركة الفرق 4 ضد 4",
-                      desc: "فرقة الأطلس الزرقاء ضد قوات الاقتحام الحمراء على خريطة 96×96م!",
-                    },
-                    {
-                      id: "SURVIVAL",
-                      title: "🚁 صمود الكوماندوز (تعاوني ضد الموجات)",
-                      desc: "تعاون مع صحابك أو بوحدك ضد موجات المغاوير والمدرع القائد Juggernaut!",
-                    },
-                  ] as const
-                ).map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => handleModeSwitch(m.id)}
-                    className={`text-right p-3 rounded-2xl border transition active:scale-98 ${
-                      mode === m.id
-                        ? "bg-sky-500/20 border-sky-400"
-                        : "bg-slate-800/70 border-white/10"
-                    }`}
-                  >
-                    <div className="text-xs font-black text-white">{m.title}</div>
-                    <div className="text-[11px] text-slate-300 mt-0.5">{m.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Smart Bot Toggle */}
-            {mode !== "SURVIVAL" && (
-              <div className="space-y-1.5">
-                <div className="text-xs font-bold text-slate-300">🤖 جنود الذكاء الاصطناعي (Bots):</div>
-                <button
-                  type="button"
-                  onClick={() => handleModeSwitch(mode, settings.botDifficulty, !settings.botFill)}
-                  className={`w-full p-2.5 rounded-xl border text-xs font-black flex items-center justify-between ${
-                    settings.botFill
-                      ? "bg-amber-500/20 border-amber-400 text-amber-200"
-                      : "bg-emerald-500/20 border-emerald-400 text-emerald-200"
-                  }`}
-                >
-                  <span>
-                    {settings.botFill
-                      ? "🤖 شغّال دائماً (إضافة البوتات حتى مع الأصدقاء)"
-                      : "👥 مواجهة حقيقية (بدون بوتات ملي يدخلو 2+ لاعبين)"}
-                  </span>
-                  <span className="px-2 py-0.5 rounded bg-white/15 text-[10px]">تبديل</span>
-                </button>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <div className="text-xs font-bold text-slate-300">مستوى ذكاء البوتات:</div>
+            {/* Player Local Touch Aim Sensitivity */}
+            <div className="space-y-1.5">
+              <div className="text-xs font-bold text-slate-300">📱 حساسية التصويب والمنظار:</div>
               <div className="grid grid-cols-3 gap-2">
                 {(
                   [
-                    { id: "NORMAL", label: "عادي 🙂" },
-                    { id: "HARD", label: "محترف 🔥" },
-                    { id: "CARBON", label: "كوماندوز 💀" },
+                    { val: 0.75, label: "هادئ 🎯" },
+                    { val: 1.0, label: "متوازن ⚡" },
+                    { val: 1.35, label: "سريع 🔥" },
                   ] as const
-                ).map((d) => (
+                ).map((s) => (
                   <button
-                    key={d.id}
+                    key={s.val}
                     type="button"
-                    onClick={() => handleModeSwitch(mode, d.id)}
+                    onClick={() => handleSensitivityChange(s.val)}
                     className={`py-2 rounded-xl border text-xs font-black ${
-                      settings.botDifficulty === d.id
-                        ? "bg-amber-500/25 border-amber-400 text-amber-200"
+                      Math.abs(aimSensitivity - s.val) < 0.08
+                        ? "bg-sky-500/25 border-sky-400 text-sky-200"
                         : "bg-slate-800 border-white/10 text-slate-300"
                     }`}
                   >
-                    {d.label}
+                    {s.label}
                   </button>
                 ))}
               </div>
             </div>
+
+            {canConfigure && (
+              <>
+                <div className="space-y-2">
+                  <div className="text-xs font-bold text-slate-300">طور العملية (جزيرة 168×168م):</div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {(
+                      [
+                        {
+                          id: "FFA",
+                          title: "🚩 السيطرة الميدانية (5 قطاعات + الكل ضد الكل)",
+                          desc: `سيطر على المهبط، الرصيف، القصبة، الهنغار، والمستودع! الهدف: ${winPointsTarget} نقطة أو ${winKillsTarget} إقصاء!`,
+                        },
+                        {
+                          id: "SQUAD",
+                          title: "⚔️ معركة الفرق 4 ضد 4",
+                          desc: `فرقة الأطلس الزرقاء ضد قوات الاقتحام الحمراء على خريطة 168×168م مع منصات القفز!`,
+                        },
+                        {
+                          id: "SURVIVAL",
+                          title: "🚁 صمود الكوماندوز (تعاوني ضد الموجات)",
+                          desc: "تعاون مع صحابك أو بوحدك ضد موجات المغاوير والمدرع القائد Juggernaut!",
+                        },
+                      ] as const
+                    ).map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => handleModeSwitch(m.id)}
+                        className={`text-right p-3 rounded-2xl border transition active:scale-98 ${
+                          mode === m.id
+                            ? "bg-sky-500/20 border-sky-400"
+                            : "bg-slate-800/70 border-white/10"
+                        }`}
+                      >
+                        <div className="text-xs font-black text-white">{m.title}</div>
+                        <div className="text-[11px] text-slate-300 mt-0.5">{m.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {mode !== "SURVIVAL" && (
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-bold text-slate-300">⏱️ مدة المعركة:</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(
+                        [
+                          { sec: 240, label: "4 دقائق ⚡" },
+                          { sec: 420, label: "7 دقائق 🪖" },
+                          { sec: 600, label: "10 دقائق 🔥" },
+                        ] as const
+                      ).map((dur) => (
+                        <button
+                          key={dur.sec}
+                          type="button"
+                          onClick={() =>
+                            handleModeSwitch(
+                              mode,
+                              settings.botDifficulty,
+                              settings.botFill,
+                              dur.sec
+                            )
+                          }
+                          className={`py-2 rounded-xl border text-xs font-black ${
+                            Math.abs((settings.matchDurationSec || 420) - dur.sec) < 45
+                              ? "bg-emerald-500/25 border-emerald-400 text-emerald-200"
+                              : "bg-slate-800 border-white/10 text-slate-300"
+                          }`}
+                        >
+                          {dur.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Smart Bot Toggle */}
+                {mode !== "SURVIVAL" && (
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-bold text-slate-300">🤖 جنود الذكاء الاصطناعي (Bots):</div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleModeSwitch(mode, settings.botDifficulty, !settings.botFill)
+                      }
+                      className={`w-full p-2.5 rounded-xl border text-xs font-black flex items-center justify-between ${
+                        settings.botFill
+                          ? "bg-amber-500/20 border-amber-400 text-amber-200"
+                          : "bg-emerald-500/20 border-emerald-400 text-emerald-200"
+                      }`}
+                    >
+                      <span>
+                        {settings.botFill
+                          ? "🤖 شغّال دائماً (إضافة البوتات حتى مع الأصدقاء)"
+                          : "👥 مواجهة حقيقية (بدون بوتات ملي يدخلو 2+ لاعبين)"}
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-white/15 text-[10px]">تبديل</span>
+                    </button>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <div className="text-xs font-bold text-slate-300">مستوى ذكاء البوتات:</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(
+                      [
+                        { id: "NORMAL", label: "عادي 🙂" },
+                        { id: "HARD", label: "محترف 🔥" },
+                        { id: "CARBON", label: "كوماندوز 💀" },
+                      ] as const
+                    ).map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => handleModeSwitch(mode, d.id)}
+                        className={`py-2 rounded-xl border text-xs font-black ${
+                          settings.botDifficulty === d.id
+                            ? "bg-amber-500/25 border-amber-400 text-amber-200"
+                            : "bg-slate-800 border-white/10 text-slate-300"
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

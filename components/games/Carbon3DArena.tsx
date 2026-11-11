@@ -6,6 +6,7 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import { isHostile } from "@/games/carbon3d/ai";
 import {
   ARENA_HALF,
+  ARENA_JUMP_PADS,
   ARENA_OBSTACLES,
   ARENA_PLATFORMS,
   ARENA_RAMPS,
@@ -17,6 +18,7 @@ import {
   ROLL_SPEED,
   sampleArenaGroundHeight,
   SPRINT_SPEED,
+  TURBO_SPRINT_SPEED,
 } from "@/games/carbon3d/arenaLayout";
 import {
   CARBON_WEAPONS,
@@ -50,6 +52,7 @@ import { LocalPlayerPhysicsState } from "./carbon3d/useCarbonNet";
 
 export interface ActiveShotCommand {
   dashRequested: boolean;
+  turboSprintRequested?: boolean;
   jumpRequested?: boolean;
   grenadeRequested: boolean;
   reloadRequested: boolean;
@@ -71,6 +74,8 @@ export interface LocalWeaponHudState {
   maxAmmo: number;
   isReloading: boolean;
   dashCooldownLeft: number;
+  turboActiveLeft: number;
+  turboCooldownLeft: number;
   grenadeCooldownLeft: number;
   hasTargetLock: boolean;
   isAdsActive: boolean;
@@ -134,6 +139,7 @@ export interface Carbon3DArenaProps {
   onBroadcastShot: (shot: CarbonShotPacket) => void;
   onClaimHit: (claim: CarbonHitClaimPacket) => void;
   onClaimBarrelHit: (barrelId: string, damage: number) => void;
+  onClaimStimBoost?: () => void;
   onHudWeaponUpdate: (hud: LocalWeaponHudState) => void;
 }
 
@@ -195,6 +201,7 @@ export function Carbon3DArena({
   onBroadcastShot,
   onClaimHit,
   onClaimBarrelHit,
+  onClaimStimBoost,
   onHudWeaponUpdate,
 }: Carbon3DArenaProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -211,6 +218,7 @@ export function Carbon3DArena({
     onBroadcastShot,
     onClaimHit,
     onClaimBarrelHit,
+    onClaimStimBoost,
     onHudWeaponUpdate,
   });
   cbRef.current = {
@@ -218,6 +226,7 @@ export function Carbon3DArena({
     onBroadcastShot,
     onClaimHit,
     onClaimBarrelHit,
+    onClaimStimBoost,
     onHudWeaponUpdate,
   };
 
@@ -227,65 +236,72 @@ export function Carbon3DArena({
 
     loadCarbonHeroAsset();
 
-    // 1. Coastal Daylight Outpost WebGL Scene + Atmospheric Distance Haze
+    const isMobileGpu =
+      !window.matchMedia?.("(pointer: fine)").matches || navigator.maxTouchPoints > 0;
+
+    // 1. Coastal Daylight Island WebGL Scene (Optimized for Mobile 60FPS + 168m x 168m Scale)
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x7dd3fc);
-    scene.fog = new THREE.FogExp2(0xbae6fd, 0.0042);
+    scene.fog = new THREE.FogExp2(0xbae6fd, 0.0026);
 
     const w0 = Math.max(1, container.clientWidth);
     const h0 = Math.max(1, container.clientHeight);
     const computeBaseFov = (aspect: number) => (aspect < 1 ? 66 : 56);
 
-    const camera = new THREE.PerspectiveCamera(computeBaseFov(w0 / h0), w0 / h0, 0.25, 280);
+    const camera = new THREE.PerspectiveCamera(computeBaseFov(w0 / h0), w0 / h0, 0.25, 380);
 
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: !isMobileGpu || (window.devicePixelRatio || 1) <= 2,
       powerPreference: "high-performance",
     });
-    const currentDpr = Math.min(window.devicePixelRatio || 1, 1.75);
+    const currentDpr = Math.min(window.devicePixelRatio || 1, isMobileGpu ? 1.35 : 1.75);
     renderer.setPixelRatio(currentDpr);
     renderer.setSize(w0, h0);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = isMobileGpu ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.08;
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
 
-    // Subtle PBR IBL Environment so metallic rifles, visors & ocean water gleam realistically!
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environment = envTex;
-    pmrem.dispose();
+    // Subtle PBR IBL Environment on Desktop GPUs; fast hemisphere+sun on Mobile GPUs
+    let envTex: THREE.Texture | null = null;
+    if (!isMobileGpu) {
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      scene.environment = envTex;
+      pmrem.dispose();
+    }
 
     // 2. Mediterranean Sky Dome + Golden Coastal Sun Lighting
     const skyMat = createOrbitalSkyMaterial();
-    const skyDome = new THREE.Mesh(new THREE.SphereGeometry(220, 28, 20), skyMat);
+    const skyDome = new THREE.Mesh(new THREE.SphereGeometry(340, 24, 18), skyMat);
     scene.add(skyDome);
 
-    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0xd6c7a9, 1.05);
+    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0xd6c7a9, isMobileGpu ? 1.22 : 1.05);
     scene.add(hemiLight);
 
     const sunLight = new THREE.DirectionalLight(0xfff7ed, 1.95);
     sunLight.position.set(34, 58, 28);
     sunLight.castShadow = true;
-    sunLight.shadow.mapSize.set(2048, 2048);
+    const shadowRes = isMobileGpu ? 1024 : 2048;
+    sunLight.shadow.mapSize.set(shadowRes, shadowRes);
     sunLight.shadow.camera.near = 8;
-    sunLight.shadow.camera.far = 165;
-    const sc = 54;
+    sunLight.shadow.camera.far = 175;
+    const sc = isMobileGpu ? 46 : 62;
     sunLight.shadow.camera.left = -sc;
     sunLight.shadow.camera.right = sc;
     sunLight.shadow.camera.top = sc;
     sunLight.shadow.camera.bottom = -sc;
-    sunLight.shadow.bias = -0.0004;
+    sunLight.shadow.bias = -0.0005;
     scene.add(sunLight);
 
     const mats = getCarbonPBRMaterials();
     const worldGroup = new THREE.Group();
     scene.add(worldGroup);
 
-    // 3. Surrounding Animated Mediterranean Ocean + 96m x 96m Coastal Island Base
-    const oceanMesh = new THREE.Mesh(new THREE.PlaneGeometry(340, 340), mats.oceanWater);
+    // 3. Surrounding Animated Mediterranean Ocean + 168m x 168m Coastal Island Base
+    const oceanMesh = new THREE.Mesh(new THREE.PlaneGeometry(540, 540), mats.oceanWater);
     oceanMesh.rotation.x = -Math.PI / 2;
     oceanMesh.position.y = -0.65;
     worldGroup.add(oceanMesh);
@@ -298,9 +314,9 @@ export function Carbon3DArena({
     islandSlab.receiveShadow = true;
     worldGroup.add(islandSlab);
 
-    // Intersecting Tactical Asphalt Roadways across the 96m x 96m Island
+    // Intersecting Tactical Asphalt Roadways + Outer Sector Ring Roads across the 168m x 168m Island
     const roadNS = new THREE.Mesh(
-      new THREE.PlaneGeometry(7.2, ARENA_HALF * 2 - 4),
+      new THREE.PlaneGeometry(7.6, ARENA_HALF * 2 - 4),
       mats.asphaltRoad
     );
     roadNS.rotation.x = -Math.PI / 2;
@@ -309,7 +325,7 @@ export function Carbon3DArena({
     worldGroup.add(roadNS);
 
     const roadEW = new THREE.Mesh(
-      new THREE.PlaneGeometry(ARENA_HALF * 2 - 4, 7.2),
+      new THREE.PlaneGeometry(ARENA_HALF * 2 - 4, 7.6),
       mats.asphaltRoad
     );
     roadEW.rotation.x = -Math.PI / 2;
@@ -317,6 +333,26 @@ export function Carbon3DArena({
     roadEW.position.y = 0.018;
     roadEW.receiveShadow = true;
     worldGroup.add(roadEW);
+
+    for (const ringOffset of [-40, 40]) {
+      const ringEW = new THREE.Mesh(
+        new THREE.PlaneGeometry(118, 5.4),
+        mats.asphaltRoad
+      );
+      ringEW.rotation.x = -Math.PI / 2;
+      ringEW.position.set(0, 0.013, ringOffset);
+      ringEW.receiveShadow = true;
+      worldGroup.add(ringEW);
+
+      const ringNS = new THREE.Mesh(
+        new THREE.PlaneGeometry(5.4, 118),
+        mats.asphaltRoad
+      );
+      ringNS.rotation.x = -Math.PI / 2;
+      ringNS.position.set(ringOffset, 0.014, 0);
+      ringNS.receiveShadow = true;
+      worldGroup.add(ringNS);
+    }
 
     // Perimeter Concrete Seawall Curbs + Safety Bollards
     const wallLen = ARENA_HALF * 2 + 0.8;
@@ -334,7 +370,7 @@ export function Carbon3DArena({
       worldGroup.add(seawall);
     }
 
-    // 4. Elevated Multi-Level Platforms (Central Helipad, West Dock Pier, East Kasbah Terrace)
+    // 4. Elevated Multi-Level Platforms (5 Tactical Sectors: Helipad, West Pier, East Kasbah, N Hangar, S Depot)
     for (const p of ARENA_PLATFORMS) {
       if (p.theme === "HELIPAD") {
         const base = new THREE.Mesh(
@@ -372,6 +408,24 @@ export function Carbon3DArena({
         woodTop.position.set(p.x, p.topY + 0.012, p.z);
         woodTop.receiveShadow = true;
         worldGroup.add(woodTop);
+      } else if (p.theme === "HANGAR") {
+        const hangarDeck = new THREE.Mesh(
+          new THREE.BoxGeometry(p.halfX * 2, p.topY, p.halfZ * 2),
+          mats.dockConcrete
+        );
+        hangarDeck.position.set(p.x, p.topY * 0.5, p.z);
+        hangarDeck.castShadow = true;
+        hangarDeck.receiveShadow = true;
+        worldGroup.add(hangarDeck);
+
+        const tarmacTop = new THREE.Mesh(
+          new THREE.PlaneGeometry(p.halfX * 2 - 0.2, p.halfZ * 2 - 0.2),
+          mats.asphaltRoad
+        );
+        tarmacTop.rotation.x = -Math.PI / 2;
+        tarmacTop.position.set(p.x, p.topY + 0.012, p.z);
+        tarmacTop.receiveShadow = true;
+        worldGroup.add(tarmacTop);
       } else {
         const terrace = new THREE.Mesh(
           new THREE.BoxGeometry(p.halfX * 2, p.topY, p.halfZ * 2),
@@ -382,6 +436,51 @@ export function Carbon3DArena({
         terrace.receiveShadow = true;
         worldGroup.add(terrace);
       }
+    }
+
+    // 4B. 4 Tactical Jump / Launch Pads for Fast Cross-Sector Aerial Rotation
+    const jumpPadRings: THREE.Mesh[] = [];
+    const jumpPadRingMat = new THREE.MeshBasicMaterial({
+      color: 0x22d3ee,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const jumpPadCoreMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.45,
+      side: THREE.DoubleSide,
+    });
+    for (const jp of ARENA_JUMP_PADS) {
+      const jpGroup = new THREE.Group();
+      jpGroup.position.set(jp.x, 0, jp.z);
+
+      const jpBase = new THREE.Mesh(
+        new THREE.CylinderGeometry(jp.radius, jp.radius + 0.22, 0.16, 24),
+        mats.hazardStripe
+      );
+      jpBase.position.y = 0.08;
+      jpBase.receiveShadow = true;
+      jpGroup.add(jpBase);
+
+      const jpCore = new THREE.Mesh(
+        new THREE.CircleGeometry(jp.radius * 0.78, 24),
+        jumpPadCoreMat
+      );
+      jpCore.rotation.x = -Math.PI / 2;
+      jpCore.position.y = 0.17;
+      jpGroup.add(jpCore);
+
+      const jpRing = new THREE.Mesh(
+        new THREE.TorusGeometry(jp.radius * 0.72, 0.065, 8, 28),
+        jumpPadRingMat
+      );
+      jpRing.rotation.x = Math.PI / 2;
+      jpRing.position.y = 0.35;
+      jpGroup.add(jpRing);
+      jumpPadRings.push(jpRing);
+
+      worldGroup.add(jpGroup);
     }
 
     // 8 Sloped Ramps connecting ground y = 0 to Elevated Decks
@@ -621,10 +720,14 @@ export function Carbon3DArena({
     let dashActiveUntil = 0;
     let dashDirX = 0;
     let dashDirZ = 0;
+    let turboReadyAt = 0;
+    let turboActiveUntil = 0;
+    let lastJumpPadAt = 0;
     let grenadeReadyAt = 0;
     let lastHitAt = 0;
     let lastHitCrit = 0;
     let lastHudEmitAt = 0;
+    const muzzleWorldVec = new THREE.Vector3();
 
     // TPS Camera State
     let camYaw = localPhysRef.current.yaw;
@@ -643,6 +746,7 @@ export function Carbon3DArena({
       keysDown.add(k);
       if (k === " ") commandsRef.current.jumpRequested = true;
       if (k === "c" || k === "alt") commandsRef.current.dashRequested = true;
+      if (k === "f" || k === "shift") commandsRef.current.turboSprintRequested = true;
       if (k === "g" || k === "e") commandsRef.current.grenadeRequested = true;
       if (k === "r") commandsRef.current.reloadRequested = true;
     };
@@ -1052,11 +1156,16 @@ export function Carbon3DArena({
       const elapsedSec = (nowPerf - startTime) / 1000;
       const nowEpoch = Date.now();
 
-      // Animate Ocean Water Normals, Sky Clouds, Radar Towers & Active Hardpoint Ring
+      // Animate Ocean Water Normals, Sky Clouds, Radar Towers, Jump Pads & Active Hardpoint Ring
       animateCarbonMaterials(elapsedSec);
       skyMat.uniforms.uTime.value = elapsedSec;
       for (const r of radarRotors) {
         r.rotation.y = elapsedSec * 1.35;
+      }
+      for (let jr = 0; jr < jumpPadRings.length; jr++) {
+        const phase = (elapsedSec * 1.55 + jr * 0.25) % 1;
+        jumpPadRings[jr].position.y = 0.2 + phase * 1.15;
+        jumpPadRings[jr].scale.setScalar(1.0 - phase * 0.22);
       }
 
       const activeHp =
@@ -1111,10 +1220,11 @@ export function Carbon3DArena({
         camYaw = phys.yaw;
       }
 
-      // Apply Mobile Free-Look Touch Deltas (with Magnetic Aim-Assist!)
+      // Apply Mobile Free-Look Touch Deltas (with 3D Yaw + Pitch Magnetic Aim-Assist!)
       const lookIn = lookInputRef.current;
       let lockedTarget: CarbonCombatant | null = null;
-      let bestLockCos = Math.cos((5.8 * Math.PI) / 180); // 5.8° crosshair cone
+      const lockConeDeg = isPointerLocked ? 5.2 : 8.5;
+      let bestLockCos = Math.cos((lockConeDeg * Math.PI) / 180);
 
       if (me && me.isAlive) {
         const lookDx = Math.sin(camYaw) * Math.cos(camPitch);
@@ -1124,10 +1234,10 @@ export function Carbon3DArena({
         for (const u of Object.values(combatantsRef.current)) {
           if (!u.isAlive || !isHostile(me, u, modeRef.current)) continue;
           const tx = u.x - camera.position.x;
-          const ty = u.y + 1.25 - camera.position.y;
+          const ty = u.y + 1.28 - camera.position.y;
           const tz = u.z - camera.position.z;
           const d = Math.hypot(tx, ty, tz);
-          if (d < 1.0 || d > 95) continue;
+          if (d < 1.0 || d > 135) continue;
           const dot = (tx * lookDx + ty * lookDy + tz * lookDz) / d;
           if (dot > bestLockCos) {
             const wall = raycastArenaWorld(
@@ -1148,8 +1258,9 @@ export function Carbon3DArena({
       }
 
       if (lookIn.deltaYaw !== 0 || lookIn.deltaPitch !== 0) {
-        const assistSlowdown = lockedTarget ? 0.58 : 1.0;
-        const adsSlowdown = lookIn.isAds || pcAdsHeld ? 0.55 : 1.0;
+        const assistSlowdown = lockedTarget ? (isPointerLocked ? 0.85 : 0.56) : 1.0;
+        const isSniper = currentWeaponTrack === "RAILGUN";
+        const adsSlowdown = lookIn.isAds || pcAdsHeld ? (isSniper ? 0.48 : 0.68) : 1.0;
         camYaw += lookIn.deltaYaw * assistSlowdown * adsSlowdown;
         camPitch = Math.max(
           -0.52,
@@ -1159,18 +1270,32 @@ export function Carbon3DArena({
         lookIn.deltaPitch = 0;
       }
 
-      // Gentle Mobile Magnetic Tracking when locked onto an enemy while moving or holding fire
-      if (lockedTarget && !isPointerLocked && (lookIn.fireHeld || Math.hypot(moveStickRef.current.dx, moveStickRef.current.dz) > 0.2)) {
-        const toEx = lockedTarget.x - phys.x;
-        const toEz = lockedTarget.z - phys.z;
+      // Smooth 3D Mobile Rotational Aim-Assist (tracks both Yaw AND Pitch onto enemy chest/head!)
+      if (
+        lockedTarget &&
+        !isPointerLocked &&
+        (lookIn.fireHeld ||
+          lookIn.isAds ||
+          lookIn.autoFireAssist ||
+          Math.hypot(moveStickRef.current.dx, moveStickRef.current.dz) > 0.18)
+      ) {
+        const toEx = lockedTarget.x - camera.position.x;
+        const toEy = lockedTarget.y + 1.28 - camera.position.y;
+        const toEz = lockedTarget.z - camera.position.z;
+        const horizDist = Math.max(0.15, Math.hypot(toEx, toEz));
         const desiredYaw = Math.atan2(toEx, toEz);
+        const desiredPitch = Math.max(-0.48, Math.min(0.55, Math.atan2(toEy, horizDist)));
+
         let diffY = desiredYaw - camYaw;
         while (diffY > Math.PI) diffY -= Math.PI * 2;
         while (diffY < -Math.PI) diffY += Math.PI * 2;
-        camYaw += diffY * Math.min(1, dt * 3.2);
+
+        const pullRate = lookIn.fireHeld || lookIn.isAds ? 4.4 : 2.8;
+        camYaw += diffY * Math.min(1, dt * pullRate);
+        camPitch += (desiredPitch - camPitch) * Math.min(1, dt * (pullRate * 0.85));
       }
 
-      // --- A. LOCAL SOLDIER TPS MOVEMENT, SPRINT, JUMP, ROLL & WEAPON BALLISTICS ---
+      // --- A. LOCAL SOLDIER TPS MOVEMENT, TURBO SPRINT, JUMP PADS, ROLL & WEAPON BALLISTICS ---
       const activeAds = Boolean(me?.isAlive && (lookIn.isAds || pcAdsHeld));
 
       if (me && me.isAlive && phaseRef.current === "PLAYING") {
@@ -1191,6 +1316,20 @@ export function Carbon3DArena({
             reloadEndsAt = nowPerf + spec.reloadMs;
           }
         }
+
+        // Active Ability: Turbo Sprint + Tactical Stim (+28 HP & +20 Shield + 5s @ 11.6 m/s)
+        if (commandsRef.current.turboSprintRequested) {
+          commandsRef.current.turboSprintRequested = false;
+          if (nowPerf >= turboReadyAt) {
+            turboReadyAt = nowPerf + 9500;
+            turboActiveUntil = nowPerf + 5000;
+            cbRef.current.onClaimStimBoost?.();
+            carbonSfx.playPickup();
+            carbonSfx.playDash();
+          }
+        }
+        const isTurboSprint = nowPerf < turboActiveUntil;
+        phys.isTurboSprint = isTurboSprint;
 
         // Camera-Relative Input Vector:
         // Forward = (sin(camYaw), 0, cos(camYaw))
@@ -1214,14 +1353,20 @@ export function Carbon3DArena({
         const moveWorldZ = cosY * normFwd + sinY * normRight;
 
         const wantsSprint =
-          !activeAds &&
-          normFwd > 0.55 &&
-          (clampedMag > 0.88 || keysDown.has("shift"));
+          isTurboSprint ||
+          (!activeAds &&
+            normFwd > 0.42 &&
+            (clampedMag > 0.72 || keysDown.has("shift")));
         phys.isSprinting = wantsSprint;
 
-        const speedCap =
-          (wantsSprint ? SPRINT_SPEED : activeAds ? JOG_SPEED * 0.72 : JOG_SPEED) *
-          (me.overdriveUntil > nowEpoch ? 1.15 : 1.0);
+        const baseMoveSpeed = isTurboSprint
+          ? TURBO_SPRINT_SPEED
+          : wantsSprint
+          ? SPRINT_SPEED
+          : activeAds
+          ? JOG_SPEED * 0.78
+          : JOG_SPEED;
+        const speedCap = baseMoveSpeed * (me.overdriveUntil > nowEpoch ? 1.14 : 1.0);
 
         // Jump / Vault
         if (commandsRef.current.jumpRequested) {
@@ -1259,7 +1404,8 @@ export function Carbon3DArena({
         } else {
           const targetVx = moveWorldX * speedCap;
           const targetVz = moveWorldZ * speedCap;
-          const accel = phys.isAirborne ? 8 : 18;
+          const inJumpPadArc = phys.isAirborne && nowPerf - lastJumpPadAt < 1300;
+          const accel = inJumpPadArc ? 1.5 : phys.isAirborne ? 8 : 18;
           phys.vx += (targetVx - phys.vx) * Math.min(1, dt * accel);
           phys.vz += (targetVz - phys.vz) * Math.min(1, dt * accel);
         }
@@ -1289,6 +1435,23 @@ export function Carbon3DArena({
           }
         }
 
+        // Check Tactical Jump / Launch Pads for Fast Cross-Sector Aerial Traversal!
+        if (nowPerf - lastJumpPadAt > 600 && phys.y <= 0.75) {
+          for (const pad of ARENA_JUMP_PADS) {
+            if (Math.hypot(phys.x - pad.x, phys.z - pad.z) <= pad.radius) {
+              lastJumpPadAt = nowPerf;
+              phys.vx = pad.launchVx;
+              phys.vy = pad.launchVy;
+              phys.vz = pad.launchVz;
+              phys.y = Math.max(phys.y, 0.25);
+              phys.isAirborne = true;
+              carbonSfx.playDash();
+              spawnSparks(pad.x, 0.25, pad.z, 0x38bdf8, 12, 9.0);
+              break;
+            }
+          }
+        }
+
         // Soldier faces camera aim direction in TPS (like PUBG / COD Mobile / Fortnite)
         phys.yaw = camYaw;
         phys.pitch = camPitch;
@@ -1306,9 +1469,9 @@ export function Carbon3DArena({
           camDirX,
           camDirY,
           camDirZ,
-          130
+          195
         );
-        const camMaxDist = camWallHit ? camWallHit.t : 130;
+        const camMaxDist = camWallHit ? camWallHit.t : 195;
         const camTargetHit = raycastTargets(
           me.id,
           camera.position.x,
@@ -1323,14 +1486,36 @@ export function Carbon3DArena({
           4.5,
           camTargetHit ? camTargetHit.t : camMaxDist
         );
-        const aimPointX = camera.position.x + camDirX * aimT;
-        const aimPointY = camera.position.y + camDirY * aimT;
-        const aimPointZ = camera.position.z + camDirZ * aimT;
+        let aimPointX = camera.position.x + camDirX * aimT;
+        let aimPointY = camera.position.y + camDirY * aimT;
+        let aimPointZ = camera.position.z + camDirZ * aimT;
 
-        // Right-shoulder muzzle world position (-X right offset + +Z forward barrel)
-        const muzzleX = phys.x - cosY * 0.22 + sinY * 0.68;
-        const muzzleY = phys.y + 1.38;
-        const muzzleZ = phys.z + sinY * 0.22 + cosY * 0.68;
+        // Subtle Mobile Bullet Magnetism (3.2° cone) when crosshair is right next to a moving enemy
+        if (!isPointerLocked && !camTargetHit && lockedTarget) {
+          const mx = lockedTarget.x - camera.position.x;
+          const my = lockedTarget.y + 1.24 - camera.position.y;
+          const mz = lockedTarget.z - camera.position.z;
+          const md = Math.max(0.1, Math.hypot(mx, my, mz));
+          const magDot = (mx * camDirX + my * camDirY + mz * camDirZ) / md;
+          if (magDot >= Math.cos((3.2 * Math.PI) / 180)) {
+            aimPointX += (lockedTarget.x - aimPointX) * 0.62;
+            aimPointY += (lockedTarget.y + 1.24 - aimPointY) * 0.62;
+            aimPointZ += (lockedTarget.z - aimPointZ) * 0.62;
+          }
+        }
+
+        // Exact Rifle Barrel Muzzle World Position (reads live hand-held weapon muzzle!)
+        const myRig = rigsMap.get(me.id);
+        let muzzleX = phys.x - cosY * 0.2 + sinY * 0.72;
+        let muzzleY = phys.y + 1.38;
+        let muzzleZ = phys.z + sinY * 0.2 + cosY * 0.72;
+        if (myRig) {
+          myRig.muzzleFlash.updateWorldMatrix(true, false);
+          myRig.muzzleFlash.getWorldPosition(muzzleWorldVec);
+          muzzleX = muzzleWorldVec.x;
+          muzzleY = muzzleWorldVec.y;
+          muzzleZ = muzzleWorldVec.z;
+        }
 
         const rawShotX = aimPointX - muzzleX;
         const rawShotY = aimPointY - muzzleY;
@@ -1630,6 +1815,7 @@ export function Carbon3DArena({
         let moveSpd = 0;
         let isAir = false;
         let isDash = false;
+        let isTurbo = false;
         let pitchVal = u.pitch || 0;
 
         if (isMe) {
@@ -1638,6 +1824,7 @@ export function Carbon3DArena({
           moveSpd = Math.hypot(phys.vx, phys.vz);
           isAir = phys.isAirborne;
           isDash = phys.isDashing;
+          isTurbo = Boolean(phys.isTurboSprint);
           pitchVal = phys.pitch;
           rig.activeWeapon = currentWeaponTrack;
         } else {
@@ -1657,6 +1844,7 @@ export function Carbon3DArena({
             moveSpd = Math.hypot(peer.vx, peer.vz);
             isDash = peer.d === 1;
             isAir = peer.ab === 1;
+            isTurbo = peer.ts === 1;
             rig.activeWeapon = peer.w;
           } else {
             rig.activeWeapon = u.weapon;
@@ -1680,7 +1868,7 @@ export function Carbon3DArena({
         }
 
         const shieldRatio = u.shield / Math.max(1, u.maxShield);
-        updateStrikerRig(rig, dt, elapsedSec, moveSpd, isAir, isDash, pitchVal, shieldRatio);
+        updateStrikerRig(rig, dt, elapsedSec, moveSpd, isAir, isDash, pitchVal, shieldRatio, isTurbo);
         syncStrikerHudPlate(
           rig,
           u.nickname,
@@ -1705,7 +1893,8 @@ export function Carbon3DArena({
       const isPortrait = camera.aspect < 1;
       const isSniperAds = activeAds && currentWeaponTrack === "RAILGUN";
       const baseFov = computeBaseFov(camera.aspect);
-      const targetFov = isSniperAds ? 24 : activeAds ? 40 : baseFov;
+      const turboFovBoost = !activeAds && phys.isTurboSprint ? 7.5 : 0;
+      const targetFov = isSniperAds ? 24 : activeAds ? 40 : baseFov + turboFovBoost;
       if (Math.abs(targetFov - currentFov) > 0.05) {
         currentFov += (targetFov - currentFov) * Math.min(1, dt * 14);
         camera.fov = currentFov;
@@ -1796,6 +1985,8 @@ export function Carbon3DArena({
           maxAmmo: curSpec.magSize,
           isReloading: reloadEndsAt > nowPerf,
           dashCooldownLeft: Math.max(0, (dashReadyAt - nowPerf) / 1000),
+          turboActiveLeft: Math.max(0, (turboActiveUntil - nowPerf) / 1000),
+          turboCooldownLeft: Math.max(0, (turboReadyAt - nowPerf) / 1000),
           grenadeCooldownLeft: Math.max(0, (grenadeReadyAt - nowPerf) / 1000),
           hasTargetLock: Boolean(lockedTarget),
           isAdsActive: activeAds,
@@ -1823,7 +2014,7 @@ export function Carbon3DArena({
       for (const rig of rigsMap.values()) {
         rig.disposed = true;
       }
-      envTex.dispose();
+      envTex?.dispose();
       renderer.dispose();
     };
   }, [
