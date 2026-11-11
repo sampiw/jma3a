@@ -2,7 +2,12 @@ import { describe, it, expect } from "vitest";
 import { Dib3DEngine } from "@/games/dib3d/engine";
 import { Player } from "@/lib/types";
 import { GameContext } from "@/games/registry";
-import { Dib3DState, Dib3DSettings } from "@/games/dib3d/types";
+import {
+  Dib3DState,
+  Dib3DSettings,
+  hasMedinaLineOfSight,
+  segmentIntersectsRect2D,
+} from "@/games/dib3d/types";
 
 const mockPlayers: Player[] = [
   {
@@ -188,5 +193,17 @@ describe("DIB 3D (الذيب 3D: الدرب المظلم) Engine", () => {
 
     expect(state.phase).toBe("GAME_OVER");
     expect(state.winnerTeam).toBe("VILLAGERS");
+  });
+
+  it("computes accurate 2D Medina Wall Line-of-Sight for Top-Down 3D stealth", () => {
+    // Clear sightline straight through the 5m North Riad Courtyard Gate (x = 0, z = -4 -> z = -13)
+    expect(hasMedinaLineOfSight(0, -4, 0, -13)).toBe(true);
+
+    // Blocked sightline across solid North-West Riad Courtyard Wall at (x = -5.5, z = -8.5)
+    expect(hasMedinaLineOfSight(-5.5, -5.0, -5.5, -12.0)).toBe(false);
+
+    // Direct 2D segment-vs-AABB slab intersection check
+    expect(segmentIntersectsRect2D(-5, 0, 5, 0, -1, 1, -1, 1)).toBe(true);
+    expect(segmentIntersectsRect2D(-5, 4, 5, 4, -1, 1, -1, 1)).toBe(false);
   });
 });

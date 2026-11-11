@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { createSurvivalWaveBots, stepArenaBots } from "@/games/carbon3d/ai";
 import {
+  createSurvivalWaveBots,
+  isStealthedInBush,
+  stepArenaBots,
+} from "@/games/carbon3d/ai";
+import {
+  ARENA_BUSHES,
   CORE_PLATFORM_HEIGHT,
+  isInsideArenaBush,
   raycastArenaWorld,
   resolveArenaMovement,
   sampleArenaGroundHeight,
 } from "@/games/carbon3d/arenaLayout";
 import { Carbon3DEngine } from "@/games/carbon3d/engine";
-import { CarbonSettings, CarbonState } from "@/games/carbon3d/types";
+import { CarbonGemDrop, CarbonSettings, CarbonState } from "@/games/carbon3d/types";
 import { GameContext } from "@/games/registry";
 import { Player } from "@/lib/types";
 
@@ -150,5 +156,42 @@ describe("PROTOCOL: CARBON 3D Engine & Physics", () => {
     });
     expect(restartRes.newPhase).toBe("PLAYING");
     expect(restartRes.newState.round).toBeGreaterThan(finRes.newState.round);
+  });
+
+  it("supports Brawl Gem Grab loose gems & Tall Grass Stealth Bushes", () => {
+    expect(ARENA_BUSHES.length).toBeGreaterThanOrEqual(6);
+    const bush = ARENA_BUSHES[0];
+    expect(isInsideArenaBush(bush.x, bush.z)).toBe(true);
+    expect(isInsideArenaBush(0, 0)).toBe(false); // Central Crystal Gem Mine is clear!
+
+    const players = makePlayers(1);
+    const state = Carbon3DEngine.createInitialState(players, Carbon3DEngine.defaultSettings);
+    const p1 = state.combatants["p1"];
+    p1.x = bush.x;
+    p1.z = bush.z;
+    p1.lastFiredAt = 0;
+    p1.lastDamagedAt = 0;
+
+    const now = Date.now();
+    expect(isStealthedInBush(p1, now)).toBe(true);
+
+    // Firing reveals bush stealth for 900ms
+    p1.lastFiredAt = now - 300;
+    expect(isStealthedInBush(p1, now)).toBe(false);
+
+    // AI bots step cleanly with loose gems on the floor
+    const looseGems: CarbonGemDrop[] = [{ id: "g1", x: 1.2, z: -0.8, spawnedAt: now }];
+    const mem = new Map();
+    const shots = stepArenaBots(
+      state.combatants,
+      state.pickups,
+      mem,
+      "FFA",
+      "HARD",
+      now,
+      0.05,
+      looseGems
+    );
+    expect(Array.isArray(shots)).toBe(true);
   });
 });

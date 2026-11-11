@@ -54,6 +54,70 @@ export const DIB3D_WALL_SEGMENTS: Dib3DWallSegment[] = [
   { x: 6.5, z: 22.0, w: 6.5, d: 1.2, h: 3.9 },
 ];
 
+export function segmentIntersectsRect2D(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number
+): boolean {
+  let t0 = 0;
+  let t1 = 1;
+  const dx = bx - ax;
+  const dz = bz - az;
+
+  const clip = (p: number, q: number): boolean => {
+    if (Math.abs(p) < 1e-8) {
+      return q >= 0;
+    }
+    const r = q / p;
+    if (p < 0) {
+      if (r > t1) return false;
+      if (r > t0) t0 = r;
+    } else {
+      if (r < t0) return false;
+      if (r < t1) t1 = r;
+    }
+    return true;
+  };
+
+  if (!clip(-dx, ax - minX)) return false;
+  if (!clip(dx, maxX - ax)) return false;
+  if (!clip(-dz, az - minZ)) return false;
+  if (!clip(dz, maxZ - az)) return false;
+  return t0 <= t1;
+}
+
+export function hasMedinaLineOfSight(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number
+): boolean {
+  for (const w of DIB3D_WALL_SEGMENTS) {
+    const halfW = Math.max(0.15, w.w / 2 - 0.08);
+    const halfD = Math.max(0.15, w.d / 2 - 0.08);
+    if (
+      segmentIntersectsRect2D(
+        ax,
+        az,
+        bx,
+        bz,
+        w.x - halfW,
+        w.x + halfW,
+        w.z - halfD,
+        w.z + halfD
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export interface Dib3DTaskStationDef {
   id: Dib3DTaskStationId;
   title: string;

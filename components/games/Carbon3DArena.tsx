@@ -2,13 +2,14 @@
 
 import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { isHostile } from "@/games/carbon3d/ai";
+import { isHostile, isStealthedInBush } from "@/games/carbon3d/ai";
 import {
+  ARENA_BUSHES,
   ARENA_HALF,
   ARENA_JUMP_PADS,
   ARENA_OBSTACLES,
   CORE_CAPTURE_RADIUS,
-  EYE_HEIGHT,
+  isInsideArenaBush,
   raycastArenaWorld,
   resolveArenaMovement,
   sampleArenaGroundHeight,
@@ -16,6 +17,7 @@ import {
 import {
   CARBON_WEAPONS,
   CarbonCombatant,
+  CarbonGemDrop,
   CarbonHitClaimPacket,
   CarbonLivePeerPacket,
   CarbonMode,
@@ -24,7 +26,9 @@ import {
   CarbonWeaponId,
 } from "@/games/carbon3d/types";
 import {
+  buildCrystalGemMesh,
   buildPickupVisual,
+  buildTallGrassBushCluster,
   createStrikerRig,
   HeroVisualRole,
   loadCarbonHeroAsset,
@@ -106,6 +110,7 @@ export interface Carbon3DArenaProps {
   phase: "PLAYING" | "GAME_OVER";
   combatantsRef: React.MutableRefObject<Record<string, CarbonCombatant>>;
   pickupsRef: React.MutableRefObject<CarbonPickupPad[]>;
+  gemsRef: React.MutableRefObject<CarbonGemDrop[]>;
   peersRef: React.MutableRefObject<Map<string, CarbonLivePeerPacket>>;
   coreOwnerRef: React.MutableRefObject<CarbonCombatant["team"] | "CONTESTED" | "NEUTRAL">;
   localPhysRef: React.MutableRefObject<LocalPlayerPhysicsState>;
@@ -143,6 +148,7 @@ export function Carbon3DArena({
   phase,
   combatantsRef,
   pickupsRef,
+  gemsRef,
   peersRef,
   coreOwnerRef,
   localPhysRef,
@@ -318,8 +324,8 @@ export function Carbon3DArena({
       arenaGroup.add(cap);
     }
 
-    // Central Overdrive Capture Zone Ring
-    const coreZoneMat = createEnergyZoneMaterial(0xf59e0b);
+    // Central Crystal Gem Mine (0, 0) + Energy Ring
+    const coreZoneMat = createEnergyZoneMaterial(0xd946ef);
     const coreZoneDisc = new THREE.Mesh(
       new THREE.PlaneGeometry(CORE_CAPTURE_RADIUS * 2, CORE_CAPTURE_RADIUS * 2),
       coreZoneMat
@@ -327,6 +333,56 @@ export function Carbon3DArena({
     coreZoneDisc.rotation.x = -Math.PI / 2;
     coreZoneDisc.position.set(0, 0.025, 0);
     arenaGroup.add(coreZoneDisc);
+
+    const gemMineGroup = new THREE.Group();
+    const mineRim = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.18, 1.38, 0.24, 24),
+      mats.stadiumPerimeter
+    );
+    mineRim.position.y = 0.12;
+    mineRim.castShadow = true;
+    mineRim.receiveShadow = true;
+    gemMineGroup.add(mineRim);
+
+    const minePortal = new THREE.Mesh(
+      new THREE.CircleGeometry(0.95, 24),
+      new THREE.MeshBasicMaterial({ color: 0x3b0764 })
+    );
+    minePortal.rotation.x = -Math.PI / 2;
+    minePortal.position.y = 0.25;
+    gemMineGroup.add(minePortal);
+
+    const mineCrystalCore = new THREE.Group();
+    for (const [ox, oz, sc, rotZ] of [
+      [0, 0, 1.15, 0],
+      [-0.36, 0.22, 0.72, 0.35],
+      [0.36, -0.2, 0.78, -0.32],
+    ]) {
+      const shard = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.32 * sc, 0),
+        new THREE.MeshStandardMaterial({
+          color: 0xe879f9,
+          emissive: 0xa21caf,
+          emissiveIntensity: 0.85,
+          roughness: 0.15,
+        })
+      );
+      shard.scale.set(0.75, 1.45, 0.75);
+      shard.position.set(ox, 0.42, oz);
+      shard.rotation.z = rotZ;
+      mineCrystalCore.add(shard);
+    }
+    gemMineGroup.add(mineCrystalCore);
+    arenaGroup.add(gemMineGroup);
+
+    // 6 Symmetrical Lush Emerald Tall Grass Stealth Bush Clusters!
+    const bushMeshes: Array<{ zone: (typeof ARENA_BUSHES)[number]; mesh: THREE.Group }> = [];
+    for (const bz of ARENA_BUSHES) {
+      const bushCluster = buildTallGrassBushCluster(bz.halfX, bz.halfZ);
+      bushCluster.position.set(bz.x, 0, bz.z);
+      arenaGroup.add(bushCluster);
+      bushMeshes.push({ zone: bz, mesh: bushCluster });
+    }
 
     // 8 Clean Symmetrical Low Cover Blocks (1.35m - 1.45m tall)
     for (const obs of ARENA_OBSTACLES) {
@@ -420,6 +476,33 @@ export function Carbon3DArena({
       }
     };
     syncPickupMeshes();
+
+    // Dynamic 3D Crystal Gem Drops (💎) on the Stadium Floor
+    const gemVisuals = new Map<string, THREE.Group>();
+    const syncGemMeshes = (elapsedSec: number) => {
+      const liveIds = new Set<string>();
+      for (const gm of gemsRef.current) {
+        liveIds.add(gm.id);
+        let mesh = gemVisuals.get(gm.id);
+        if (!mesh) {
+          mesh = buildCrystalGemMesh();
+          mesh.position.set(gm.x, 0.55, gm.z);
+          scene.add(mesh);
+          gemVisuals.set(gm.id, mesh);
+        }
+        mesh.position.x = gm.x;
+        mesh.position.z = gm.z;
+        mesh.position.y = 0.52 + Math.sin(elapsedSec * 3.8 + gm.x * 1.5) * 0.1;
+        mesh.rotation.y = elapsedSec * 2.4 + gm.z;
+      }
+      for (const [id, mesh] of gemVisuals.entries()) {
+        if (!liveIds.has(id)) {
+          scene.remove(mesh);
+          gemVisuals.delete(id);
+        }
+      }
+    };
+    syncGemMeshes(0);
 
     // 5. Brawl-Stars Live 3D Ground Aim Telegraph (Line, Shotgun Cone, & Lobber Blast Ring!)
     const telegraphGroup = new THREE.Group();
@@ -858,12 +941,15 @@ export function Carbon3DArena({
       let bestTarget: CarbonCombatant | null = null;
       let bestDist = maxRange + 1.5;
 
+      const nowAuto = Date.now();
       for (const other of Object.values(combatantsRef.current)) {
         if (!other.isAlive || !isHostile(me, other, modeRef.current)) continue;
         const ex = other.x - ox;
         const ez = other.z - oz;
         const dist = Math.hypot(ex, ez);
         if (dist > maxRange + 1.5 || dist < 0.25) continue;
+        // Enemies hiding inside Tall Grass Stealth Bushes (> 3.8m) cannot be auto-aimed!
+        if (isStealthedInBush(other, nowAuto) && dist > 3.8) continue;
 
         const inv = 1 / dist;
         const wall = raycastArenaWorld(ox, oy + 0.95, oz, ex * inv, 0, ez * inv, dist - 0.55);
@@ -934,7 +1020,19 @@ export function Carbon3DArena({
       );
       for (const jm of jumpPadMats) jm.uniforms.uTime.value = elapsedSec;
 
+      gemMineGroup.visible = modeRef.current !== "SURVIVAL";
+      if (gemMineGroup.visible) {
+        mineCrystalCore.rotation.y = elapsedSec * 1.35;
+        mineCrystalCore.position.y = Math.sin(elapsedSec * 2.8) * 0.06;
+      }
+
+      for (let bi = 0; bi < bushMeshes.length; bi++) {
+        const bm = bushMeshes[bi];
+        bm.mesh.rotation.z = Math.sin(elapsedSec * 2.2 + bi * 1.1) * 0.025;
+      }
+
       syncPickupMeshes();
+      syncGemMeshes(elapsedSec);
       for (const [, pv] of pickupVisuals) {
         if (pv.floatItem.visible) {
           pv.floatItem.rotation.y = elapsedSec * 1.8;
@@ -1475,6 +1573,10 @@ export function Carbon3DArena({
           rig.root.position.set(phys.x, phys.y, phys.z);
           rig.root.rotation.y = phys.yaw;
           const spd = Math.hypot(phys.vx, phys.vz);
+          const stealthed =
+            isInsideArenaBush(phys.x, phys.z) &&
+            nowMs - (u.lastFiredAt || 0) > 900 &&
+            nowMs - (u.lastDamagedAt || 0) > 900;
 
           syncStrikerHudPlate(
             rig,
@@ -1485,7 +1587,9 @@ export function Carbon3DArena({
             u.maxShield,
             u.overdriveUntil > nowMs,
             localAmmoRatio,
-            reloadEndsAt > nowMs
+            reloadEndsAt > nowMs,
+            u.gems || 0,
+            stealthed
           );
           updateStrikerRig(
             rig,
@@ -1521,6 +1625,17 @@ export function Carbon3DArena({
             spd = Math.hypot(tx - rig.root.position.x, tz - rig.root.position.z) / Math.max(0.016, dt);
           }
 
+          const stealthed =
+            isInsideArenaBush(tx, tz) &&
+            nowMs - (u.lastFiredAt || 0) > 900 &&
+            nowMs - (u.lastDamagedAt || 0) > 900;
+
+          // True Brawl-Stars Bush Ambush: Enemies inside Tall Grass vanish beyond 3.8m!
+          if (role === "ENEMY" && stealthed && Math.hypot(tx - phys.x, tz - phys.z) > 3.8) {
+            rig.root.visible = false;
+            continue;
+          }
+
           tmpVec3.set(tx, ty, tz);
           if (rig.root.position.distanceTo(tmpVec3) > 8.0) {
             rig.root.position.copy(tmpVec3);
@@ -1542,7 +1657,9 @@ export function Carbon3DArena({
             u.maxShield,
             u.overdriveUntil > nowMs,
             -1,
-            false
+            false,
+            u.gems || 0,
+            stealthed
           );
           updateStrikerRig(
             rig,

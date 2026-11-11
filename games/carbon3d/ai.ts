@@ -1,7 +1,9 @@
 import {
+  ARENA_BUSHES,
   ARENA_JUMP_PADS,
   ARENA_SPAWN_POINTS,
   EYE_HEIGHT,
+  isInsideArenaBush,
   raycastArenaWorld,
   resolveArenaMovement,
   sampleArenaGroundHeight,
@@ -10,6 +12,7 @@ import {
   CARBON_WEAPONS,
   CarbonBotArchetype,
   CarbonCombatant,
+  CarbonGemDrop,
   CarbonMode,
   CarbonPickupPad,
   CarbonShotPacket,
@@ -94,10 +97,12 @@ export function createArenaBots(
       kills: 0,
       deaths: 0,
       assists: 0,
+      gems: 0,
       score: 0,
       streak: 0,
       overdriveUntil: 0,
       lastDamagedAt: 0,
+      lastFiredAt: 0,
     });
   }
 
@@ -172,10 +177,12 @@ export function createSurvivalWaveBots(wave: number, humanCount: number): Carbon
       kills: 0,
       deaths: 0,
       assists: 0,
+      gems: 0,
       score: 0,
       streak: 0,
       overdriveUntil: archetype === "BOSS_MECH" ? Date.now() + 999_999 : 0,
       lastDamagedAt: 0,
+      lastFiredAt: 0,
     });
   }
 
@@ -188,6 +195,14 @@ export function isHostile(a: CarbonCombatant, b: CarbonCombatant, mode: CarbonMo
   return a.team !== b.team;
 }
 
+export function isStealthedInBush(unit: CarbonCombatant, now: number): boolean {
+  return (
+    isInsideArenaBush(unit.x, unit.z) &&
+    now - (unit.lastFiredAt || 0) > 900 &&
+    now - (unit.lastDamagedAt || 0) > 900
+  );
+}
+
 /**
  * Advances all AI units on the Host Arbiter by `dt` seconds and returns any shots fired by bots.
  */
@@ -198,7 +213,8 @@ export function stepArenaBots(
   mode: CarbonMode,
   difficulty: "NORMAL" | "HARD" | "CARBON",
   now: number,
-  dt: number
+  dt: number,
+  looseGems: CarbonGemDrop[] = []
 ): CarbonShotPacket[] {
   const shots: CarbonShotPacket[] = [];
   const allUnits = Object.values(combatants);
@@ -227,22 +243,40 @@ export function stepArenaBots(
       mem.nextStrafeFlipAt = now + 1100 + Math.random() * 1600;
     }
 
-    // Find closest living enemy
+    // Find highest-priority visible living enemy (ignore bush-stealthed enemies > 3.8m away!)
     let closestEnemy: CarbonCombatant | null = null;
     let closestDist = Infinity;
+    let bestTargetScore = Infinity;
 
     for (const other of allUnits) {
       if (!other.isAlive || !isHostile(bot, other, mode)) continue;
       const d = Math.hypot(other.x - bot.x, other.z - bot.z);
-      if (d < closestDist) {
+      if (isStealthedInBush(other, now) && d > 3.8) continue;
+
+      // Focus enemy gem carriers holding 6+ gems!
+      const priorityDist = (other.gems || 0) >= 8 ? d * 0.58 : (other.gems || 0) >= 5 ? d * 0.78 : d;
+      if (priorityDist < bestTargetScore) {
+        bestTargetScore = priorityDist;
         closestDist = d;
         closestEnemy = other;
       }
     }
 
-    // Decide desired movement point
+    // Decide desired objective point (Loose Gems > Shield Pads > Central Gem Mine)
     let goalX = 0;
     let goalZ = 0;
+    let nearestGem: CarbonGemDrop | null = null;
+    let nearestGemDist = Infinity;
+    if (mode !== "SURVIVAL" && looseGems.length > 0) {
+      for (const gm of looseGems) {
+        const gd = Math.hypot(gm.x - bot.x, gm.z - bot.z);
+        if (gd < nearestGemDist) {
+          nearestGemDist = gd;
+          nearestGem = gm;
+        }
+      }
+    }
+
     const spec = CARBON_WEAPONS[bot.weapon];
     const speed =
       bot.archetype === "DRONE"
@@ -251,8 +285,25 @@ export function stepArenaBots(
         ? moveSpeedBase * 0.78
         : moveSpeedBase;
 
-    // Look for nearby shield/overdrive/weapon pad if low shield or idle
-    if (bot.shield < 25 || !closestEnemy || closestDist > 22) {
+    const botGems = bot.gems || 0;
+
+    if (botGems >= 9 && mode !== "SURVIVAL") {
+      // Carrying game-winning gems -> sneak into nearest Tall Grass Stealth Bush!
+      let bestBush = ARENA_BUSHES[0];
+      let bestBushD = Infinity;
+      for (const b of ARENA_BUSHES) {
+        const bd = Math.hypot(b.x - bot.x, b.z - bot.z);
+        if (bd < bestBushD) {
+          bestBushD = bd;
+          bestBush = b;
+        }
+      }
+      goalX = bestBush.x;
+      goalZ = bestBush.z;
+    } else if (nearestGem && nearestGemDist < 16) {
+      goalX = nearestGem.x;
+      goalZ = nearestGem.z;
+    } else if (bot.shield < 25 || !closestEnemy || closestDist > 22) {
       const freePad = pickups.find(
         (p) =>
           p.available &&
@@ -290,14 +341,32 @@ export function stepArenaBots(
       let radialPush = 0;
       if (closestDist > idealRange + 2.5) radialPush = 0.85;
       else if (closestDist < idealRange - 2.5) radialPush = -0.65;
-      if (bot.hp < 40 && bot.archetype !== "BOSS_MECH") radialPush = -0.75;
+      if ((bot.hp < 40 || botGems >= 9) && bot.archetype !== "BOSS_MECH") radialPush = -0.85;
 
-      // In Squad mode, bias gently toward central Overdrive Core if contested
-      const corePullX = mode === "SQUAD" && Math.hypot(bot.x, bot.z) > 8 ? -bot.x * 0.03 : 0;
-      const corePullZ = mode === "SQUAD" && Math.hypot(bot.x, bot.z) > 8 ? -bot.z * 0.03 : 0;
+      // Pull strongly toward loose gems or defensive bush!
+      let objPullX = 0;
+      let objPullZ = 0;
+      if (nearestGem && nearestGemDist < 9.5 && botGems < 10 && bot.hp > 45) {
+        const gx = nearestGem.x - bot.x;
+        const gz = nearestGem.z - bot.z;
+        const gl = Math.max(0.1, Math.hypot(gx, gz));
+        objPullX = (gx / gl) * 0.95;
+        objPullZ = (gz / gl) * 0.95;
+      } else if (botGems >= 9) {
+        const gx = goalX - bot.x;
+        const gz = goalZ - bot.z;
+        const gl = Math.max(0.1, Math.hypot(gx, gz));
+        if (gl > 1.2) {
+          objPullX = (gx / gl) * 0.85;
+          objPullZ = (gz / gl) * 0.85;
+        }
+      } else if (mode !== "SURVIVAL" && Math.hypot(bot.x, bot.z) > 8.5) {
+        objPullX = -bot.x * 0.035;
+        objPullZ = -bot.z * 0.035;
+      }
 
-      vx = (dirX * radialPush + perpX * 0.8 + corePullX) * speed;
-      vz = (dirZ * radialPush + perpZ * 0.8 + corePullZ) * speed;
+      vx = (dirX * radialPush + perpX * 0.72 + objPullX) * speed;
+      vz = (dirZ * radialPush + perpZ * 0.72 + objPullZ) * speed;
 
       // Smoothly aim toward enemy
       const desiredYaw = Math.atan2(toEx, toEz);
@@ -324,6 +393,7 @@ export function stepArenaBots(
 
         if (!wallHit) {
           mem.lastShotAt = now;
+          bot.lastFiredAt = now;
           const jitterYaw = (Math.random() - 0.5) * 2 * aimJitter;
           const jitterPitch = (Math.random() - 0.5) * aimJitter;
           const cosP = Math.cos(bot.pitch + jitterPitch);

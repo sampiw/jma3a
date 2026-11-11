@@ -29,7 +29,6 @@ import {
   Dib3DTaskStationId,
 } from "@/games/dib3d/types";
 import {
-  enterGameFullscreen,
   exitGameFullscreen,
   isFullscreenActive,
   isIOS,
@@ -331,11 +330,21 @@ export function Dib3DGameView({
     channelRef.current?.send({ type: "broadcast", event: "refresh", payload: {} });
   }, []);
 
-  // Virtual thumb joystick state
+  // Un-Stickable Floating Left-Half Native Multi-Touch Joystick state
   const joystickVecRef = useRef<{ dx: number; dz: number }>({ dx: 0, dz: 0 });
-  const [joyKnob, setJoyKnob] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const joyBaseRef = useRef<HTMLDivElement | null>(null);
-  const joyPointerIdRef = useRef<number | null>(null);
+  const joyZoneRef = useRef<HTMLDivElement | null>(null);
+  const joyTouchRef = useRef<{ id: number; ox: number; oy: number } | null>(null);
+  const joyMouseRef = useRef<{ ox: number; oy: number } | null>(null);
+  const [joyVisual, setJoyVisual] = useState<{
+    active: boolean;
+    relX: number;
+    relY: number;
+    kx: number;
+    ky: number;
+  }>({ active: false, relX: 0, relY: 0, kx: 0, ky: 0 });
+
+  const onActionRef = useRef(onAction);
+  onActionRef.current = onAction;
 
   const [mounted, setMounted] = useState<boolean>(false);
   const [isImmersive, setIsImmersive] = useState<boolean>(true);
@@ -346,8 +355,52 @@ export function Dib3DGameView({
 
   const lastServerSyncAtRef = useRef<number>(0);
 
+  const applyFloatingJoy = useCallback(
+    (ox: number, oy: number, clientX: number, clientY: number) => {
+      const maxR = 48;
+      let dx = clientX - ox;
+      let dy = clientY - oy;
+      const dist = Math.hypot(dx, dy);
+      if (dist > maxR) {
+        dx = (dx / dist) * maxR;
+        dy = (dy / dist) * maxR;
+      }
+      joystickVecRef.current = { dx: dx / maxR, dz: dy / maxR };
+      const rect = joyZoneRef.current?.getBoundingClientRect();
+      const relX = rect ? ox - rect.left : ox;
+      const relY = rect ? oy - rect.top : oy;
+      setJoyVisual({ active: true, relX, relY, kx: dx, ky: dy });
+    },
+    []
+  );
+
+  const resetFloatingJoy = useCallback((syncFinalPos: boolean) => {
+    const wasActive =
+      joyTouchRef.current !== null ||
+      joyMouseRef.current !== null ||
+      joystickVecRef.current.dx !== 0 ||
+      joystickVecRef.current.dz !== 0;
+    joyTouchRef.current = null;
+    joyMouseRef.current = null;
+    joystickVecRef.current = { dx: 0, dz: 0 };
+    setJoyVisual((prev) =>
+      prev.active ? { active: false, relX: 0, relY: 0, kx: 0, ky: 0 } : prev
+    );
+    if (syncFinalPos && wasActive) {
+      onActionRef.current({
+        type: "SYNC_POS",
+        x: localPosRef.current.x,
+        z: localPosRef.current.z,
+        rotY: localPosRef.current.rotY,
+      });
+    }
+  }, []);
+
   useEffect(() => {
     setMounted(true);
+    if (typeof window !== "undefined" && window.innerWidth < 640) {
+      setTasksExpanded(false);
+    }
     const syncFs = () => setBrowserFs(isFullscreenActive());
     document.addEventListener("fullscreenchange", syncFs);
     document.addEventListener("webkitfullscreenchange", syncFs);
@@ -357,13 +410,76 @@ export function Dib3DGameView({
     };
   }, []);
 
+  // Global window hardware touch reconciler (impossible for joystick to stay stuck!)
+  useEffect(() => {
+    const reconcileTouches = (e: TouchEvent) => {
+      const jt = joyTouchRef.current;
+      if (!jt) return;
+      let found: Touch | null = null;
+      for (let i = 0; i < e.touches.length; i++) {
+        if (e.touches[i].identifier === jt.id) {
+          found = e.touches[i];
+          break;
+        }
+      }
+      if (!found) {
+        resetFloatingJoy(true);
+      } else {
+        applyFloatingJoy(jt.ox, jt.oy, found.clientX, found.clientY);
+      }
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!joyMouseRef.current) return;
+      applyFloatingJoy(
+        joyMouseRef.current.ox,
+        joyMouseRef.current.oy,
+        e.clientX,
+        e.clientY
+      );
+    };
+
+    const onMouseUp = () => {
+      if (joyMouseRef.current) {
+        resetFloatingJoy(true);
+      }
+    };
+
+    const onBlurOrHide = () => resetFloatingJoy(false);
+
+    window.addEventListener("touchmove", reconcileTouches, { passive: true });
+    window.addEventListener("touchend", reconcileTouches, { passive: true });
+    window.addEventListener("touchcancel", reconcileTouches, { passive: true });
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("blur", onBlurOrHide);
+    document.addEventListener("visibilitychange", onBlurOrHide);
+
+    return () => {
+      window.removeEventListener("touchmove", reconcileTouches);
+      window.removeEventListener("touchend", reconcileTouches);
+      window.removeEventListener("touchcancel", reconcileTouches);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("blur", onBlurOrHide);
+      document.removeEventListener("visibilitychange", onBlurOrHide);
+    };
+  }, [applyFloatingJoy, resetFloatingJoy]);
+
+  // Reset joystick cleanly if phase changes or a task modal opens
+  useEffect(() => {
+    if (phase !== "ROAM_3D" || activeMiniGameStation !== null) {
+      resetFloatingJoy(false);
+    }
+  }, [phase, activeMiniGameStation, resetFloatingJoy]);
+
   // Sync coordinates when entering ROAM_3D
   useEffect(() => {
     if (phase === "ROAM_3D" && myPrivEnt) {
       localPosRef.current.x = myPrivEnt.x;
       localPosRef.current.z = myPrivEnt.z;
       localPosRef.current.rotY = myPrivEnt.rotY;
-      localPosRef.current.camYaw = Math.atan2(-myPrivEnt.x, -myPrivEnt.z);
+      localPosRef.current.camYaw = 0;
     }
     if (phase === "MEETING") {
       sound.playEmergencySiren();
@@ -417,73 +533,54 @@ export function Dib3DGameView({
     [onAction, sendLivePos, isLive]
   );
 
-  // Multi-touch Joystick handlers
-  const updateJoystick = (clientX: number, clientY: number) => {
-    if (!joyBaseRef.current) return;
-    const rect = joyBaseRef.current.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const maxR = Math.max(20, rect.width / 2 - 14);
-
-    let dx = clientX - cx;
-    let dy = clientY - cy;
-    const dist = Math.hypot(dx, dy);
-    if (dist > maxR) {
-      dx = (dx / dist) * maxR;
-      dy = (dy / dist) * maxR;
+  const handleJoyTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (joyTouchRef.current !== null) {
+      let stillAlive = false;
+      for (let i = 0; i < e.touches.length; i++) {
+        if (e.touches[i].identifier === joyTouchRef.current.id) {
+          stillAlive = true;
+          break;
+        }
+      }
+      if (!stillAlive) joyTouchRef.current = null;
     }
-
-    setJoyKnob({ x: dx, y: dy });
-    joystickVecRef.current = { dx: dx / maxR, dz: dy / maxR };
+    if (joyTouchRef.current !== null) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    joyTouchRef.current = { id: t.identifier, ox: t.clientX, oy: t.clientY };
+    applyFloatingJoy(t.clientX, t.clientY, t.clientX, t.clientY);
   };
 
-  const handleJoyDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    if (joyPointerIdRef.current !== null) return;
-    joyPointerIdRef.current = e.pointerId;
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {}
-    updateJoystick(e.clientX, e.clientY);
-  };
-
-  const handleJoyMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    if (e.pointerId !== joyPointerIdRef.current) return;
-    updateJoystick(e.clientX, e.clientY);
-  };
-
-  const handleJoyUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    if (e.pointerId !== joyPointerIdRef.current) return;
-    joyPointerIdRef.current = null;
-    setJoyKnob({ x: 0, y: 0 });
-    joystickVecRef.current = { dx: 0, dz: 0 };
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {}
-    onAction({
-      type: "SYNC_POS",
-      x: localPosRef.current.x,
-      z: localPosRef.current.z,
-      rotY: localPosRef.current.rotY,
-    });
+  const handleJoyMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    joyMouseRef.current = { ox: e.clientX, oy: e.clientY };
+    applyFloatingJoy(e.clientX, e.clientY, e.clientX, e.clientY);
   };
 
   const handleToggleFullscreen = async () => {
     sound.playCardFlip();
-    if (isIOS() && !isStandaloneApp()) {
-      setIsImmersive(true);
-      setIosHelpOpen(true);
-      return;
-    }
+    setIsImmersive(true);
     if (browserFs) {
       await exitGameFullscreen();
       setBrowserFs(false);
-    } else {
-      setIsImmersive(true);
-      const ok = await enterGameFullscreen();
-      setBrowserFs(ok);
+      return;
+    }
+    if (isIOS() && !isStandaloneApp()) {
+      setIosHelpOpen(true);
+      return;
+    }
+    try {
+      const el = document.documentElement as HTMLElement & {
+        webkitRequestFullscreen?: () => Promise<void>;
+      };
+      if (el.requestFullscreen) {
+        await el.requestFullscreen();
+      } else if (el.webkitRequestFullscreen) {
+        await el.webkitRequestFullscreen();
+      }
+      setBrowserFs(isFullscreenActive());
+    } catch {
+      if (isIOS()) setIosHelpOpen(true);
     }
   };
 
@@ -749,12 +846,10 @@ export function Dib3DGameView({
           <button
             type="button"
             onClick={handleToggleFullscreen}
-            className="px-2 py-1.5 rounded-xl bg-slate-900/85 hover:bg-slate-800 backdrop-blur-md border border-rose-400/40 text-rose-300 text-[11px] font-black flex items-center gap-1 shadow-lg active:scale-95"
+            className="px-2.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-[11px] font-black flex items-center gap-1 shadow-lg active:scale-95"
           >
             <Smartphone className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden sm:inline">
-              {browserFs ? "خروج" : "شاشة كاملة"}
-            </span>
+            <span>{browserFs ? "خروج" : "شاشة كاملة"}</span>
           </button>
 
           <button
@@ -790,7 +885,7 @@ export function Dib3DGameView({
           <span className="text-[10px] font-black text-emerald-300">
             🥖 مهام الحومة {taskPercent}%
           </span>
-          <div className="w-16 sm:w-28 h-2 rounded-full bg-slate-800 overflow-hidden">
+          <div className="w-14 sm:w-28 h-2 rounded-full bg-slate-800 overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-emerald-400 to-teal-300 transition-all duration-300"
               style={{ width: `${taskPercent}%` }}
@@ -827,7 +922,11 @@ export function Dib3DGameView({
       )}
 
       {/* TOP-RIGHT MEDINA LABYRINTH MINIMAP (76x76m) */}
-      <div className="absolute top-12 right-2.5 z-20 pointer-events-auto">
+      <div
+        className="absolute top-12 right-2.5 z-20 pointer-events-auto"
+        onTouchStart={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
         <Dib3DMinimap
           playerX={proximity.playerX}
           playerZ={proximity.playerZ}
@@ -840,8 +939,9 @@ export function Dib3DGameView({
 
       {/* TOP-LEFT TASK CHECKLIST / ROLE BRIEFING */}
       <div
-        className="absolute top-12 left-2.5 z-20 pointer-events-auto max-w-[195px] sm:max-w-[235px]"
+        className="absolute top-12 left-2.5 z-20 pointer-events-auto max-w-[185px] sm:max-w-[235px]"
         dir="rtl"
+        onTouchStart={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
         <button
@@ -890,47 +990,47 @@ export function Dib3DGameView({
       </div>
 
       {/* ================================================================= */}
-      {/* BOTTOM DUAL-THUMB CONTROLS (LEFT JOYSTICK + RIGHT CONTEXTUAL)     */}
+      {/* UN-STICKABLE FLOATING LEFT-HALF MULTI-TOUCH MOVEMENT ZONE         */}
       {/* ================================================================= */}
       <div
-        className="absolute bottom-0 inset-x-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] z-20 flex items-end justify-between gap-2 pointer-events-none"
-        dir="ltr"
+        ref={joyZoneRef}
+        onTouchStart={handleJoyTouchStart}
+        onMouseDown={handleJoyMouseDown}
+        className="absolute top-14 bottom-0 left-0 w-[56%] z-10 touch-none select-none cursor-pointer"
       >
-        {/* LEFT: VIRTUAL JOYSTICK */}
-        <div className="flex flex-col items-center gap-1 pointer-events-auto shrink-0">
+        {joyVisual.active ? (
           <div
-            ref={joyBaseRef}
-            onPointerDown={handleJoyDown}
-            onPointerMove={handleJoyMove}
-            onPointerUp={handleJoyUp}
-            onPointerCancel={handleJoyUp}
-            className="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-slate-950/65 backdrop-blur-md border-2 border-rose-400/50 relative flex items-center justify-center shadow-2xl touch-none cursor-pointer"
+            style={{
+              left: `${joyVisual.relX}px`,
+              top: `${joyVisual.relY}px`,
+            }}
+            className="absolute -translate-x-1/2 -translate-y-1/2 w-24 h-24 rounded-full bg-slate-950/60 backdrop-blur-sm border-2 border-amber-300/70 flex items-center justify-center shadow-2xl pointer-events-none"
           >
-            <span className="absolute top-1.5 text-[8px] font-black text-rose-300/60 pointer-events-none">
-              ▲
-            </span>
-            <span className="absolute bottom-1.5 text-[8px] font-black text-rose-300/60 pointer-events-none">
-              ▼
-            </span>
-            <span className="absolute left-1.5 text-[8px] font-black text-rose-300/60 pointer-events-none">
-              ◀
-            </span>
-            <span className="absolute right-1.5 text-[8px] font-black text-rose-300/60 pointer-events-none">
-              ▶
-            </span>
             <div
               style={{
-                transform: `translate(${joyKnob.x}px, ${joyKnob.y}px)`,
+                transform: `translate(${joyVisual.kx}px, ${joyVisual.ky}px)`,
               }}
-              className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-rose-500 to-amber-500 border-2 border-white shadow-lg pointer-events-none"
+              className="w-11 h-11 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 border-2 border-white shadow-lg pointer-events-none"
             />
           </div>
-        </div>
+        ) : (
+          <div className="absolute bottom-[max(0.85rem,env(safe-area-inset-bottom))] left-3.5 w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-slate-950/45 backdrop-blur-sm border-2 border-amber-300/40 flex items-center justify-center shadow-xl pointer-events-none">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-amber-400/85 to-rose-500/85 border-2 border-white/90 shadow-md" />
+          </div>
+        )}
+      </div>
 
-        {/* RIGHT: CONTEXTUAL 3D ACTION BUTTONS */}
+      {/* ================================================================= */}
+      {/* BOTTOM-RIGHT CONTEXTUAL 3D ACTION BUTTONS                         */}
+      {/* ================================================================= */}
+      <div
+        className="absolute bottom-0 right-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] z-20 flex items-end justify-end pointer-events-none"
+        dir="ltr"
+      >
         <div
           className="pointer-events-auto flex flex-col items-end gap-2"
           dir="rtl"
+          onTouchStart={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
         >
           {/* 1. REPORT DEAD BODY (Highest Priority when near a corpse!) */}
@@ -1155,14 +1255,18 @@ export function Dib3DGameView({
       {/* iOS Fullscreen Modal */}
       {iosHelpOpen && (
         <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+          className="fixed inset-0 z-[170] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
           onClick={() => setIosHelpOpen(false)}
         >
           <div
-            className="max-w-sm w-full rounded-3xl bg-slate-900 border-2 border-rose-400 p-5 text-right space-y-3 shadow-2xl"
+            className="max-w-sm w-full rounded-3xl bg-slate-900 border-2 border-amber-400 p-5 text-right space-y-3 shadow-2xl"
+            dir="rtl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
+              <h3 className="text-base font-black text-amber-300">
+                📱 شاشة كاملة 100% فـ iPhone
+              </h3>
               <button
                 type="button"
                 onClick={() => setIosHelpOpen(false)}
@@ -1170,17 +1274,36 @@ export function Dib3DGameView({
               >
                 <X className="w-4 h-4" />
               </button>
-              <h3 className="text-base font-black text-rose-300">
-                📱 وضع الشاشة الكاملة فـ iPhone
-              </h3>
             </div>
-            <p className="text-xs text-slate-200 leading-relaxed">
-              دوّر التيليفون بالعرض (Landscape) باش تلعب فـ الدرب 3D بـ جوج صباع!
-            </p>
+            <div className="space-y-2 text-xs text-slate-200 leading-relaxed">
+              <p className="p-2.5 rounded-xl bg-slate-800/90 border border-white/10">
+                <strong className="text-amber-300">1. فـ Safari دابا:</strong> ورك على زر{" "}
+                <span className="px-1.5 py-0.5 rounded bg-slate-700 font-mono text-white">
+                  [=]
+                </span>{" "}
+                أو{" "}
+                <span className="px-1.5 py-0.5 rounded bg-slate-700 font-mono text-white">
+                  أأ
+                </span>{" "}
+                حدا الرابط وختار{" "}
+                <strong className="text-emerald-300">
+                  إخفاء شريط الأدوات (Hide Toolbar)
+                </strong>
+                . تقدر تلعب بالطول أو بالعرض!
+              </p>
+              <p className="p-2.5 rounded-xl bg-slate-800/90 border border-white/10">
+                <strong className="text-sky-300">2. شاشة تطبيق دائمة:</strong> ورك على{" "}
+                <strong className="text-white">مشاركة (Share)</strong> ثم{" "}
+                <strong className="text-emerald-300">
+                  إضافة إلى الشاشة الرئيسية (Add to Home Screen)
+                </strong>
+                .
+              </p>
+            </div>
             <button
               type="button"
               onClick={() => setIosHelpOpen(false)}
-              className="w-full py-2.5 rounded-2xl bg-rose-600 text-white font-black text-xs"
+              className="w-full py-2.5 rounded-2xl bg-amber-400 text-slate-950 font-black text-xs shadow-lg active:scale-95"
             >
               مفهوم، يالاه نلعبو! 🎮
             </button>

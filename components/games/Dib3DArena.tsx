@@ -16,6 +16,7 @@ import {
   Dib3DPlayerEntity,
   Dib3DRole,
   Dib3DTaskStationId,
+  hasMedinaLineOfSight,
 } from "@/games/dib3d/types";
 import {
   buildProceduralProp,
@@ -27,10 +28,7 @@ import {
 import { GhammadaEffects } from "@/components/games/ghammada/effects";
 import {
   angleDelta,
-  applyLookDrag,
-  cameraRelativeMove,
   damp,
-  facingFromDirection,
 } from "@/components/games/ghammada/controlsMath";
 
 export interface Dib3DLocalTransform {
@@ -562,28 +560,138 @@ function resolveDib3DCollisions(
   };
 }
 
-function clampCameraWallDist(
-  focusX: number,
-  focusZ: number,
-  dirX: number,
-  dirZ: number,
-  desiredDist: number
-): number {
-  const wallLimit = DIB3D_ARENA_HALF - 0.5;
-  let maxDist = desiredDist;
+function buildMedinaFloorTexture(): THREE.CanvasTexture {
+  const size = 1024;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
 
-  if (Math.abs(dirX) > 1e-4) {
-    const boundX = dirX > 0 ? wallLimit : -wallLimit;
-    const dX = (boundX - focusX) / dirX;
-    if (dX > 0) maxDist = Math.min(maxDist, dX);
-  }
-  if (Math.abs(dirZ) > 1e-4) {
-    const boundZ = dirZ > 0 ? wallLimit : -wallLimit;
-    const dZ = (boundZ - focusZ) / dirZ;
-    if (dZ > 0) maxDist = Math.min(maxDist, dZ);
+  if (ctx) {
+    // Base warm Marrakesh sandstone
+    ctx.fillStyle = "#e7d3b0";
+    ctx.fillRect(0, 0, size, size);
+
+    // 38x38 courtyard stone tiles (each tile = 2m in 76x76m arena)
+    const cells = 38;
+    const step = size / cells;
+    for (let gx = 0; gx < cells; gx++) {
+      for (let gz = 0; gz < cells; gz++) {
+        ctx.fillStyle = (gx + gz) % 2 === 0 ? "#eee0c4" : "#dec69e";
+        ctx.fillRect(gx * step, gz * step, step, step);
+      }
+    }
+
+    // Warm ivory travertine grand Medina walkways along N-S & E-W axes
+    const cx = size / 2;
+    const pathHalf = (3.4 / 76) * size;
+    ctx.fillStyle = "#f6eddc";
+    ctx.fillRect(cx - pathHalf, 0, pathHalf * 2, size);
+    ctx.fillRect(0, cx - pathHalf, size, pathHalf * 2);
+
+    ctx.strokeStyle = "rgba(194, 65, 12, 0.30)";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(cx - pathHalf, 0, pathHalf * 2, size);
+    ctx.strokeRect(0, cx - pathHalf, size, pathHalf * 2);
+
+    // Central Royal Zellige Riad Courtyard (-8.5m .. +8.5m)
+    const riadHalf = (8.3 / 76) * size;
+    ctx.fillStyle = "#fbf7ef";
+    ctx.fillRect(cx - riadHalf, cx - riadHalf, riadHalf * 2, riadHalf * 2);
+
+    ctx.strokeStyle = "#0284c7";
+    ctx.lineWidth = 10;
+    ctx.strokeRect(
+      cx - riadHalf + 6,
+      cx - riadHalf + 6,
+      riadHalf * 2 - 12,
+      riadHalf * 2 - 12
+    );
+
+    ctx.strokeStyle = "#0d9488";
+    ctx.lineWidth = 5;
+    ctx.strokeRect(
+      cx - riadHalf + 18,
+      cx - riadHalf + 18,
+      riadHalf * 2 - 36,
+      riadHalf * 2 - 36
+    );
+
+    // 8-Pointed Golden Moroccan Zellige Star Medallion at (0, 0)
+    ctx.save();
+    ctx.translate(cx, cx);
+    for (let rot = 0; rot < 2; rot++) {
+      ctx.save();
+      ctx.rotate((rot * Math.PI) / 4);
+      ctx.fillStyle = rot === 0 ? "rgba(2, 132, 199, 0.22)" : "rgba(245, 158, 11, 0.26)";
+      ctx.strokeStyle = "#d97706";
+      ctx.lineWidth = 4;
+      ctx.fillRect(-52, -52, 104, 104);
+      ctx.strokeRect(-52, -52, 104, 104);
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // Subtle cobblestone mortar grid across entire floor
+    ctx.strokeStyle = "rgba(146, 64, 14, 0.14)";
+    ctx.lineWidth = 2;
+    for (let i = 0; i <= cells; i++) {
+      const p = i * step;
+      ctx.beginPath();
+      ctx.moveTo(p, 0);
+      ctx.lineTo(p, size);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, p);
+      ctx.lineTo(size, p);
+      ctx.stroke();
+    }
+
+    // Warm amber lantern pools painted onto key task plazas & intersections
+    const toPx = (coord: number) => ((coord + DIB3D_ARENA_HALF) / (DIB3D_ARENA_HALF * 2)) * size;
+    for (const st of DIB3D_TASK_STATIONS) {
+      const lx = toPx(st.x);
+      const lz = toPx(st.z);
+      const grad = ctx.createRadialGradient(lx, lz, 4, lx, lz, 48);
+      grad.addColorStop(0, "rgba(251, 191, 36, 0.32)");
+      grad.addColorStop(1, "rgba(251, 191, 36, 0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(lx, lz, 48, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
-  return Math.max(1.5, maxDist);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function buildVisionVignetteTexture(): THREE.CanvasTexture {
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+
+  if (ctx) {
+    const c = size / 2;
+    const grad = ctx.createRadialGradient(c, c, 0, c, c, c);
+    // Clear warm lantern circle inside 0..0.155 (maps to ~20m on 260m plane)
+    grad.addColorStop(0.0, "rgba(15, 13, 36, 0.0)");
+    grad.addColorStop(0.145, "rgba(15, 13, 36, 0.0)");
+    grad.addColorStop(0.185, "rgba(24, 18, 48, 0.22)");
+    grad.addColorStop(0.24, "rgba(15, 13, 38, 0.62)");
+    grad.addColorStop(1.0, "rgba(12, 10, 30, 0.74)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
 }
 
 export function Dib3DArena({
@@ -654,22 +762,27 @@ export function Dib3DArena({
 
     let disposed = false;
 
-    // 1. Initialize Three.js Night Derb Scene
+    // 1. Initialize Three.js Warm Lantern Medina Top-Down 3D Scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x090d16);
-    const sceneFog = new THREE.FogExp2(0x090d16, 0.018);
-    scene.fog = sceneFog;
+    scene.background = new THREE.Color(0x1b1938);
 
     const initAspect = container.clientWidth / Math.max(1, container.clientHeight);
     const computeFov = (aspect: number) =>
-      aspect < 1 ? Math.min(76, 52 / Math.max(0.56, aspect)) : 55;
+      aspect < 1 ? Math.min(58, Math.max(50, 36 / Math.max(0.48, aspect))) : 46;
 
     const camera = new THREE.PerspectiveCamera(
       computeFov(initAspect),
       initAspect,
-      0.15,
-      110
+      0.5,
+      130
     );
+    const initPortrait = initAspect < 1;
+    camera.position.set(
+      localPosRef.current.x,
+      initPortrait ? 20.5 : 16.5,
+      localPosRef.current.z + (initPortrait ? 13.6 : 11.0)
+    );
+    camera.lookAt(localPosRef.current.x, 0.35, localPosRef.current.z - 0.5);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -680,7 +793,7 @@ export function Dib3DArena({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.08;
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
 
@@ -689,96 +802,172 @@ export function Dib3DArena({
     scene.environment = envTarget.texture;
     pmremGenerator.dispose();
 
-    // 2. Night Derb Lighting + Personal Flashlight
-    const hemiLight = new THREE.HemisphereLight(0xcbd5e1, 0x1e1b4b, 0.85);
+    // 2. Warm Lantern Medina Lighting + Personal Hero Lantern
+    const hemiLight = new THREE.HemisphereLight(0xfffbeb, 0x312e81, 1.25);
     scene.add(hemiLight);
 
-    const moonLight = new THREE.DirectionalLight(0x93c5fd, 1.15);
-    moonLight.position.set(12, 26, 10);
+    const moonLight = new THREE.DirectionalLight(0xffedd5, 1.45);
+    moonLight.position.set(16, 36, 20);
     moonLight.castShadow = true;
     moonLight.shadow.mapSize.width = 1024;
     moonLight.shadow.mapSize.height = 1024;
-    const dBound = 20;
+    const dBound = 36;
     moonLight.shadow.camera.left = -dBound;
     moonLight.shadow.camera.right = dBound;
     moonLight.shadow.camera.top = dBound;
     moonLight.shadow.camera.bottom = -dBound;
+    moonLight.shadow.bias = -0.0005;
     scene.add(moonLight);
 
-    // Personal Flashlight Beam (Active during Lights Out!)
-    const flashlight = new THREE.SpotLight(0xfffbeb, 3.2, 16, Math.PI / 3.2, 0.45, 1);
-    flashlight.position.set(0, 1.6, 0);
-    scene.add(flashlight);
-    scene.add(flashlight.target);
+    // Personal Warm Moroccan Lantern hovering above local hero
+    const heroLantern = new THREE.PointLight(0xfbbf24, 2.2, 22, 1.35);
+    heroLantern.position.set(localPosRef.current.x, 4.4, localPosRef.current.z);
+    scene.add(heroLantern);
 
-    // 3. Build 3D Moroccan Medina Labyrinth Environment (76m x 76m)
+    // 3. Build 3D Moroccan Cutaway Medina Labyrinth Environment (76m x 76m)
     const envGroup = new THREE.Group();
     scene.add(envGroup);
 
+    const medinaFloorTex = buildMedinaFloorTexture();
     const floorMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(80, 80),
-      new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 })
+      new THREE.PlaneGeometry(76, 76),
+      new THREE.MeshStandardMaterial({
+        map: medinaFloorTex,
+        roughness: 0.72,
+        metalness: 0.04,
+      })
     );
     floorMesh.rotation.x = -Math.PI / 2;
     floorMesh.receiveShadow = true;
     envGroup.add(floorMesh);
 
-    const grid = new THREE.GridHelper(76, 38, 0x38bdf8, 0x1e293b);
-    grid.position.y = 0.015;
-    envGroup.add(grid);
+    // Outer twilight terrace apron beyond the 76x76m ramparts
+    const outerApron = new THREE.Mesh(
+      new THREE.RingGeometry(53.5, 95, 4),
+      new THREE.MeshBasicMaterial({ color: 0x15132e, side: THREE.DoubleSide })
+    );
+    outerApron.rotation.x = -Math.PI / 2;
+    outerApron.rotation.z = Math.PI / 4;
+    outerApron.position.y = -0.05;
+    envGroup.add(outerApron);
 
-    // Outer Medina Rampart Terracotta Walls (76x76m)
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.82 });
+    // Cutaway Medina Terracotta + Zellige + Sandstone Cap Materials (Zero Camera Obstruction!)
+    const outerWallMat = new THREE.MeshStandardMaterial({
+      color: 0xb45339,
+      roughness: 0.72,
+    });
     const innerWallMat = new THREE.MeshStandardMaterial({
-      color: 0x9a3412,
-      roughness: 0.78,
+      color: 0xc85a32,
+      roughness: 0.68,
     });
     const trimMat = new THREE.MeshStandardMaterial({
       color: 0x0284c7,
-      roughness: 0.4,
+      roughness: 0.35,
+    });
+    const capMat = new THREE.MeshStandardMaterial({
+      color: 0xfef3c7,
+      roughness: 0.45,
     });
 
     const outerBound = DIB3D_ARENA_HALF - 0.4;
     const outerSpan = DIB3D_ARENA_HALF * 2;
+    const outerH = 2.05;
     for (const ws of [
       { x: 0, z: -outerBound, w: outerSpan, d: 1.1 },
       { x: 0, z: outerBound, w: outerSpan, d: 1.1 },
       { x: -outerBound, z: 0, w: 1.1, d: outerSpan },
       { x: outerBound, z: 0, w: 1.1, d: outerSpan },
     ]) {
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(ws.w, 4.4, ws.d), wallMat);
-      wall.position.set(ws.x, 2.2, ws.z);
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(ws.w, outerH, ws.d), outerWallMat);
+      wall.position.set(ws.x, outerH / 2, ws.z);
       wall.receiveShadow = true;
       wall.castShadow = true;
       envGroup.add(wall);
+
+      const cap = new THREE.Mesh(
+        new THREE.BoxGeometry(ws.w + 0.14, 0.2, ws.d + 0.14),
+        capMat
+      );
+      cap.position.set(ws.x, outerH + 0.08, ws.z);
+      envGroup.add(cap);
     }
 
-    // Interior Medina Labyrinth Walls & Courtyards (block line-of-sight!)
-    for (const seg of DIB3D_WALL_SEGMENTS) {
-      const wall = new THREE.Mesh(
-        new THREE.BoxGeometry(seg.w, seg.h, seg.d),
-        innerWallMat
-      );
-      wall.position.set(seg.x, seg.h / 2, seg.z);
-      wall.receiveShadow = true;
-      wall.castShadow = true;
-      envGroup.add(wall);
+    // Interior Cutaway Medina Walls (1.68m tall: Zellige base + Terracotta body + Cream cap)
+    const cutawayH = 1.68;
+    const lanternGlassMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+    const lanternBrassMat = new THREE.MeshStandardMaterial({
+      color: 0x78350f,
+      metalness: 0.6,
+      roughness: 0.35,
+    });
 
-      // Moroccan Zellige Blue Base Strip
+    DIB3D_WALL_SEGMENTS.forEach((seg, idx) => {
       const trim = new THREE.Mesh(
-        new THREE.BoxGeometry(seg.w + 0.08, 0.45, seg.d + 0.08),
+        new THREE.BoxGeometry(seg.w + 0.06, 0.28, seg.d + 0.06),
         trimMat
       );
-      trim.position.set(seg.x, 0.225, seg.z);
+      trim.position.set(seg.x, 0.14, seg.z);
       envGroup.add(trim);
-    }
+
+      const wall = new THREE.Mesh(
+        new THREE.BoxGeometry(seg.w, cutawayH - 0.28, seg.d),
+        innerWallMat
+      );
+      wall.position.set(seg.x, 0.28 + (cutawayH - 0.28) / 2, seg.z);
+      wall.receiveShadow = true;
+      wall.castShadow = true;
+      envGroup.add(wall);
+
+      const cap = new THREE.Mesh(
+        new THREE.BoxGeometry(seg.w + 0.12, 0.18, seg.d + 0.12),
+        capMat
+      );
+      cap.position.set(seg.x, cutawayH + 0.07, seg.z);
+      envGroup.add(cap);
+
+      // Decorative Moroccan Brass Lantern finials on the 8 Inner Riad Courtyard walls
+      if (idx < 8) {
+        const lx = seg.w > seg.d ? seg.x + (seg.x < 0 ? seg.w * 0.35 : -seg.w * 0.35) : seg.x;
+        const lz = seg.d > seg.w ? seg.z + (seg.z < 0 ? seg.d * 0.35 : -seg.d * 0.35) : seg.z;
+        const base = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.14, 0.18, 0.14, 8),
+          lanternBrassMat
+        );
+        base.position.set(lx, cutawayH + 0.22, lz);
+        envGroup.add(base);
+
+        const globe = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.2, 0),
+          lanternGlassMat
+        );
+        globe.position.set(lx, cutawayH + 0.44, lz);
+        envGroup.add(globe);
+      }
+    });
+
+    // Soft Ground Vision Vignette Ring (shows active warm lantern vision radius!)
+    const visionVignetteTex = buildVisionVignetteTexture();
+    const visionMaskMat = new THREE.MeshBasicMaterial({
+      map: visionVignetteTex,
+      transparent: true,
+      depthWrite: false,
+      opacity: 0.92,
+    });
+    const visionMaskMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(260, 260),
+      visionMaskMat
+    );
+    visionMaskMesh.rotation.x = -Math.PI / 2;
+    visionMaskMesh.position.set(localPosRef.current.x, 0.055, localPosRef.current.z);
+    visionMaskMesh.renderOrder = 2;
+    scene.add(visionMaskMesh);
 
     // Central Emergency Drum Station at (0, 0)
     const drumStation = buildCentralDrumStation();
     drumStation.position.set(DIB3D_CENTRAL_DRUM.x, 0, DIB3D_CENTRAL_DRUM.z);
     envGroup.add(drumStation);
 
-    // 6 Interactive 3D Moroccan Task Stations
+    // 10 Interactive 3D Moroccan Task Stations
     const taskStationBeacons = new Map<Dib3DTaskStationId, THREE.Group>();
     for (const st of DIB3D_TASK_STATIONS) {
       const built = buildTaskStation3D(st.id, st.color);
@@ -787,7 +976,7 @@ export function Dib3DArena({
       taskStationBeacons.set(st.id, built.beacon);
     }
 
-    // 4 Sewer Vents in the Corners
+    // 6 Sewer Vents
     const ventMeshes = new Map<string, THREE.Group>();
     for (const v of DIB3D_VENTS) {
       const vm = buildSewerVentMesh();
@@ -796,7 +985,7 @@ export function Dib3DArena({
       ventMeshes.set(v.id, vm);
     }
 
-    // Electric Box at (12.2, 0)
+    // Electric Box at (28, 0)
     const electricBox = buildElectricBoxMesh();
     electricBox.root.position.set(DIB3D_ELECTRIC_BOX.x, 0, DIB3D_ELECTRIC_BOX.z);
     electricBox.root.rotation.y = -Math.PI / 2;
@@ -804,29 +993,31 @@ export function Dib3DArena({
 
     // Local Player Halo Ring + Target Lock Ring
     const myRingMesh = new THREE.Mesh(
-      new THREE.RingGeometry(0.62, 0.8, 32),
+      new THREE.RingGeometry(0.68, 0.88, 32),
       new THREE.MeshBasicMaterial({
         color: 0x38bdf8,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.8,
+        opacity: 0.92,
       })
     );
     myRingMesh.rotation.x = -Math.PI / 2;
-    myRingMesh.position.y = 0.04;
+    myRingMesh.position.y = 0.06;
+    myRingMesh.renderOrder = 3;
     scene.add(myRingMesh);
 
     const targetHighlightRing = new THREE.Mesh(
-      new THREE.RingGeometry(0.75, 1.05, 28),
+      new THREE.RingGeometry(0.78, 1.08, 28),
       new THREE.MeshBasicMaterial({
         color: 0xf43f5e,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.92,
       })
     );
     targetHighlightRing.rotation.x = -Math.PI / 2;
-    targetHighlightRing.position.y = 0.05;
+    targetHighlightRing.position.y = 0.065;
+    targetHighlightRing.renderOrder = 3;
     targetHighlightRing.visible = false;
     scene.add(targetHighlightRing);
 
@@ -879,13 +1070,28 @@ export function Dib3DArena({
       const visual = new THREE.Group();
       root.add(visual);
 
+      // Crisp ground ring under every character for Top-Down 3D readability
+      const footRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.48, 0.62, 24),
+        new THREE.MeshBasicMaterial({
+          color: isGhost ? 0x38bdf8 : isShadow ? 0xa855f7 : outfitColor,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: isGhost ? 0.45 : 0.85,
+        })
+      );
+      footRing.rotation.x = -Math.PI / 2;
+      footRing.position.y = 0.045;
+      footRing.renderOrder = 3;
+      root.add(footRing);
+
       let mixer: THREE.AnimationMixer | null = null;
       const actions: Record<string, THREE.AnimationAction> = {};
 
       if (loadedAssets?.hunter) {
         loadedAssets.hunter.scene.updateMatrixWorld(true);
         const cloned = SkeletonUtils.clone(loadedAssets.hunter.scene);
-        cloned.scale.setScalar((HUNTER_HEIGHT * 0.95) / 4.79);
+        cloned.scale.setScalar((HUNTER_HEIGHT * 1.04) / 4.79);
         cloned.position.set(0, isGhost ? 0.35 : 0, 0);
 
         cloned.traverse((child) => {
@@ -901,19 +1107,28 @@ export function Dib3DArena({
               if (isGhost) {
                 m.color.set(0x38bdf8);
                 m.transparent = true;
-                m.opacity = 0.42;
+                m.opacity = 0.44;
               } else if (isShadow) {
-                m.color.set(0x090d16);
+                m.color.set(0x1e1b4b);
                 if ("emissive" in m) {
-                  m.emissive.set(0x4c1d95);
-                  m.emissiveIntensity = 0.55;
+                  m.emissive.set(0x6d28d9);
+                  m.emissiveIntensity = 0.65;
                 }
                 m.transparent = true;
-                m.opacity = 0.82;
-              } else if (name.includes("main")) {
+                m.opacity = 0.86;
+              } else if (
+                name.includes("main") ||
+                name.includes("orange") ||
+                name.includes("yellow")
+              ) {
                 m.color.set(outfitColor);
+                m.roughness = 0.35;
+                m.metalness = 0.12;
               } else if (name.includes("grey") || name.includes("gray")) {
-                m.color.set(0x1e293b);
+                m.color.set(0xf8fafc);
+                m.roughness = 0.32;
+              } else if (name.includes("black")) {
+                m.color.set(0x0f172a);
               }
               mesh.material = m;
             }
@@ -927,19 +1142,19 @@ export function Dib3DArena({
         }
       } else {
         const fallback = new THREE.Mesh(
-          new THREE.CapsuleGeometry(0.36, 0.75, 10, 16),
+          new THREE.CapsuleGeometry(0.38, 0.78, 10, 16),
           new THREE.MeshStandardMaterial({
-            color: isGhost ? 0x38bdf8 : isShadow ? 0x090d16 : outfitColor,
+            color: isGhost ? 0x38bdf8 : isShadow ? 0x1e1b4b : outfitColor,
             transparent: isGhost || isShadow,
-            opacity: isGhost ? 0.45 : isShadow ? 0.82 : 1,
+            opacity: isGhost ? 0.45 : isShadow ? 0.85 : 1,
           })
         );
-        fallback.position.y = 0.8;
+        fallback.position.y = 0.82;
         visual.add(fallback);
       }
 
       const nameSprite = createNameTagSprite(displayName, badgeText, badgeColor);
-      nameSprite.position.set(0, 2.25, 0);
+      nameSprite.position.set(0, 2.38, 0);
       root.add(nameSprite);
 
       return {
@@ -962,7 +1177,7 @@ export function Dib3DArena({
       entry.currentAnim = name;
     };
 
-    // 5. Keyboard + Multi-Touch Look Controls
+    // 5. Keyboard Controls (Top-Down Broadcast Camera needs zero manual camera dragging!)
     const keysPressed: Record<string, boolean> = {};
     const handleKeyDown = (e: KeyboardEvent) => {
       keysPressed[e.code] = true;
@@ -972,42 +1187,6 @@ export function Dib3DArena({
     };
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
-
-    let lookPointerId: number | null = null;
-    let lastPointerX = 0;
-    let lastPointerY = 0;
-    const domEl = renderer.domElement;
-
-    const onPointerDown = (e: PointerEvent) => {
-      if (lookPointerId !== null) return;
-      lookPointerId = e.pointerId;
-      lastPointerX = e.clientX;
-      lastPointerY = e.clientY;
-    };
-
-    const onPointerMove = (e: PointerEvent) => {
-      if (e.pointerId !== lookPointerId) return;
-      const dx = e.clientX - lastPointerX;
-      const dy = e.clientY - lastPointerY;
-      lastPointerX = e.clientX;
-      lastPointerY = e.clientY;
-
-      const currentPitch = localPosRef.current.camPitch ?? 0.52;
-      const next = applyLookDrag(localPosRef.current.camYaw, currentPitch, dx, dy);
-      localPosRef.current.camYaw = next.yaw;
-      localPosRef.current.camPitch = next.pitch;
-    };
-
-    const onPointerUpOrCancel = (e: PointerEvent) => {
-      if (e.pointerId === lookPointerId) {
-        lookPointerId = null;
-      }
-    };
-
-    domEl.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUpOrCancel);
-    window.addEventListener("pointercancel", onPointerUpOrCancel);
 
     const handleResize = () => {
       if (!container) return;
@@ -1028,6 +1207,7 @@ export function Dib3DArena({
     let lastTime = performance.now();
     let lastSyncMs = 0;
     let lastProxKey = "";
+    let smoothedVisionRadius = 13.5;
 
     const animate = (nowMs: number) => {
       animFrameId = requestAnimationFrame(animate);
@@ -1041,6 +1221,7 @@ export function Dib3DArena({
       const isLightsOut = Boolean(
         lightsOutUntilRef.current && nowEpoch < lightsOutUntilRef.current
       );
+      const blindedBySabotage = isLightsOut && role !== "WOLF" && amIAlive;
 
       // Process instant FX queue
       if (fxQueueRef?.current && fxQueueRef.current.length > 0) {
@@ -1056,12 +1237,25 @@ export function Dib3DArena({
         }
       }
 
-      // Dynamic Lighting & Fog for Lights Sabotage!
-      const targetFogDensity =
-        isLightsOut && role !== "WOLF" && amIAlive ? 0.115 : 0.016;
-      sceneFog.density += (targetFogDensity - sceneFog.density) * damp(6, dt);
-      hemiLight.intensity = isLightsOut && role !== "WOLF" && amIAlive ? 0.18 : 0.85;
-      moonLight.intensity = isLightsOut && role !== "WOLF" && amIAlive ? 0.2 : 1.15;
+      // Dynamic Warm Lantern Lighting + Vision Radius for Lights Sabotage!
+      const targetHemi = blindedBySabotage ? 0.38 : 1.25;
+      const targetMoon = blindedBySabotage ? 0.32 : 1.45;
+      hemiLight.intensity += (targetHemi - hemiLight.intensity) * damp(6, dt);
+      moonLight.intensity += (targetMoon - moonLight.intensity) * damp(6, dt);
+
+      const targetVisionRadius = !amIAlive
+        ? 999
+        : role === "WOLF"
+        ? 16.8
+        : blindedBySabotage
+        ? 5.8
+        : 13.5;
+
+      if (amIAlive) {
+        smoothedVisionRadius +=
+          (targetVisionRadius - smoothedVisionRadius) * damp(7, dt);
+      }
+      const activeVisionRadius = amIAlive ? smoothedVisionRadius : 999;
 
       // Update Electric Box Hazard Beacon
       electricBox.hazardLight.scale.setScalar(
@@ -1083,26 +1277,7 @@ export function Dib3DArena({
         }
       }
 
-      // Sync Dead Bodies on the Ground
-      const seenBodyIds = new Set<string>();
-      for (const b of deadBodiesRef.current || []) {
-        seenBodyIds.add(b.id);
-        let bMesh = bodyMeshes.get(b.id);
-        if (!bMesh) {
-          bMesh = buildDeadBodyMesh(b.outfitColor, b.victimName);
-          bMesh.position.set(b.x, 0, b.z);
-          scene.add(bMesh);
-          bodyMeshes.set(b.id, bMesh);
-        }
-      }
-      for (const [id, mesh] of bodyMeshes.entries()) {
-        if (!seenBodyIds.has(id)) {
-          scene.remove(mesh);
-          bodyMeshes.delete(id);
-        }
-      }
-
-      // Local Player Movement (Alive or Ghost!)
+      // Local Player Direct Screen-Space Movement (1:1 with Top-Down Camera & Minimap!)
       let localMoving = false;
       if (phaseRef.current === "ROAM_3D") {
         let jx = joystickVecRef.current.dx;
@@ -1115,19 +1290,21 @@ export function Dib3DArena({
         const mag = Math.hypot(jx, jy);
         if (mag > 0.04) {
           localMoving = true;
-          const move = cameraRelativeMove(jx, jy, localPosRef.current.camYaw);
-          const baseSpeed = !amIAlive ? 8.2 : role === "WOLF" ? 7.3 : 6.8;
+          const norm = Math.max(1, mag);
+          const moveX = jx / norm;
+          const moveZ = jy / norm;
+          const baseSpeed = !amIAlive ? 8.4 : role === "WOLF" ? 7.4 : 6.9;
 
-          const rawX = localPosRef.current.x + move.x * baseSpeed * dt;
-          const rawZ = localPosRef.current.z + move.z * baseSpeed * dt;
+          const rawX = localPosRef.current.x + moveX * baseSpeed * dt;
+          const rawZ = localPosRef.current.z + moveZ * baseSpeed * dt;
           const resolved = resolveDib3DCollisions(rawX, rawZ, 0.45, !amIAlive);
 
           localPosRef.current.x = resolved.x;
           localPosRef.current.z = resolved.z;
 
-          const targetFacing = facingFromDirection(move);
+          const targetFacing = Math.atan2(moveX, moveZ);
           localPosRef.current.rotY +=
-            angleDelta(localPosRef.current.rotY, targetFacing) * damp(15, dt);
+            angleDelta(localPosRef.current.rotY, targetFacing) * damp(16, dt);
         }
 
         localPosRef.current.isMoving = localMoving;
@@ -1145,17 +1322,53 @@ export function Dib3DArena({
 
       const myX = localPosRef.current.x;
       const myZ = localPosRef.current.z;
-      const camYaw = localPosRef.current.camYaw;
 
-      // Update Personal Flashlight position & target
-      flashlight.position.set(myX, 1.8, myZ);
-      flashlight.target.position.set(
-        myX + Math.sin(camYaw) * 8,
-        0.5,
-        myZ + Math.cos(camYaw) * 8
-      );
+      // Update Personal Hero Lantern & Soft Ground Vision Vignette Ring
+      heroLantern.position.set(myX, 4.4, myZ);
+      heroLantern.distance = blindedBySabotage ? 10.5 : 22;
+      heroLantern.intensity = blindedBySabotage ? 2.65 : 2.15;
 
-      // Compute Smart Proximity Radar for Contextual Action Buttons
+      if (!amIAlive) {
+        visionMaskMesh.visible = false;
+      } else {
+        visionMaskMesh.visible = true;
+        visionMaskMesh.position.set(myX, 0.055, myZ);
+        const maskScale = Math.max(0.22, smoothedVisionRadius / 20.5);
+        visionMaskMesh.scale.set(maskScale, maskScale, 1);
+        const targetMaskOpacity = blindedBySabotage
+          ? 0.96
+          : role === "WOLF"
+          ? 0.68
+          : 0.82;
+        visionMaskMat.opacity +=
+          (targetMaskOpacity - visionMaskMat.opacity) * damp(7, dt);
+      }
+
+      // Sync Dead Bodies on the Ground (Hidden behind Medina walls & outside vision!)
+      const seenBodyIds = new Set<string>();
+      for (const b of deadBodiesRef.current || []) {
+        seenBodyIds.add(b.id);
+        let bMesh = bodyMeshes.get(b.id);
+        if (!bMesh) {
+          bMesh = buildDeadBodyMesh(b.outfitColor, b.victimName);
+          bMesh.position.set(b.x, 0, b.z);
+          scene.add(bMesh);
+          bodyMeshes.set(b.id, bMesh);
+        }
+        const distToBody = Math.hypot(b.x - myX, b.z - myZ);
+        bMesh.visible =
+          !amIAlive ||
+          (distToBody <= activeVisionRadius &&
+            hasMedinaLineOfSight(myX, myZ, b.x, b.z));
+      }
+      for (const [id, mesh] of bodyMeshes.entries()) {
+        if (!seenBodyIds.has(id)) {
+          scene.remove(mesh);
+          bodyMeshes.delete(id);
+        }
+      }
+
+      // Compute Smart Proximity Radar for Contextual Action Buttons (Requires Line-of-Sight!)
       let nearestTargetId: string | null = null;
       let nearestTargetPos: { x: number; z: number } | null = null;
       let bestTargetScore = Infinity;
@@ -1170,10 +1383,10 @@ export function Dib3DArena({
         const px = isFresh && peer ? peer.x : ent.x;
         const pz = isFresh && peer ? peer.z : ent.z;
         const dist = Math.hypot(px - myX, pz - myZ);
-        if (dist <= 3.7) {
+        if (dist <= 3.7 && hasMedinaLineOfSight(myX, myZ, px, pz)) {
           const ang = Math.atan2(px - myX, pz - myZ);
-          const angDiff = Math.abs(angleDelta(camYaw, ang));
-          const score = dist + angDiff * 0.8;
+          const angDiff = Math.abs(angleDelta(localPosRef.current.rotY, ang));
+          const score = dist + angDiff * 0.35;
           if (score < bestTargetScore) {
             bestTargetScore = score;
             nearestTargetId = ent.playerId;
@@ -1188,18 +1401,18 @@ export function Dib3DArena({
         (role === "WOLF" || role === "SHERIFF" || role === "SEER")
       ) {
         targetHighlightRing.visible = true;
-        targetHighlightRing.position.set(nearestTargetPos.x, 0.05, nearestTargetPos.z);
+        targetHighlightRing.position.set(nearestTargetPos.x, 0.065, nearestTargetPos.z);
       } else {
         targetHighlightRing.visible = false;
       }
 
-      // Check nearest Dead Body (within 4.2m)
+      // Check nearest Dead Body (within 4.2m AND in Line-of-Sight!)
       let nearestBodyId: string | null = null;
       let nearestBodyVictim: string | null = null;
       let bestBodyDist = 4.2;
       for (const b of deadBodiesRef.current || []) {
         const d = Math.hypot(b.x - myX, b.z - myZ);
-        if (d < bestBodyDist) {
+        if (d < bestBodyDist && hasMedinaLineOfSight(myX, myZ, b.x, b.z)) {
           bestBodyDist = d;
           nearestBodyId = b.id;
           nearestBodyVictim = b.victimName;
@@ -1259,7 +1472,7 @@ export function Dib3DArena({
         });
       }
 
-      // Render & Animate Players
+      // Render & Animate Players (with True 2D Medina Wall Line-of-Sight Stealth!)
       const seenIds = new Set<string>();
       for (const ent of Object.values(allEntities)) {
         const isMe = ent.playerId === myPlayerId;
@@ -1352,8 +1565,6 @@ export function Dib3DArena({
           playerMeshes.set(ent.playerId, entry);
         }
 
-        entry.root.visible = true;
-
         const targetX = isMe
           ? localPosRef.current.x
           : isPeerFresh && peer
@@ -1376,13 +1587,36 @@ export function Dib3DArena({
         if (isMe) {
           entry.root.position.set(targetX, 0, targetZ);
           entry.root.rotation.y = targetRot;
-          myRingMesh.position.set(targetX, 0.04, targetZ);
+          myRingMesh.position.set(targetX, 0.06, targetZ);
+          entry.root.visible = true;
         } else {
           const blend = damp(14, dt);
           entry.root.position.x += (targetX - entry.root.position.x) * blend;
           entry.root.position.z += (targetZ - entry.root.position.z) * blend;
           entry.root.rotation.y +=
             angleDelta(entry.root.rotation.y, targetRot) * blend;
+
+          // Stealth Line-of-Sight Culling: Hide players behind Medina walls or outside lantern vision!
+          if (!amIAlive) {
+            entry.root.visible = true;
+          } else {
+            const distToMe = Math.hypot(
+              entry.root.position.x - myX,
+              entry.root.position.z - myZ
+            );
+            if (isFellowWolf && distToMe <= 18) {
+              entry.root.visible = true;
+            } else {
+              entry.root.visible =
+                distToMe <= activeVisionRadius &&
+                hasMedinaLineOfSight(
+                  myX,
+                  myZ,
+                  entry.root.position.x,
+                  entry.root.position.z
+                );
+            }
+          }
         }
 
         const speed =
@@ -1414,35 +1648,19 @@ export function Dib3DArena({
 
       effects.update(dt);
 
-      // 3rd-Person Follow Camera
-      const focusX = localPosRef.current.x;
-      const focusZ = localPosRef.current.z;
-      const camPitch = localPosRef.current.camPitch ?? 0.52;
-      const baseDist = 5.5;
-      const focusY = 1.25;
+      // Fixed Angled Top-Down 3D Broadcast Camera (Portrait + Landscape Optimized!)
+      const isPortrait = camera.aspect < 1;
+      const camHeight = isPortrait ? 20.5 : 16.5;
+      const camBackZ = isPortrait ? 13.6 : 11.0;
+      const desiredCamX = myX;
+      const desiredCamY = camHeight;
+      const desiredCamZ = myZ + camBackZ;
 
-      const backDirX = -Math.sin(camYaw);
-      const backDirZ = -Math.cos(camYaw);
-      const desiredHorizDist = baseDist * Math.cos(camPitch);
-      const clampedHorizDist = clampCameraWallDist(
-        focusX,
-        focusZ,
-        backDirX,
-        backDirZ,
-        desiredHorizDist
-      );
-      const distRatio = clampedHorizDist / Math.max(0.01, desiredHorizDist);
-      const vertDist = baseDist * Math.sin(camPitch) * Math.max(0.6, distRatio);
-
-      const desiredCamX = focusX + backDirX * clampedHorizDist;
-      const desiredCamZ = focusZ + backDirZ * clampedHorizDist;
-      const desiredCamY = Math.max(0.9, focusY + vertDist);
-
-      const camBlend = damp(16, dt);
+      const camBlend = damp(12, dt);
       camera.position.x += (desiredCamX - camera.position.x) * camBlend;
       camera.position.y += (desiredCamY - camera.position.y) * camBlend;
       camera.position.z += (desiredCamZ - camera.position.z) * camBlend;
-      camera.lookAt(focusX, focusY, focusZ);
+      camera.lookAt(camera.position.x, 0.35, camera.position.z - camBackZ - 0.5);
 
       renderer.render(scene, camera);
     };
@@ -1455,11 +1673,9 @@ export function Dib3DArena({
       resizeObs?.disconnect();
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
-      domEl.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUpOrCancel);
-      window.removeEventListener("pointercancel", onPointerUpOrCancel);
       window.removeEventListener("resize", handleResize);
+      medinaFloorTex.dispose();
+      visionVignetteTex.dispose();
       envTarget.dispose();
       effects.dispose();
       renderer.dispose();

@@ -81,10 +81,12 @@ function buildInitialCombatants(
       kills: 0,
       deaths: 0,
       assists: 0,
+      gems: 0,
       score: 0,
       streak: 0,
       overdriveUntil: 0,
       lastDamagedAt: 0,
+      lastFiredAt: 0,
     };
   });
 
@@ -135,9 +137,10 @@ function createMatchState(players: Player[], rawSettings: Partial<CarbonSettings
 export const Carbon3DEngine: GameDefinition<CarbonState, CarbonAction, CarbonSettings> = {
   id: "carbon3d",
   slug: "carbon-3d",
-  version: 1,
-  displayNameKey: "كاربون 3D: حرب السايبر ⚡🎯",
-  shortDescriptionKey: "شووتير خيال علمي ثلاثي الأبعاد بسرعة 60FPS! لعب بوحدك (Solo) أو حتى لـ 8 صحابك بالويفي",
+  version: 2,
+  displayNameKey: "كاربون 3D: حرب الجواهر 💎⚡",
+  shortDescriptionKey:
+    "ساحة قتال 3D من الأعلى بأسلوب Brawl! جمع 10 جواهر 💎، تخبّى فالأعشاب 🌿، ولعب Solo أو حتى 8 بالويفي!",
   minPlayers: 1,
   maxPlayers: 8,
   capabilities: ["MULTI_PHONE", "REALTIME", "SCORES", "TIMERS", "TEAM_MODE"],

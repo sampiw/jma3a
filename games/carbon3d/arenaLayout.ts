@@ -194,9 +194,40 @@ export const ARENA_SPAWN_POINTS: ArenaSpawnPoint[] = [
   { x: 11.5, y: 0, z: 14.2, yaw: -Math.PI + 0.35, team: "CRIMSON" },
 ];
 
+export interface ArenaBushZone {
+  id: string;
+  x: number;
+  z: number;
+  halfX: number;
+  halfZ: number;
+}
+
+/**
+ * 6 Symmetrical Tall Grass Stealth Bush Clusters (Brawl Stars Ambush Zones):
+ * - Walk inside to turn invisible to distant enemies (> 3.8m) until you fire or take damage!
+ */
+export const ARENA_BUSHES: ArenaBushZone[] = [
+  { id: "bush_nw", x: -6.2, z: -3.25, halfX: 2.0, halfZ: 1.45 },
+  { id: "bush_ne", x: 6.2, z: -3.25, halfX: 2.0, halfZ: 1.45 },
+  { id: "bush_sw", x: -6.2, z: 3.25, halfX: 2.0, halfZ: 1.45 },
+  { id: "bush_se", x: 6.2, z: 3.25, halfX: 2.0, halfZ: 1.45 },
+  { id: "bush_west_lane", x: -15.2, z: -6.2, halfX: 1.55, halfZ: 2.6 },
+  { id: "bush_east_lane", x: 15.2, z: 6.2, halfX: 1.55, halfZ: 2.6 },
+];
+
+export function isInsideArenaBush(x: number, z: number): boolean {
+  for (const b of ARENA_BUSHES) {
+    if (Math.abs(x - b.x) <= b.halfX && Math.abs(z - b.z) <= b.halfZ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function createInitialPickupPads(): CarbonPickupPad[] {
   const defs: Array<{ id: string; kind: CarbonPickupKind; x: number; y: number; z: number }> = [
-    { id: "pad_overdrive", kind: "OVERDRIVE_AMP", x: 0, y: 0, z: 0 },
+    { id: "pad_overdrive", kind: "OVERDRIVE_AMP", x: -9.8, y: 0, z: -9.8 },
+    { id: "pad_overdrive_se", kind: "OVERDRIVE_AMP", x: 9.8, y: 0, z: 9.8 },
     { id: "pad_rail_w", kind: "WEAPON_RAILGUN", x: -15.4, y: 0, z: 0 },
     { id: "pad_rail_e", kind: "WEAPON_RAILGUN", x: 15.4, y: 0, z: 0 },
     { id: "pad_shotgun_n", kind: "WEAPON_SHOTGUN", x: 0, y: 0, z: -8.8 },

@@ -135,10 +135,19 @@ export interface CarbonCombatant {
   kills: number;
   deaths: number;
   assists: number;
+  gems: number;
   score: number;
   streak: number;
   overdriveUntil: number;
   lastDamagedAt: number;
+  lastFiredAt?: number;
+}
+
+export interface CarbonGemDrop {
+  id: string;
+  x: number;
+  z: number;
+  spawnedAt: number;
 }
 
 export interface CarbonPickupPad {
@@ -296,6 +305,13 @@ export interface CarbonWorldSyncPacket {
   coreOwner: CarbonTeam | "CONTESTED" | "NEUTRAL";
   coreProg: number;
   scores: { CYAN: number; CRIMSON: number };
+  cdEnd?: number;
+  cdWho?: string | null;
+  gems?: Array<{
+    i: string;
+    x: number;
+    z: number;
+  }>;
   units: Array<{
     i: string;
     n: string;
@@ -317,6 +333,8 @@ export interface CarbonWorldSyncPacket {
     sw: CarbonWeaponId | null;
     k: number;
     d: number;
+    gm?: number;
+    lf?: number;
     sc: number;
     st: number;
     od: number;

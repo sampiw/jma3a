@@ -5,7 +5,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabaseBrowser } from "@/lib/realtime/supabaseBrowser";
 import {
   ARENA_SPAWN_POINTS,
-  CORE_CAPTURE_RADIUS,
+  resolveArenaMovement,
 } from "@/games/carbon3d/arenaLayout";
 import {
   BotRuntimeMemory,
@@ -16,6 +16,7 @@ import {
 import {
   CarbonAction,
   CarbonCombatant,
+  CarbonGemDrop,
   CarbonHitClaimPacket,
   CarbonKillEventPacket,
   CarbonLivePeerPacket,
@@ -88,6 +89,10 @@ export function useCarbonNet({
   // Authoritative / synced world state mirror kept in refs for 60fps Three.js access + light HUD state
   const combatantsRef = useRef<Record<string, CarbonCombatant>>({});
   const pickupsRef = useRef<CarbonPickupPad[]>([]);
+  const gemsRef = useRef<CarbonGemDrop[]>([]);
+  const countdownEndsAtRef = useRef<number>(0);
+  const countdownLeaderRef = useRef<string | null>(null);
+  const lastGemSpawnAtRef = useRef<number>(0);
   const peersRef = useRef<Map<string, CarbonLivePeerPacket>>(new Map());
   const botMemRef = useRef<Map<string, BotRuntimeMemory>>(new Map());
 
@@ -127,7 +132,7 @@ export function useCarbonNet({
   useEffect(() => {
     const clonedUnits: Record<string, CarbonCombatant> = {};
     for (const [k, v] of Object.entries(initialCombatants || {})) {
-      clonedUnits[k] = { ...v };
+      clonedUnits[k] = { ...v, gems: v.gems ?? 0, lastFiredAt: v.lastFiredAt ?? 0 };
     }
     combatantsRef.current = clonedUnits;
     pickupsRef.current = (initialPickups || []).map((p) => ({ ...p }));
@@ -139,7 +144,25 @@ export function useCarbonNet({
     coreOwnerRef.current = "NEUTRAL";
     coreProgRef.current = 0;
     teamScoresRef.current = { CYAN: 0, CRIMSON: 0 };
+    countdownEndsAtRef.current = 0;
+    countdownLeaderRef.current = null;
+    lastGemSpawnAtRef.current = Date.now();
     finishedSentRef.current = false;
+
+    if (mode !== "SURVIVAL") {
+      const now0 = Date.now();
+      gemsRef.current = [0, 1, 2].map((idx) => {
+        const ang = (idx * Math.PI * 2) / 3 + 0.4;
+        return {
+          id: `gm_init_${round}_${idx}`,
+          x: Math.round(Math.cos(ang) * 1.9 * 100) / 100,
+          z: Math.round(Math.sin(ang) * 1.9 * 100) / 100,
+          spawnedAt: now0,
+        };
+      });
+    } else {
+      gemsRef.current = [];
+    }
 
     const me = clonedUnits[myId];
     if (me) {
@@ -201,6 +224,28 @@ export function useCarbonNet({
         victim.respawnAt =
           mode === "SURVIVAL" && victim.isBot ? 0 : now + (mode === "SURVIVAL" ? 4500 : 2500);
 
+        // Gem Pinata Explosion on Death! All carried gems scatter onto the stadium floor!
+        if (mode !== "SURVIVAL" && (victim.gems || 0) > 0) {
+          const dropCount = Math.min(14, victim.gems);
+          victim.gems = 0;
+          for (let g = 0; g < dropCount; g++) {
+            const ang = (g / dropCount) * Math.PI * 2 + Math.random() * 0.45;
+            const dist = 0.95 + (g % 3) * 0.55;
+            const clamped = resolveArenaMovement(
+              victim.x + Math.cos(ang) * dist,
+              0,
+              victim.z + Math.sin(ang) * dist,
+              0.45
+            );
+            gemsRef.current.push({
+              id: `gm_drop_${now}_${g}_${Math.random().toString(36).slice(2, 5)}`,
+              x: Math.round(clamped.x * 100) / 100,
+              z: Math.round(clamped.z * 100) / 100,
+              spawnedAt: now,
+            });
+          }
+        }
+
         shooter.kills += 1;
         shooter.streak += 1;
         shooter.score += victim.archetype === "BOSS_MECH" ? 350 : 100 + shooter.streak * 15;
@@ -261,6 +306,8 @@ export function useCarbonNet({
       .on("broadcast", { event: "shot" }, ({ payload }) => {
         const s = payload as CarbonShotPacket;
         if (!s || s.shooterId === myId) return;
+        const unit = combatantsRef.current[s.shooterId];
+        if (unit) unit.lastFiredAt = Date.now();
         callbacksRef.current.onRemoteShot(s);
       })
       .on("broadcast", { event: "hit" }, ({ payload }) => {
@@ -296,12 +343,27 @@ export function useCarbonNet({
         coreOwnerRef.current = w.coreOwner;
         coreProgRef.current = w.coreProg;
         teamScoresRef.current = w.scores;
+        countdownEndsAtRef.current = w.cdEnd ?? 0;
+        countdownLeaderRef.current = w.cdWho ?? null;
+        if (Array.isArray(w.gems)) {
+          gemsRef.current = w.gems.map((g) => ({
+            id: g.i,
+            x: g.x,
+            z: g.z,
+            spawnedAt: 0,
+          }));
+        }
 
         const nextMap: Record<string, CarbonCombatant> = {};
         for (const u of w.units) {
           const prev = combatantsRef.current[u.i];
           const wasDead = prev && !prev.isAlive;
           const isMe = u.i === myId;
+          const nextGems = u.gm ?? prev?.gems ?? 0;
+
+          if (isMe && prev && nextGems > (prev.gems ?? 0)) {
+            carbonSfx.playPickup();
+          }
 
           nextMap[u.i] = {
             id: u.i,
@@ -326,10 +388,12 @@ export function useCarbonNet({
             kills: u.k,
             deaths: u.d,
             assists: prev?.assists ?? 0,
+            gems: nextGems,
             score: u.sc,
             streak: u.st,
             overdriveUntil: u.od,
             lastDamagedAt: prev?.lastDamagedAt ?? 0,
+            lastFiredAt: isMe ? prev?.lastFiredAt ?? 0 : u.lf ?? prev?.lastFiredAt ?? 0,
           };
 
           // If local player just respawned on arbiter, snap to new spawn!
@@ -494,32 +558,75 @@ export function useCarbonNet({
         }
       }
 
-      // 2. Central Overdrive Core Capture (SQUAD mode)
-      if (mode === "SQUAD") {
-        let cyanIn = 0;
-        let crimsonIn = 0;
-        for (const u of units) {
-          if (!u.isAlive) continue;
-          if (Math.hypot(u.x, u.z) <= CORE_CAPTURE_RADIUS && u.y >= 0.65) {
-            if (u.team === "CYAN") cyanIn++;
-            else if (u.team === "CRIMSON") crimsonIn++;
+      // 2. Central Crystal Gem Mine Spawner & Loose Gem Collection (FFA & SQUAD)
+      if (mode !== "SURVIVAL") {
+        if (now - lastGemSpawnAtRef.current >= 3500) {
+          lastGemSpawnAtRef.current = now;
+          if (gemsRef.current.length < 16) {
+            const ang = Math.random() * Math.PI * 2;
+            const dist = 1.05 + Math.random() * 2.25;
+            const pos = resolveArenaMovement(
+              Math.cos(ang) * dist,
+              0,
+              Math.sin(ang) * dist,
+              0.45
+            );
+            gemsRef.current.push({
+              id: `gm_${now.toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+              x: Math.round(pos.x * 100) / 100,
+              z: Math.round(pos.z * 100) / 100,
+              spawnedAt: now,
+            });
           }
         }
-        if (cyanIn > 0 && crimsonIn > 0) {
-          coreOwnerRef.current = "CONTESTED";
-        } else if (cyanIn > 0) {
-          coreProgRef.current = Math.min(100, coreProgRef.current + 28 * dt);
-          if (coreProgRef.current >= 100) coreOwnerRef.current = "CYAN";
-        } else if (crimsonIn > 0) {
-          coreProgRef.current = Math.max(-100, coreProgRef.current - 28 * dt);
-          if (coreProgRef.current <= -100) coreOwnerRef.current = "CRIMSON";
-        }
 
-        // Award +1 point every 2s to core owner
-        if (Math.floor((now - dt * 1000) / 2000) !== Math.floor(now / 2000)) {
-          if (coreOwnerRef.current === "CYAN") teamScoresRef.current.CYAN += 1;
-          else if (coreOwnerRef.current === "CRIMSON") teamScoresRef.current.CRIMSON += 1;
+        // Living heroes collect loose crystal gems on touch!
+        for (let gIdx = gemsRef.current.length - 1; gIdx >= 0; gIdx--) {
+          const gm = gemsRef.current[gIdx];
+          let collector: CarbonCombatant | null = null;
+          let bestD = 1.48;
+          for (const u of units) {
+            if (!u.isAlive || u.y > 1.25) continue;
+            const d = Math.hypot(u.x - gm.x, u.z - gm.z);
+            if (d <= bestD) {
+              bestD = d;
+              collector = u;
+            }
+          }
+          if (collector) {
+            gemsRef.current.splice(gIdx, 1);
+            collector.gems = (collector.gems || 0) + 1;
+            collector.score += 35;
+            if (collector.id === myId) {
+              carbonSfx.playPickup();
+            }
+          }
         }
+      }
+
+      // Update Squad Gem Totals & Center Mine Ring Color
+      if (mode === "SQUAD") {
+        let cyanGems = 0;
+        let crimsonGems = 0;
+        for (const u of units) {
+          if (!u.isAlive) continue;
+          if (u.team === "CYAN") cyanGems += u.gems || 0;
+          else if (u.team === "CRIMSON") crimsonGems += u.gems || 0;
+        }
+        teamScoresRef.current = { CYAN: cyanGems, CRIMSON: crimsonGems };
+        coreOwnerRef.current =
+          cyanGems > crimsonGems ? "CYAN" : crimsonGems > cyanGems ? "CRIMSON" : "NEUTRAL";
+        coreProgRef.current = Math.max(-100, Math.min(100, (cyanGems - crimsonGems) * 10));
+      } else if (mode === "FFA") {
+        const topHolder = [...units]
+          .filter((u) => u.isAlive)
+          .sort((a, b) => (b.gems || 0) - (a.gems || 0))[0];
+        coreOwnerRef.current =
+          topHolder && (topHolder.gems || 0) >= 10
+            ? "CONTESTED"
+            : topHolder && (topHolder.gems || 0) >= 5
+            ? "CYAN"
+            : "NEUTRAL";
       }
 
       // 3. Survival Wave Progression (Solo / Co-op PvE)
@@ -576,7 +683,7 @@ export function useCarbonNet({
         }
       }
 
-      // 4. Tick AI Bots & Broadcast Bot Shots
+      // 4. Tick AI Bots (with Gem Grab + Bush Stealth awareness!) & Broadcast Bot Shots
       const botShots = stepArenaBots(
         combatantsRef.current,
         pickupsRef.current,
@@ -584,7 +691,8 @@ export function useCarbonNet({
         mode,
         settings.botDifficulty || "HARD",
         now,
-        dt
+        dt,
+        gemsRef.current
       );
       for (const bShot of botShots) {
         callbacksRef.current.onRemoteShot(bShot);
@@ -595,37 +703,81 @@ export function useCarbonNet({
         });
       }
 
-      // 5. Check Match Win Conditions (FFA / SQUAD / Timer)
+      // 5. Check Brawl-Style 10-Gem 15s Countdown & Match Win Conditions
       const timeExpired = now >= endsAt;
       if (mode === "FFA") {
-        const leader = [...units].sort((a, b) => b.kills - a.kills || b.score - a.score)[0];
-        if (leader && (leader.kills >= (settings.targetKillsFFA || 15) || timeExpired)) {
-          finishedSentRef.current = true;
-          const summary = `👑 ${leader.nickname} سيطر على كاربون أرينا بـ ${leader.kills} إقصاء و ${leader.score} نقطة!`;
-          Promise.resolve(
-            callbacksRef.current.onAction({
-              type: "FINISH_MATCH",
-              combatants: combatantsRef.current,
-              winnerId: leader.id,
-              winnerSummaryAr: summary,
-            })
-          ).then(() => {
-            channelRef.current?.send({ type: "broadcast", event: "refresh", payload: {} });
-            callbacksRef.current.onRefresh?.();
-          });
-          return;
+        const aliveSortedByGems = [...units]
+          .filter((u) => u.isAlive)
+          .sort((a, b) => (b.gems || 0) - (a.gems || 0) || b.kills - a.kills);
+        const gemFirst = aliveSortedByGems[0];
+        const gemSecond = aliveSortedByGems[1];
+        const firstGems = gemFirst?.gems || 0;
+        const secondGems = gemSecond?.gems || 0;
+
+        if (gemFirst && firstGems >= 10 && firstGems > secondGems) {
+          if (countdownLeaderRef.current !== gemFirst.id) {
+            countdownLeaderRef.current = gemFirst.id;
+            countdownEndsAtRef.current = now + 15_000;
+          }
+        } else {
+          countdownLeaderRef.current = null;
+          countdownEndsAtRef.current = 0;
+        }
+
+        const countdownWon =
+          countdownEndsAtRef.current > 0 && now >= countdownEndsAtRef.current && Boolean(gemFirst);
+
+        if (countdownWon || timeExpired) {
+          const leader =
+            (countdownWon ? gemFirst : null) ||
+            [...units].sort(
+              (a, b) => (b.gems || 0) - (a.gems || 0) || b.kills - a.kills || b.score - a.score
+            )[0];
+          if (leader) {
+            finishedSentRef.current = true;
+            const summary = countdownWon
+              ? `💎 ${leader.nickname} جمع ${leader.gems || 0} جوهرة وحافظ عليها حتى سالا العد التنازلي! 🏆`
+              : `👑 ${leader.nickname} تصدّر الساحة بـ ${leader.gems || 0} جوهرة و ${leader.kills} إقصاء!`;
+            Promise.resolve(
+              callbacksRef.current.onAction({
+                type: "FINISH_MATCH",
+                combatants: combatantsRef.current,
+                winnerId: leader.id,
+                winnerSummaryAr: summary,
+              })
+            ).then(() => {
+              channelRef.current?.send({ type: "broadcast", event: "refresh", payload: {} });
+              callbacksRef.current.onRefresh?.();
+            });
+            return;
+          }
         }
       } else if (mode === "SQUAD") {
-        const target = settings.targetScoreSquad || 40;
         const sc = teamScoresRef.current;
-        if (sc.CYAN >= target || sc.CRIMSON >= target || timeExpired) {
+        if (sc.CYAN >= 10 && sc.CYAN > sc.CRIMSON) {
+          if (countdownLeaderRef.current !== "TEAM_CYAN") {
+            countdownLeaderRef.current = "TEAM_CYAN";
+            countdownEndsAtRef.current = now + 15_000;
+          }
+        } else if (sc.CRIMSON >= 10 && sc.CRIMSON > sc.CYAN) {
+          if (countdownLeaderRef.current !== "TEAM_CRIMSON") {
+            countdownLeaderRef.current = "TEAM_CRIMSON";
+            countdownEndsAtRef.current = now + 15_000;
+          }
+        } else {
+          countdownLeaderRef.current = null;
+          countdownEndsAtRef.current = 0;
+        }
+
+        const countdownWon = countdownEndsAtRef.current > 0 && now >= countdownEndsAtRef.current;
+        if (countdownWon || timeExpired) {
           finishedSentRef.current = true;
           const winTeam = sc.CYAN >= sc.CRIMSON ? "CYAN" : "CRIMSON";
-          const teamAr = winTeam === "CYAN" ? "فريق السايان ⚡" : "فريق الكريمسون 🔥";
+          const teamAr = winTeam === "CYAN" ? "الفريق الأزرق ⚡" : "الفريق الأحمر 🔥";
           const mvp = [...units]
             .filter((u) => u.team === winTeam)
-            .sort((a, b) => b.kills - a.kills)[0];
-          const summary = `انتصر ${teamAr} (${sc.CYAN} - ${sc.CRIMSON})! نجم المعركة: ${
+            .sort((a, b) => (b.gems || 0) - (a.gems || 0) || b.kills - a.kills)[0];
+          const summary = `💎 انتصر ${teamAr} بـ (${sc.CYAN} - ${sc.CRIMSON}) جواهر! نجم المعركة: ${
             mvp?.nickname || "البطل"
           } 👑`;
           Promise.resolve(
@@ -660,6 +812,13 @@ export function useCarbonNet({
           coreOwner: coreOwnerRef.current,
           coreProg: Math.round(coreProgRef.current),
           scores: teamScoresRef.current,
+          cdEnd: countdownEndsAtRef.current,
+          cdWho: countdownLeaderRef.current,
+          gems: gemsRef.current.map((g) => ({
+            i: g.id,
+            x: g.x,
+            z: g.z,
+          })),
           units: Object.values(combatantsRef.current).map((u) => ({
             i: u.id,
             n: u.nickname,
@@ -681,6 +840,8 @@ export function useCarbonNet({
             sw: u.secondaryWeapon,
             k: u.kills,
             d: u.deaths,
+            gm: u.gems || 0,
+            lf: u.lastFiredAt || 0,
             sc: u.score,
             st: u.streak,
             od: u.overdriveUntil,
@@ -746,8 +907,10 @@ export function useCarbonNet({
     ch.send({ type: "broadcast", event: "pos", payload: pkt });
   }, [myId, localPhysRef]);
 
-  /** Broadcasts a weapon or grenade shot to all WiFi peers */
+  /** Broadcasts a weapon or grenade shot to all WiFi peers (and reveals bush stealth!) */
   const broadcastShot = useCallback((shot: CarbonShotPacket) => {
+    const shooter = combatantsRef.current[shot.shooterId];
+    if (shooter) shooter.lastFiredAt = Date.now();
     channelRef.current?.send({
       type: "broadcast",
       event: "shot",
@@ -792,6 +955,9 @@ export function useCarbonNet({
     hudTick,
     combatantsRef,
     pickupsRef,
+    gemsRef,
+    countdownEndsAtRef,
+    countdownLeaderRef,
     peersRef,
     waveRef,
     waveRemRef,

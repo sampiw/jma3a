@@ -603,7 +603,98 @@ export function createStrikerRig(
 }
 
 /**
- * Redraws Brawl-Stars-style overhead nameplate + Shield + HP + (for ME) Orange Ammo Bar!
+ * Builds a sparkling Brawl-Stars-style 3D Purple/Magenta Crystal Gem (💎)
+ */
+export function buildCrystalGemMesh(): THREE.Group {
+  const g = new THREE.Group();
+  const crystalMat = new THREE.MeshStandardMaterial({
+    color: 0xd946ef,
+    emissive: 0xa21caf,
+    emissiveIntensity: 0.65,
+    roughness: 0.14,
+    metalness: 0.2,
+  });
+  const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.36, 0), crystalMat);
+  gem.scale.set(0.88, 1.25, 0.88);
+  gem.castShadow = true;
+  g.add(gem);
+
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.36, 0.48, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0xf0abfc,
+      transparent: true,
+      opacity: 0.72,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = -0.35;
+  g.add(ring);
+
+  return g;
+}
+
+/**
+ * Builds a lush stylized 3D Tall Grass Stealth Bush zone (swaying rounded emerald blades)
+ */
+export function buildTallGrassBushCluster(halfX: number, halfZ: number): THREE.Group {
+  const group = new THREE.Group();
+
+  // Soft mossy turf base pad
+  const baseMat = new THREE.MeshStandardMaterial({
+    color: 0x15803d,
+    roughness: 0.85,
+    metalness: 0.02,
+  });
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(halfX * 2, 0.12, halfZ * 2),
+    baseMat
+  );
+  base.position.y = 0.06;
+  base.receiveShadow = true;
+  group.add(base);
+
+  const lushLight = new THREE.MeshStandardMaterial({
+    color: 0x22c55e,
+    roughness: 0.58,
+    metalness: 0.04,
+  });
+  const lushMid = new THREE.MeshStandardMaterial({
+    color: 0x16a34a,
+    roughness: 0.62,
+    metalness: 0.04,
+  });
+
+  const cols = Math.max(2, Math.round(halfX * 2.1));
+  const rows = Math.max(2, Math.round(halfZ * 2.1));
+  const stepX = (halfX * 1.72) / Math.max(1, cols - 1);
+  const stepZ = (halfZ * 1.72) / Math.max(1, rows - 1);
+
+  for (let ix = 0; ix < cols; ix++) {
+    for (let iz = 0; iz < rows; iz++) {
+      const lx = -halfX * 0.86 + ix * stepX + ((iz % 2) - 0.5) * 0.14;
+      const lz = -halfZ * 0.86 + iz * stepZ + ((ix % 2) - 0.5) * 0.14;
+      const r = 0.54 + ((ix + iz) % 3) * 0.07;
+      const h = 1.05 + ((ix * 3 + iz) % 3) * 0.12;
+      const tuft = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(r, 1),
+        (ix + iz) % 2 === 0 ? lushLight : lushMid
+      );
+      tuft.scale.set(1.05, h / (r * 1.5), 1.05);
+      tuft.position.set(lx, 0.52, lz);
+      tuft.castShadow = true;
+      tuft.receiveShadow = true;
+      group.add(tuft);
+    }
+  }
+
+  return group;
+}
+
+/**
+ * Redraws Brawl-Stars-style overhead nameplate + Gems 💎 + Shield + HP + (for ME) Orange Ammo Bar!
  */
 export function syncStrikerHudPlate(
   rig: StrikerRig,
@@ -614,13 +705,15 @@ export function syncStrikerHudPlate(
   maxShield: number,
   overdrive: boolean,
   ammoRatio = -1,
-  isReloading = false
+  isReloading = false,
+  gems = 0,
+  inBushStealth = false
 ) {
   const hpQ = Math.max(0, Math.round((hp / Math.max(1, maxHp)) * 28));
   const shQ = Math.max(0, Math.round((shield / Math.max(1, maxShield)) * 24));
   const amQ = ammoRatio >= 0 ? Math.max(0, Math.round(ammoRatio * 20)) : -1;
   const hpNum = Math.max(0, Math.round(hp + shield));
-  const key = `${nickname}|${hpQ}|${shQ}|${amQ}|${isReloading ? 1 : 0}|${overdrive ? 1 : 0}|${rig.role}`;
+  const key = `${nickname}|${hpQ}|${shQ}|${amQ}|${isReloading ? 1 : 0}|${overdrive ? 1 : 0}|${gems}|${inBushStealth ? 1 : 0}|${rig.role}`;
   if (key === rig.lastHudKey) return;
   rig.lastHudKey = key;
 
@@ -630,15 +723,26 @@ export function syncStrikerHudPlate(
   const palette = getRolePalette(rig.role, rig.archetype);
   ctx.clearRect(0, 0, 280, 96);
 
-  // Nickname with crisp dark outline for perfect readability against sunlit sandstone!
-  const cleanName = nickname.length > 14 ? nickname.slice(0, 13) + "…" : nickname;
-  const title = overdrive ? `⚡ ${cleanName}` : cleanName;
-  ctx.font = "900 20px system-ui, -apple-system, sans-serif";
+  // Nickname + Gem Badge (💎) + Bush Stealth Badge (🌿)
+  const cleanName = nickname.length > 11 ? nickname.slice(0, 10) + "…" : nickname;
+  const gemTag = gems >= 10 ? `👑💎${gems} ` : gems > 0 ? `💎${gems} ` : "";
+  const stealthTag = inBushStealth ? "🌿 " : "";
+  const title = `${stealthTag}${gemTag}${overdrive ? "⚡" : ""}${cleanName}`;
+  ctx.font = "900 19px system-ui, -apple-system, sans-serif";
   ctx.textAlign = "center";
   ctx.lineWidth = 5;
   ctx.strokeStyle = "rgba(15, 23, 42, 0.95)";
   ctx.strokeText(title, 140, 22);
-  ctx.fillStyle = overdrive ? "#fde047" : rig.role === "ME" ? "#86efac" : "#ffffff";
+  ctx.fillStyle =
+    gems >= 10
+      ? "#fde047"
+      : gems > 0
+      ? "#f0abfc"
+      : overdrive
+      ? "#fde047"
+      : rig.role === "ME"
+      ? "#86efac"
+      : "#ffffff";
   ctx.fillText(title, 140, 22);
 
   // Bar container pill
@@ -649,8 +753,9 @@ export function syncStrikerHudPlate(
   ctx.beginPath();
   ctx.roundRect(barX - 6, 29, barW + 12, pillH, 11);
   ctx.fill();
-  ctx.lineWidth = 2.5;
-  ctx.strokeStyle = overdrive ? "#fbbf24" : "rgba(255,255,255,0.35)";
+  ctx.lineWidth = gems >= 10 ? 3.2 : 2.5;
+  ctx.strokeStyle =
+    gems >= 10 ? "#fde047" : gems > 0 ? "#e879f9" : overdrive ? "#fbbf24" : "rgba(255,255,255,0.35)";
   ctx.stroke();
 
   // Shield Bar (Sky Cyan)

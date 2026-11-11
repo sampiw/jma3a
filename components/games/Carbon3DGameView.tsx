@@ -245,6 +245,9 @@ export function Carbon3DGameView({
     hudTick,
     combatantsRef,
     pickupsRef,
+    gemsRef,
+    countdownEndsAtRef,
+    countdownLeaderRef,
     peersRef,
     waveRef,
     waveRemRef,
@@ -285,7 +288,7 @@ export function Carbon3DGameView({
     }
   }, [phase]);
 
-  // --- BRAWL-STARS TWIN-STICK TOUCH CONTROLS (LEFT MOVE STICK | RIGHT DUAL-MODE ATTACK STICK) ---
+  // --- UN-STICKABLE NATIVE MULTI-TOUCH TWIN-STICK SYSTEM (iOS Safari + Android + Mouse) ---
   const leftTouchRef = useRef<{ id: number; startX: number; startY: number } | null>(null);
   const rightTouchRef = useRef<{
     id: number;
@@ -313,51 +316,44 @@ export function Carbon3DGameView({
 
   const STICK_MAX_R = 50;
 
-  const onLeftZonePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (leftTouchRef.current !== null) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    leftTouchRef.current = { id: e.pointerId, startX: e.clientX, startY: e.clientY };
+  const resetLeftStick = useCallback(() => {
+    leftTouchRef.current = null;
     moveStickRef.current = { dx: 0, dz: 0 };
-    setLeftStickVis({
-      active: true,
-      baseX: e.clientX,
-      baseY: e.clientY,
-      knobX: 0,
-      knobY: 0,
-    });
-  };
+    setLeftStickVis({ active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0 });
+  }, []);
 
-  const onLeftZonePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!leftTouchRef.current || leftTouchRef.current.id !== e.pointerId) return;
-    const rawX = e.clientX - leftTouchRef.current.startX;
-    const rawY = e.clientY - leftTouchRef.current.startY;
+  const updateLeftStickCoords = useCallback((clientX: number, clientY: number) => {
+    if (!leftTouchRef.current) return;
+    const rawX = clientX - leftTouchRef.current.startX;
+    const rawY = clientY - leftTouchRef.current.startY;
     const dist = Math.hypot(rawX, rawY);
     const clamped = Math.min(STICK_MAX_R, dist);
     const angle = Math.atan2(rawY, rawX);
-    const kx = Math.cos(angle) * clamped;
-    const ky = Math.sin(angle) * clamped;
+    const kx = dist > 1 ? Math.cos(angle) * clamped : 0;
+    const ky = dist > 1 ? Math.sin(angle) * clamped : 0;
     moveStickRef.current = {
       dx: kx / STICK_MAX_R,
       dz: ky / STICK_MAX_R,
     };
     setLeftStickVis((s) => ({ ...s, knobX: kx, knobY: ky }));
-  };
+  }, []);
 
-  const onLeftZonePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!leftTouchRef.current || leftTouchRef.current.id !== e.pointerId) return;
-    leftTouchRef.current = null;
+  const beginLeftStick = useCallback((id: number, clientX: number, clientY: number) => {
+    leftTouchRef.current = { id, startX: clientX, startY: clientY };
     moveStickRef.current = { dx: 0, dz: 0 };
-    setLeftStickVis((s) => ({ ...s, active: false, knobX: 0, knobY: 0 }));
-  };
+    setLeftStickVis({
+      active: true,
+      baseX: clientX,
+      baseY: clientY,
+      knobX: 0,
+      knobY: 0,
+    });
+  }, []);
 
   // Right Dual-Mode Attack Stick: Tap = Auto-Aim Fire | Drag = 360° Ground Telegraph Aim!
-  const startRightStick = (pointerId: number, clientX: number, clientY: number, target: HTMLElement) => {
-    if (rightTouchRef.current !== null) return;
-    try {
-      target.setPointerCapture(pointerId);
-    } catch {}
+  const startRightStick = useCallback((touchId: number, clientX: number, clientY: number) => {
     rightTouchRef.current = {
-      id: pointerId,
+      id: touchId,
       startX: clientX,
       startY: clientY,
       maxDragMag: 0,
@@ -374,10 +370,10 @@ export function Carbon3DGameView({
       knobY: 0,
       isAiming: false,
     });
-  };
+  }, []);
 
-  const moveRightStick = (pointerId: number, clientX: number, clientY: number) => {
-    if (!rightTouchRef.current || rightTouchRef.current.id !== pointerId) return;
+  const moveRightStick = useCallback((touchId: number, clientX: number, clientY: number) => {
+    if (!rightTouchRef.current || rightTouchRef.current.id !== touchId) return;
     const rawX = clientX - rightTouchRef.current.startX;
     const rawY = clientY - rightTouchRef.current.startY;
     const dist = Math.hypot(rawX, rawY);
@@ -386,8 +382,8 @@ export function Carbon3DGameView({
     rightTouchRef.current.maxDragMag = Math.max(rightTouchRef.current.maxDragMag, mag);
 
     const angle = Math.atan2(rawY, rawX);
-    const kx = Math.cos(angle) * clamped;
-    const ky = Math.sin(angle) * clamped;
+    const kx = dist > 1 ? Math.cos(angle) * clamped : 0;
+    const ky = dist > 1 ? Math.sin(angle) * clamped : 0;
 
     if (dist > 3) {
       aimStickRef.current.dx = Math.cos(angle);
@@ -400,10 +396,10 @@ export function Carbon3DGameView({
       knobY: ky,
       isAiming: mag >= 0.24,
     }));
-  };
+  }, []);
 
-  const endRightStick = (pointerId: number) => {
-    if (!rightTouchRef.current || rightTouchRef.current.id !== pointerId) return;
+  const endRightStick = useCallback((touchId: number, cancelled = false) => {
+    if (!rightTouchRef.current || rightTouchRef.current.id !== touchId) return;
     const finalMag = aimStickRef.current.mag;
     const peakMag = rightTouchRef.current.maxDragMag;
     const rDx = aimStickRef.current.dx;
@@ -413,18 +409,142 @@ export function Carbon3DGameView({
     aimStickRef.current.active = false;
     aimStickRef.current.mag = 0;
 
-    if (peakMag < 0.24) {
-      // Quick-Tap -> Instant Auto-Aim Shot!
-      aimStickRef.current.autoFireTap = true;
-    } else if (finalMag >= 0.2) {
-      // Dragged & Released outside inner cancel zone -> Fire along exact aimed vector!
-      aimStickRef.current.manualReleaseShot = true;
-      aimStickRef.current.releaseDx = rDx;
-      aimStickRef.current.releaseDz = rDz;
-      aimStickRef.current.releaseMag = finalMag;
+    if (!cancelled) {
+      if (peakMag < 0.24) {
+        // Quick-Tap -> Instant Auto-Aim Shot!
+        aimStickRef.current.autoFireTap = true;
+      } else if (finalMag >= 0.2) {
+        // Dragged & Released outside inner cancel zone -> Fire along exact aimed vector!
+        aimStickRef.current.manualReleaseShot = true;
+        aimStickRef.current.releaseDx = rDx;
+        aimStickRef.current.releaseDz = rDz;
+        aimStickRef.current.releaseMag = finalMag;
+      }
     }
 
-    setRightStickVis((s) => ({ ...s, active: false, knobX: 0, knobY: 0, isAiming: false }));
+    setRightStickVis({ active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0, isAiming: false });
+  }, []);
+
+  // Global Hardware Touch Reconciler: Guarantees sticks NEVER stay stuck on iOS Safari / Android!
+  useEffect(() => {
+    const reconcileTouches = (e: TouchEvent) => {
+      const liveIds = new Set<number>();
+      for (let i = 0; i < e.touches.length; i++) {
+        const t = e.touches[i];
+        liveIds.add(t.identifier);
+        if (leftTouchRef.current && leftTouchRef.current.id === t.identifier) {
+          updateLeftStickCoords(t.clientX, t.clientY);
+        }
+        if (rightTouchRef.current && rightTouchRef.current.id === t.identifier) {
+          moveRightStick(t.identifier, t.clientX, t.clientY);
+        }
+      }
+      if (leftTouchRef.current && leftTouchRef.current.id >= 0 && !liveIds.has(leftTouchRef.current.id)) {
+        resetLeftStick();
+      }
+      if (rightTouchRef.current && rightTouchRef.current.id >= 0 && !liveIds.has(rightTouchRef.current.id)) {
+        endRightStick(rightTouchRef.current.id, e.type === "touchcancel");
+      }
+    };
+
+    const forceResetAll = () => {
+      resetLeftStick();
+      if (rightTouchRef.current) {
+        endRightStick(rightTouchRef.current.id, true);
+      }
+    };
+
+    const onMouseUpGlobal = () => {
+      if (leftTouchRef.current && leftTouchRef.current.id === -999) resetLeftStick();
+      if (rightTouchRef.current && rightTouchRef.current.id === -999) endRightStick(-999, false);
+    };
+
+    const onVisChange = () => {
+      if (document.hidden) forceResetAll();
+    };
+
+    window.addEventListener("touchmove", reconcileTouches, { passive: true });
+    window.addEventListener("touchend", reconcileTouches, { passive: true });
+    window.addEventListener("touchcancel", reconcileTouches, { passive: true });
+    window.addEventListener("mouseup", onMouseUpGlobal);
+    window.addEventListener("blur", forceResetAll);
+    document.addEventListener("visibilitychange", onVisChange);
+
+    return () => {
+      window.removeEventListener("touchmove", reconcileTouches);
+      window.removeEventListener("touchend", reconcileTouches);
+      window.removeEventListener("touchcancel", reconcileTouches);
+      window.removeEventListener("mouseup", onMouseUpGlobal);
+      window.removeEventListener("blur", forceResetAll);
+      document.removeEventListener("visibilitychange", onVisChange);
+    };
+  }, [resetLeftStick, updateLeftStickCoords, moveRightStick, endRightStick]);
+
+  // Reset sticks whenever match phase leaves PLAYING
+  useEffect(() => {
+    if (phase !== "PLAYING") {
+      resetLeftStick();
+      if (rightTouchRef.current) endRightStick(rightTouchRef.current.id, true);
+    }
+  }, [phase, resetLeftStick, endRightStick]);
+
+  const onLeftTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const activeIds = new Set(Array.from(e.touches).map((t) => t.identifier));
+    if (leftTouchRef.current && activeIds.has(leftTouchRef.current.id)) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    beginLeftStick(t.identifier, t.clientX, t.clientY);
+  };
+
+  const onLeftTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!leftTouchRef.current) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier === leftTouchRef.current.id) {
+        updateLeftStickCoords(t.clientX, t.clientY);
+        break;
+      }
+    }
+  };
+
+  const onLeftTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!leftTouchRef.current) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === leftTouchRef.current.id) {
+        resetLeftStick();
+        break;
+      }
+    }
+  };
+
+  const onRightTouchStart = (e: React.TouchEvent<HTMLElement>) => {
+    e.stopPropagation();
+    const activeIds = new Set(Array.from(e.touches).map((t) => t.identifier));
+    if (rightTouchRef.current && activeIds.has(rightTouchRef.current.id)) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    startRightStick(t.identifier, t.clientX, t.clientY);
+  };
+
+  const onRightTouchMove = (e: React.TouchEvent<HTMLElement>) => {
+    if (!rightTouchRef.current) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier === rightTouchRef.current.id) {
+        moveRightStick(t.identifier, t.clientX, t.clientY);
+        break;
+      }
+    }
+  };
+
+  const onRightTouchEnd = (e: React.TouchEvent<HTMLElement>, cancelled = false) => {
+    if (!rightTouchRef.current) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === rightTouchRef.current.id) {
+        endRightStick(rightTouchRef.current.id, cancelled);
+        break;
+      }
+    }
   };
 
   // Smart Fullscreen Toggle (Portrait + Landscape friendly on Android/Desktop; Safari guide on iPhone)
@@ -488,8 +608,10 @@ export function Carbon3DGameView({
   void hudTick;
   const allUnits = Object.values(combatantsRef.current);
   const myUnit = combatantsRef.current[myId];
-  const sortedLeaderboard = [...allUnits].sort(
-    (a, b) => b.kills - a.kills || b.score - a.score
+  const sortedLeaderboard = [...allUnits].sort((a, b) =>
+    mode === "SURVIVAL"
+      ? b.kills - a.kills || b.score - a.score
+      : (b.gems || 0) - (a.gems || 0) || b.kills - a.kills || b.score - a.score
   );
   const humanCount = allUnits.filter((u) => !u.isBot).length;
   const canConfigure = isHost || humanCount <= 1;
@@ -497,6 +619,20 @@ export function Carbon3DGameView({
   const secRemaining = Math.max(0, Math.ceil((endsAt - nowMs) / 1000));
   const mm = String(Math.floor(secRemaining / 60)).padStart(2, "0");
   const ss = String(secRemaining % 60).padStart(2, "0");
+
+  const gemCountdownLeft =
+    countdownEndsAtRef.current > nowMs
+      ? Math.max(1, Math.ceil((countdownEndsAtRef.current - nowMs) / 1000))
+      : 0;
+  const countdownWhoId = countdownLeaderRef.current;
+  const countdownLeaderLabel =
+    countdownWhoId === "TEAM_CYAN"
+      ? "الفريق الأزرق ⚡"
+      : countdownWhoId === "TEAM_CRIMSON"
+      ? "الفريق الأحمر 🔥"
+      : countdownWhoId
+      ? combatantsRef.current[countdownWhoId]?.nickname || "البطل"
+      : "";
 
   const showDamageVignette = nowMs - damageFlash.at < 320;
   const showBanner = killBanner && nowMs - killBanner.at < 2200;
@@ -523,6 +659,7 @@ export function Carbon3DGameView({
         phase={phase}
         combatantsRef={combatantsRef}
         pickupsRef={pickupsRef}
+        gemsRef={gemsRef}
         peersRef={peersRef}
         coreOwnerRef={coreOwnerRef}
         localPhysRef={localPhysRef}
@@ -549,21 +686,27 @@ export function Carbon3DGameView({
         />
       )}
 
-      {/* 3. Full-Screen Split Twin-Stick Touch Zones (Left 50% Move | Right 50% Dual-Mode Aim/Shoot) */}
+      {/* 3. Full-Screen Split Twin-Stick Touch Zones (Un-Stickable Native Touch + Mouse Fallback) */}
       {phase === "PLAYING" && (
         <>
           <div
-            onPointerDown={onLeftZonePointerDown}
-            onPointerMove={onLeftZonePointerMove}
-            onPointerUp={onLeftZonePointerUp}
-            onPointerCancel={onLeftZonePointerUp}
+            onTouchStart={onLeftTouchStart}
+            onTouchMove={onLeftTouchMove}
+            onTouchEnd={onLeftTouchEnd}
+            onTouchCancel={onLeftTouchEnd}
+            onMouseDown={(e) => {
+              if (e.button === 0) beginLeftStick(-999, e.clientX, e.clientY);
+            }}
+            onMouseMove={(e) => {
+              if (leftTouchRef.current?.id === -999) updateLeftStickCoords(e.clientX, e.clientY);
+            }}
             className="absolute inset-y-12 left-0 w-1/2 z-10 touch-none"
           />
           <div
-            onPointerDown={(e) => startRightStick(e.pointerId, e.clientX, e.clientY, e.currentTarget)}
-            onPointerMove={(e) => moveRightStick(e.pointerId, e.clientX, e.clientY)}
-            onPointerUp={(e) => endRightStick(e.pointerId)}
-            onPointerCancel={(e) => endRightStick(e.pointerId)}
+            onTouchStart={onRightTouchStart}
+            onTouchMove={onRightTouchMove}
+            onTouchEnd={(e) => onRightTouchEnd(e, false)}
+            onTouchCancel={(e) => onRightTouchEnd(e, true)}
             className="absolute inset-y-12 right-0 w-1/2 z-10 touch-none"
           />
         </>
@@ -626,6 +769,7 @@ export function Carbon3DGameView({
           />
           {mode === "SQUAD" ? (
             <div className="flex items-center gap-1 text-[11px] font-black whitespace-nowrap">
+              <span>💎</span>
               <span className="text-sky-300">{teamScoresRef.current.CYAN}</span>
               <span className="text-slate-400">-</span>
               <span className="text-rose-400">{teamScoresRef.current.CRIMSON}</span>
@@ -636,13 +780,15 @@ export function Carbon3DGameView({
               <span className="text-rose-300">({waveRemRef.current})</span>
             </div>
           ) : (
-            <div className="flex items-center gap-1 text-[11px] font-black min-w-0">
-              <Trophy className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span className="text-white truncate max-w-[74px] sm:max-w-[120px]">
-                {sortedLeaderboard[0]?.nickname || "—"}
+            <div className="flex items-center gap-1.5 text-[11px] font-black min-w-0">
+              <span className="px-1.5 py-0.5 rounded-lg bg-fuchsia-500/25 border border-fuchsia-400/50 text-fuchsia-200 font-mono whitespace-nowrap">
+                💎 {myUnit?.gems ?? 0}/10
               </span>
-              <span className="text-emerald-300 font-mono">
-                {sortedLeaderboard[0]?.kills ?? 0}/{settings.targetKillsFFA || 15}
+              <span className="text-white truncate max-w-[68px] sm:max-w-[110px]">
+                👑 {sortedLeaderboard[0]?.nickname || "—"}
+              </span>
+              <span className="text-amber-300 font-mono whitespace-nowrap">
+                ({sortedLeaderboard[0]?.gems ?? 0}💎)
               </span>
             </div>
           )}
@@ -704,27 +850,23 @@ export function Carbon3DGameView({
         </div>
       </div>
 
-      {/* Squad Central Zone Bar */}
-      {mode === "SQUAD" && phase === "PLAYING" && (
-        <div className="pointer-events-none absolute top-14 left-1/2 -translate-x-1/2 z-20 w-44 bg-slate-900/75 border border-white/20 rounded-full p-1 backdrop-blur-xs">
-          <div className="relative h-2 rounded-full bg-slate-700 overflow-hidden">
-            <div
-              style={{
-                width: `${Math.abs(coreProgRef.current)}%`,
-                right: coreProgRef.current >= 0 ? "50%" : undefined,
-                left: coreProgRef.current < 0 ? "50%" : undefined,
-              }}
-              className={`h-full transition-all ${
-                coreProgRef.current >= 0 ? "bg-sky-400" : "bg-rose-500"
-              }`}
-            />
+      {/* 10-Gem 15-Second Brawl Countdown Alert Banner! */}
+      {gemCountdownLeft > 0 && phase === "PLAYING" && (
+        <div className="pointer-events-none absolute top-[calc(max(0.5rem,env(safe-area-inset-top))+2.85rem)] left-1/2 -translate-x-1/2 z-30 text-center">
+          <div className="px-4 py-1.5 rounded-2xl bg-gradient-to-r from-fuchsia-950/95 via-purple-900/95 to-rose-950/95 border-2 border-amber-300 shadow-[0_0_25px_rgba(232,121,249,0.65)] animate-pulse">
+            <p className="text-xs sm:text-sm font-black text-amber-300 whitespace-nowrap">
+              🚨 العد التنازلي للجواهر: {gemCountdownLeft}s!
+            </p>
+            <p className="text-[10px] font-bold text-fuchsia-100 whitespace-nowrap">
+              💎 {countdownLeaderLabel} جامع 10+ جواهر — وقّفوه دابا!
+            </p>
           </div>
         </div>
       )}
 
       {/* Kill-Streak Hype Callout */}
-      {showBanner && killBanner && (
-        <div className="pointer-events-none absolute top-14 left-1/2 -translate-x-1/2 z-30 text-center">
+      {showBanner && killBanner && gemCountdownLeft === 0 && (
+        <div className="pointer-events-none absolute top-[calc(max(0.5rem,env(safe-area-inset-top))+2.85rem)] left-1/2 -translate-x-1/2 z-30 text-center">
           <div className="px-4 py-1.5 rounded-2xl bg-slate-900/90 border-2 border-amber-400 shadow-xl">
             <p className="text-xs sm:text-sm font-black text-amber-300">{killBanner.text}</p>
             <p className="text-[10px] font-bold text-white">{killBanner.sub}</p>
@@ -732,9 +874,9 @@ export function Carbon3DGameView({
         </div>
       )}
 
-      {/* Compact Killfeed */}
+      {/* Compact Killfeed (Safely positioned BELOW top-right score pill — zero overlap!) */}
       {liveKillFeed.length > 0 && phase === "PLAYING" && (
-        <div className="pointer-events-none absolute top-13 right-2.5 z-20 flex flex-col gap-1 max-w-[185px]">
+        <div className="pointer-events-none absolute top-[calc(max(0.5rem,env(safe-area-inset-top))+2.85rem)] right-[max(0.6rem,env(safe-area-inset-right))] z-20 flex flex-col gap-1 max-w-[185px]">
           {liveKillFeed.map((kf) => (
             <div
               key={kf.id}
@@ -772,7 +914,7 @@ export function Carbon3DGameView({
           <div className="pointer-events-auto absolute bottom-[max(1.45rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-30 flex items-center gap-1">
             <button
               type="button"
-              onPointerDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
               onClick={() => {
                 if (swapLocalWeapon()) carbonSfx.playPickup();
                 else commandsRef.current.reloadRequested = true;
@@ -792,8 +934,11 @@ export function Carbon3DGameView({
             {/* EMP Shock Bomb (Diagonally Up-Left of Attack Stick) */}
             <button
               type="button"
-              onPointerDown={(e) => {
+              onTouchStart={(e) => {
                 e.stopPropagation();
+                commandsRef.current.grenadeRequested = true;
+              }}
+              onClick={() => {
                 commandsRef.current.grenadeRequested = true;
               }}
               disabled={weaponHud.grenadeCooldownLeft > 0.05}
@@ -814,8 +959,11 @@ export function Carbon3DGameView({
             {/* Jet-Dash (Directly Above Attack Stick) */}
             <button
               type="button"
-              onPointerDown={(e) => {
+              onTouchStart={(e) => {
                 e.stopPropagation();
+                commandsRef.current.dashRequested = true;
+              }}
+              onClick={() => {
                 commandsRef.current.dashRequested = true;
               }}
               disabled={weaponHud.dashCooldownLeft > 0.05}
@@ -835,13 +983,21 @@ export function Carbon3DGameView({
 
             {/* Anchored Dual-Mode Attack Stick (Tap = Auto-Aim 🎯 | Drag = Manual Aim!) */}
             <div
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                startRightStick(e.pointerId, e.clientX, e.clientY, e.currentTarget);
+              onTouchStart={onRightTouchStart}
+              onTouchMove={onRightTouchMove}
+              onTouchEnd={(e) => onRightTouchEnd(e, false)}
+              onTouchCancel={(e) => onRightTouchEnd(e, true)}
+              onMouseDown={(e) => {
+                if (e.button === 0) {
+                  e.stopPropagation();
+                  startRightStick(-999, e.clientX, e.clientY);
+                }
               }}
-              onPointerMove={(e) => moveRightStick(e.pointerId, e.clientX, e.clientY)}
-              onPointerUp={(e) => endRightStick(e.pointerId)}
-              onPointerCancel={(e) => endRightStick(e.pointerId)}
+              onMouseMove={(e) => {
+                if (rightTouchRef.current?.id === -999) {
+                  moveRightStick(-999, e.clientX, e.clientY);
+                }
+              }}
               className={`pointer-events-auto w-[84px] h-[84px] rounded-full border-4 border-white shadow-[0_6px_24px_rgba(244,63,94,0.55)] flex flex-col items-center justify-center text-white transition-transform ${
                 rightStickVis.active
                   ? "scale-95 bg-rose-600/70"
@@ -952,9 +1108,11 @@ export function Carbon3DGameView({
                     <span>{u.nickname}</span>
                   </div>
                   <div className="flex items-center gap-3 font-mono">
+                    {mode !== "SURVIVAL" && (
+                      <span className="text-fuchsia-300">💎 {u.gems || 0}</span>
+                    )}
                     <span className="text-emerald-300">{u.kills} K</span>
                     <span className="text-rose-300">{u.deaths} D</span>
-                    <span className="text-amber-300">{u.score} pts</span>
                   </div>
                 </div>
               ))}
@@ -992,13 +1150,13 @@ export function Carbon3DGameView({
                 [
                   {
                     id: "FFA",
-                    title: "🔥 الكل ضد الكل (Showdown)",
-                    desc: "أول بطل كيوصل لـ 15 إقصاء كيربح التاج!",
+                    title: "💎 حرب الجواهر فردي (Gem Showdown)",
+                    desc: "جمع 10 جواهر من المنجم، تخبّى فالأعشاب 🌿، وصمد 15 ثانية! إلا طحتي كتشتت جواهرك كاملة!",
                   },
                   {
                     id: "SQUAD",
-                    title: "⚡ حرب الفرق (4 ضد 4)",
-                    desc: "الفريق الأزرق ضد الفريق الأحمر + السيطرة على الوسط!",
+                    title: "⚡💎 حرب الجواهر فرق (4 ضد 4)",
+                    desc: "الفريق اللي كيجمع 10 جواهر ويحمي حامل الجواهر 15 ثانية كيربح التاج!",
                   },
                   {
                     id: "SURVIVAL",
@@ -1075,6 +1233,9 @@ export function Carbon3DGameView({
                     <span>{u.nickname}</span>
                   </div>
                   <div className="font-mono flex items-center gap-3">
+                    {mode !== "SURVIVAL" && (
+                      <span className="text-fuchsia-300">💎 {u.gems || 0}</span>
+                    )}
                     <span className="text-emerald-300">{u.kills} إقصاء</span>
                     <span className="text-amber-300">{u.score} نقطة</span>
                   </div>
