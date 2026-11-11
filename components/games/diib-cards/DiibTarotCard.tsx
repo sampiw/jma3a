@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
+import { motion } from "framer-motion";
 import { DIIB_CARDS_ROLE_META, DiibCardRole } from "@/games/diib-cards/types";
 import { DiibCardBackArt, DiibRoleArt } from "@/components/games/diib-cards/DiibRoleArt";
 import { sound } from "@/lib/sound";
@@ -42,38 +43,8 @@ export function DiibTarotCard({
 }: DiibTarotCardProps) {
   const meta = DIIB_CARDS_ROLE_META[role] || DIIB_CARDS_ROLE_META.villager;
 
-  // Single-Mounted-Face 2-Stage Flip:
-  // Only ONE face exists in the DOM at a time, and neither face ever uses rotateY(180deg)
-  // or scaleX(-1), making mirrored/backwards Arabic text or bleed-through 100% impossible on iOS Safari.
-  const [displayedFlipped, setDisplayedFlipped] = useState<boolean>(isFlipped);
-  const [flipStage, setFlipStage] = useState<"idle" | "closing" | "opening">("idle");
-
-  useEffect(() => {
-    if (compact) {
-      setDisplayedFlipped(isFlipped);
-      setFlipStage("idle");
-      return;
-    }
-    if (isFlipped === displayedFlipped) return;
-
-    setFlipStage("closing");
-    const swapId = setTimeout(() => {
-      setDisplayedFlipped(isFlipped);
-      setFlipStage("opening");
-    }, 145);
-
-    const doneId = setTimeout(() => {
-      setFlipStage("idle");
-    }, 310);
-
-    return () => {
-      clearTimeout(swapId);
-      clearTimeout(doneId);
-    };
-  }, [isFlipped, displayedFlipped, compact]);
-
   const handleTap = () => {
-    if (!onFlipChange || flipStage !== "idle") return;
+    if (!onFlipChange) return;
     sound.playCardFlip();
     onFlipChange(!isFlipped);
   };
@@ -94,7 +65,6 @@ export function DiibTarotCard({
           <DiibRoleArt role={role} compact />
           <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#10141F] to-transparent pointer-events-none" />
 
-          {/* Clean single-corner status badge */}
           {isDead && (
             <span className="absolute top-2 left-2 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-950/95 text-rose-200 border border-rose-400/60 shadow-md">
               💀 ميت
@@ -106,7 +76,6 @@ export function DiibTarotCard({
             </span>
           )}
 
-          {/* Role Emoji Badge */}
           <div className="absolute bottom-1.5 right-2 w-7 h-7 rounded-lg bg-[#0E121B]/95 border border-amber-400/50 flex items-center justify-center text-sm shadow-md">
             {meta.emoji}
           </div>
@@ -132,37 +101,29 @@ export function DiibTarotCard({
   }
 
   // =========================================================================
-  // FULL-SIZE INTERACTIVE TAROT CARD (Pure Vector + Zero-Mirror Flip)
+  // FULL-SIZE INTERACTIVE TAROT CARD
+  // Pure stateless prop-driven render: ZERO internal timers or tap lockouts!
+  // Only one face is mounted at a time at 0deg upright (never rotateY(180deg)),
+  // so every tap flips immediately and Arabic text can never mirror on iOS.
   // =========================================================================
-  const flipTransformStyle: React.CSSProperties =
-    flipStage === "closing"
-      ? {
-          transform: "scaleX(0.03) scaleY(0.97)",
-          transition: "transform 145ms ease-in",
-        }
-      : flipStage === "opening"
-      ? {
-          transform: "scaleX(1) scaleY(1)",
-          transition: "transform 165ms ease-out",
-        }
-      : {
-          transform: "none",
-          transition: "transform 165ms ease-out",
-        };
-
   return (
-    <div
+    <button
+      type="button"
       dir="rtl"
       onClick={handleTap}
-      className={`relative select-none ${
-        onFlipChange ? "cursor-pointer active:scale-[0.99]" : ""
-      } w-full max-w-[18.5rem] sm:max-w-[19.5rem] h-[26.5rem] sm:h-[28.5rem] mx-auto ${className}`}
+      disabled={!onFlipChange}
+      className={`block relative select-none text-right focus:outline-none ${
+        onFlipChange ? "cursor-pointer active:scale-[0.985]" : "cursor-default"
+      } w-full max-w-[18.5rem] sm:max-w-[19.5rem] h-[26.5rem] sm:h-[28.5rem] mx-auto transition-transform ${className}`}
     >
-      <div
-        style={flipTransformStyle}
-        className="relative w-full h-full rounded-[26px] shadow-[0_24px_55px_-12px_rgba(0,0,0,0.88)] will-change-transform"
+      <motion.div
+        key={`${playerName || role}-${isFlipped ? "revealed" : "locked"}`}
+        initial={{ scaleX: 0.08, opacity: 0.72 }}
+        animate={{ scaleX: 1, opacity: 1 }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
+        className="relative w-full h-full rounded-[26px] shadow-[0_24px_55px_-12px_rgba(0,0,0,0.88)]"
       >
-        {!displayedFlipped ? (
+        {!isFlipped ? (
           /* =========================================================
              FACE 1: PURE VECTOR ROYAL MOROCCAN TAROT CARD BACK
              ========================================================= */
@@ -202,12 +163,10 @@ export function DiibTarotCard({
           <div
             className={`relative w-full h-full rounded-[26px] overflow-hidden border-2 ${meta.borderColor} bg-[#0E121B] flex flex-col justify-between`}
           >
-            {/* Top 52% Bespoke Vector Tarot Emblem */}
             <div className="relative h-[52%] w-full overflow-hidden bg-[#0B0E16] shrink-0">
               <DiibRoleArt role={role} />
               <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-[#0E121B] via-[#0E121B]/70 to-transparent pointer-events-none" />
 
-              {/* Top Tarot Header Bar */}
               <div className="absolute top-3 inset-x-3 flex items-center justify-between gap-2">
                 <span
                   className={`px-2.5 py-1 rounded-full text-[11px] font-black border shadow-md whitespace-nowrap ${meta.badgeBg}`}
@@ -227,12 +186,10 @@ export function DiibTarotCard({
               </div>
             </div>
 
-            {/* Center Role Medallion Crest */}
             <div className="relative z-20 -mt-6 mx-auto w-12 h-12 rounded-2xl bg-[#131824] border-2 border-amber-400/75 shadow-xl flex items-center justify-center text-2xl shrink-0">
               {meta.emoji}
             </div>
 
-            {/* Bottom Role Lore & Power Plaque */}
             <div
               className={`relative z-10 flex-1 px-4 pt-2 pb-3.5 flex flex-col justify-between text-center bg-gradient-to-b ${meta.themeGradient}`}
             >
@@ -248,7 +205,6 @@ export function DiibTarotCard({
                 </p>
               </div>
 
-              {/* Wolf Pack Allies Strip (for Wolves) */}
               {packMemberNames && packMemberNames.length > 0 && (
                 <div className="mt-1.5 py-1 px-2.5 rounded-xl bg-rose-950/85 border border-rose-500/45 text-[11px] text-rose-200 truncate">
                   <span className="font-black text-rose-300 ml-1">عصابتك 🐺:</span>
@@ -264,11 +220,10 @@ export function DiibTarotCard({
               )}
             </div>
 
-            {/* Inner Ornamental Gold Hairline */}
             <div className="absolute inset-2 rounded-[20px] border border-amber-300/20 pointer-events-none z-20" />
           </div>
         )}
-      </div>
-    </div>
+      </motion.div>
+    </button>
   );
 }

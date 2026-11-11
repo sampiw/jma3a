@@ -104,6 +104,7 @@ export function DiibCardsGameView({
 
   // UI Local States
   const [cardFlipped, setCardFlipped] = useState(false);
+  const [localSeenIds, setLocalSeenIds] = useState<string[]>([]);
   const [peekModalOpen, setPeekModalOpen] = useState(false);
   const [peekCardFlipped, setPeekCardFlipped] = useState(false);
   const [masterRosterOpen, setMasterRosterOpen] = useState(false);
@@ -136,6 +137,10 @@ export function DiibCardsGameView({
     setPeekModalOpen(false);
     setPeekCardFlipped(false);
   }, [matchNumber, activePlayerId, phase]);
+
+  useEffect(() => {
+    setLocalSeenIds([]);
+  }, [matchNumber]);
 
   // Phase transition sound cues & celebrations
   const prevPhaseRef = useRef<string>(phase);
@@ -804,14 +809,24 @@ export function DiibCardsGameView({
                 ) : (
                   <>
                     <DiibTarotCard
+                      key={`relay-${matchNumber}-${publicData.dealRelay.currentPlayerId}`}
                       role={effectiveRole}
                       playerName={publicData.dealRelay.currentNickname}
                       isFlipped={true}
+                      onFlipChange={() => {
+                        dispatch(
+                          { type: "DEAL_RELAY_STEP" },
+                          publicData.dealRelay.currentPlayerId
+                        );
+                      }}
                       packMemberNames={effectiveRole !== "manager" ? packMemberNames : undefined}
                     />
                     <button
                       onClick={() => {
                         sound.playCardFlip();
+                        if (publicData.dealRelay.currentPlayerId === managerId && managerId) {
+                          onSelectPlayer?.(managerId);
+                        }
                         dispatch(
                           { type: "DEAL_RELAY_STEP" },
                           publicData.dealRelay.currentPlayerId
@@ -830,8 +845,8 @@ export function DiibCardsGameView({
                 )}
               </div>
             ) : (
-              /* MULTI-PHONE / PERSONAL CARD REVEAL */
-              <div className="flex flex-col items-center text-center space-y-5">
+              /* MULTI-PHONE / SHARED-PHONE PERSONAL CARD REVEAL */
+              <div className="flex flex-col items-center text-center space-y-4">
                 <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-jma3a-card border border-amber-400/40 text-amber-300 text-xs font-black shadow-md">
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>
@@ -842,17 +857,101 @@ export function DiibCardsGameView({
                 </div>
 
                 <DiibTarotCard
+                  key={`reveal-${matchNumber}-${activePlayerId || "me"}`}
                   role={effectiveRole}
                   playerName={players.find((p) => p.id === activePlayerId)?.nickname}
                   isFlipped={cardFlipped}
                   onFlipChange={(next) => {
                     setCardFlipped(next);
+                    if (next && activePlayerId) {
+                      setLocalSeenIds((prev) =>
+                        prev.includes(activePlayerId) ? prev : [...prev, activePlayerId]
+                      );
+                    }
                     if (next && !isManager && !effectivePrivate?.cardSeen) {
                       dispatch({ type: "MARK_CARD_SEEN" });
                     }
                   }}
                   packMemberNames={!isManager && effectivePrivate?.team === "WOLVES" ? packMemberNames : undefined}
                 />
+
+                {/* Explicit Flip / Hide + Shared-Phone Next-Friend Handoff Controls */}
+                {(() => {
+                  const sharedList = devicePlayers || [];
+                  const isSharedDevice = sharedList.length > 1 && Boolean(onSelectPlayer);
+                  const nextUnseenFriend = isSharedDevice
+                    ? sharedList.find(
+                        (dp: any) =>
+                          dp.id !== activePlayerId &&
+                          dp.id !== managerId &&
+                          !dp.privateView?.privateData?.cardSeen &&
+                          !localSeenIds.includes(dp.id)
+                      )
+                    : undefined;
+                  const localManagerOnDevice =
+                    isSharedDevice && activePlayerId !== managerId
+                      ? sharedList.find((dp: any) => dp.id === managerId)
+                      : undefined;
+                  const nextPassTarget = nextUnseenFriend || localManagerOnDevice;
+
+                  if (!cardFlipped) {
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sound.playCardFlip();
+                          setCardFlipped(true);
+                          if (activePlayerId) {
+                            setLocalSeenIds((prev) =>
+                              prev.includes(activePlayerId) ? prev : [...prev, activePlayerId]
+                            );
+                          }
+                          if (!isManager && !effectivePrivate?.cardSeen) {
+                            dispatch({ type: "MARK_CARD_SEEN" });
+                          }
+                        }}
+                        className="w-full max-w-[18.5rem] sm:max-w-sm py-3 rounded-2xl bg-jma3a-surface hover:bg-jma3a-border border border-amber-400/50 text-amber-200 font-black text-xs sm:text-sm flex items-center justify-center gap-2 active:scale-95 transition-all"
+                      >
+                        <Eye className="w-4 h-4 text-amber-400" />
+                        <span>اقلب الكارطة وشوف دورك 👀</span>
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <div className="w-full max-w-[18.5rem] sm:max-w-sm flex flex-col gap-2">
+                      {nextPassTarget && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sound.playCardFlip();
+                            setCardFlipped(false);
+                            onSelectPlayer?.(nextPassTarget.id);
+                          }}
+                          className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-jma3a-terracotta text-white font-black text-xs sm:text-sm shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all"
+                        >
+                          <EyeOff className="w-4 h-4" />
+                          <span>
+                            {nextPassTarget.id === managerId
+                              ? `خبي الكارطة وعطي التلفون للمانيجر ${nextPassTarget.nickname} 👑`
+                              : `خبي الكارطة ودوز لـ ${nextPassTarget.nickname} 🤫➡️`}
+                          </span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sound.playCardFlip();
+                          setCardFlipped(false);
+                        }}
+                        className="w-full py-2.5 rounded-2xl bg-jma3a-surface hover:bg-jma3a-border border border-amber-400/40 text-jma3a-sand font-black text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                      >
+                        <EyeOff className="w-3.5 h-3.5 text-amber-400" />
+                        <span>خبي الكارطة 🔒</span>
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 {/* Live Seen Progress Indicator */}
                 <div className="w-full max-w-[18.5rem] sm:max-w-sm p-3 rounded-2xl bg-jma3a-card/90 border border-jma3a-border flex items-center justify-between text-xs">
@@ -1742,6 +1841,7 @@ export function DiibCardsGameView({
         <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-fadeIn">
           <div className="w-full max-w-sm space-y-4 text-center">
             <DiibTarotCard
+              key={`peek-${matchNumber}-${activePlayerId || "me"}`}
               role={effectiveRole}
               playerName={players.find((p) => p.id === activePlayerId)?.nickname}
               isFlipped={peekCardFlipped}
