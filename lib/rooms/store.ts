@@ -10,6 +10,7 @@ import {
 } from "@/lib/types";
 import { generateRoomCode, normalizeRoomCode } from "./code";
 import { getGameDefinition } from "@/games";
+import { buildHumanCombatant, DEFAULT_CARBON_SETTINGS } from "@/games/carbon3d/engine";
 import { realtimeHub } from "@/lib/realtime/pubsub";
 import { Redis } from "@upstash/redis";
 import fs from "node:fs";
@@ -267,7 +268,12 @@ export class RoomStore {
       return { success: true, player: existingPlayer };
     }
 
-    if (room.status !== "LOBBY") {
+    const canHotJoinCarbon =
+      room.selectedGameId === "carbon3d" &&
+      room.status === "ACTIVE" &&
+      room.players.filter((p) => p.status !== "LEFT").length < 8;
+
+    if (room.status !== "LOBBY" && !canHotJoinCarbon) {
       return { success: false, error: "اللعبة بدات ديجا فهاد الغرفة!" };
     }
 
@@ -297,6 +303,37 @@ export class RoomStore {
 
     room.players.push(newPlayer);
     room.updatedAt = Date.now();
+
+    // Inject late-joining soldier directly into an active Operation Atlas 3D match!
+    if (canHotJoinCarbon && room.activeSessionId) {
+      const session = await this.getSession(room.activeSessionId);
+      if (session && session.state && session.state.combatants) {
+        const settings = {
+          ...DEFAULT_CARBON_SETTINGS,
+          ...(session.state.settings || {}),
+        };
+        const activeIdx = room.players.filter((p) => p.status !== "LEFT").length - 1;
+        session.state.combatants[newPlayer.id] = buildHumanCombatant(
+          newPlayer,
+          Math.max(0, activeIdx),
+          settings
+        );
+        // If 2+ real humans are now in the match and botFill wasn't explicitly enabled, prune solo bots!
+        const humanTotal = Object.values(session.state.combatants).filter(
+          (u: any) => u && !u.isBot
+        ).length;
+        if (humanTotal >= 2 && !settings.botFill && session.state.mode !== "SURVIVAL") {
+          for (const [cid, unit] of Object.entries(session.state.combatants)) {
+            if ((unit as any)?.isBot) {
+              delete session.state.combatants[cid];
+            }
+          }
+        }
+        session.stateVersion = (session.stateVersion || 1) + 1;
+        await this.persistSession(session);
+      }
+    }
+
     await this.persistRoom(room);
     this.recordDeviceSession(sessionToken, normCode, "PERSONAL");
 

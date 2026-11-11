@@ -7,25 +7,86 @@ import {
 } from "@/games/registry";
 import { Player, PrivatePlayerGameView, PublicGameView } from "@/lib/types";
 import { createArenaBots } from "./ai";
-import { ARENA_SPAWN_POINTS, createInitialPickupPads } from "./arenaLayout";
+import {
+  ARENA_SPAWN_POINTS,
+  createInitialBarrels,
+  createInitialPickupPads,
+} from "./arenaLayout";
 import {
   CarbonAction,
   CarbonCombatant,
-  CarbonMode,
   CarbonSettings,
   CarbonState,
   CarbonTeam,
   STRIKER_PALETTE,
 } from "./types";
 
-const DEFAULT_SETTINGS: CarbonSettings = {
+export const DEFAULT_CARBON_SETTINGS: CarbonSettings = {
   mode: "FFA",
-  botFill: true,
+  botFill: false, // Solo (1 human) auto-spawns 4 Spec-Ops bots; 2+ humans = clean PvP unless toggled ON!
   botDifficulty: "HARD",
   targetKillsFFA: 15,
-  targetScoreSquad: 40,
-  matchDurationSec: 210,
+  targetScoreSquad: 100,
+  matchDurationSec: 270,
 };
+
+export function buildHumanCombatant(
+  p: Player,
+  idx: number,
+  settings: CarbonSettings
+): CarbonCombatant {
+  const team: CarbonTeam =
+    settings.mode === "SURVIVAL"
+      ? "CYAN"
+      : settings.mode === "SQUAD"
+      ? idx % 2 === 0
+        ? "CYAN"
+        : "CRIMSON"
+      : "SOLO";
+
+  const spawnPool =
+    settings.mode === "FFA"
+      ? ARENA_SPAWN_POINTS
+      : ARENA_SPAWN_POINTS.filter((s) => s.team === team);
+  const sp = spawnPool[idx % spawnPool.length];
+  const accentHex =
+    settings.mode === "SQUAD"
+      ? team === "CYAN"
+        ? 0x38bdf8
+        : 0xf43f5e
+      : STRIKER_PALETTE[idx % STRIKER_PALETTE.length];
+
+  return {
+    id: p.id,
+    nickname: p.nickname,
+    isBot: false,
+    archetype: "STRIKER",
+    team,
+    accentHex,
+    x: sp.x,
+    y: sp.y,
+    z: sp.z,
+    yaw: sp.yaw,
+    pitch: 0,
+    hp: 100,
+    maxHp: 100,
+    shield: 50,
+    maxShield: 50,
+    isAlive: true,
+    respawnAt: 0,
+    weapon: "CARBINE",
+    secondaryWeapon: "SHOTGUN",
+    kills: 0,
+    deaths: 0,
+    assists: 0,
+    gems: 0,
+    score: 0,
+    streak: 0,
+    overdriveUntil: 0,
+    lastDamagedAt: 0,
+    lastFiredAt: 0,
+  };
+}
 
 function buildInitialCombatants(
   players: Player[],
@@ -35,59 +96,7 @@ function buildInitialCombatants(
   const activeHumans = players.filter((p) => p.status !== "LEFT").slice(0, 8);
 
   activeHumans.forEach((p, idx) => {
-    const team: CarbonTeam =
-      settings.mode === "SURVIVAL"
-        ? "CYAN"
-        : settings.mode === "SQUAD"
-        ? idx % 2 === 0
-          ? "CYAN"
-          : "CRIMSON"
-        : "SOLO";
-
-    const spawnPool =
-      settings.mode === "FFA"
-        ? ARENA_SPAWN_POINTS
-        : ARENA_SPAWN_POINTS.filter((s) => s.team === team);
-    const sp = spawnPool[idx % spawnPool.length];
-    const accentHex =
-      settings.mode === "SQUAD"
-        ? team === "CYAN"
-          ? 0x22d3ee
-          : 0xf43f5e
-        : settings.mode === "SURVIVAL"
-        ? STRIKER_PALETTE[idx % STRIKER_PALETTE.length]
-        : STRIKER_PALETTE[idx % STRIKER_PALETTE.length];
-
-    combatants[p.id] = {
-      id: p.id,
-      nickname: p.nickname,
-      isBot: false,
-      archetype: "STRIKER",
-      team,
-      accentHex,
-      x: sp.x,
-      y: sp.y,
-      z: sp.z,
-      yaw: sp.yaw,
-      pitch: 0,
-      hp: 100,
-      maxHp: 100,
-      shield: 60,
-      maxShield: 60,
-      isAlive: true,
-      respawnAt: 0,
-      weapon: "CARBINE",
-      secondaryWeapon: "SHOTGUN",
-      kills: 0,
-      deaths: 0,
-      assists: 0,
-      gems: 0,
-      score: 0,
-      streak: 0,
-      overdriveUntil: 0,
-      lastDamagedAt: 0,
-      lastFiredAt: 0,
-    };
+    combatants[p.id] = buildHumanCombatant(p, idx, settings);
   });
 
   const bots = createArenaBots(activeHumans.length, settings.mode, settings.botFill);
@@ -98,14 +107,20 @@ function buildInitialCombatants(
   return combatants;
 }
 
-function createMatchState(players: Player[], rawSettings: Partial<CarbonSettings>, round = 1): CarbonState {
+function createMatchState(
+  players: Player[],
+  rawSettings: Partial<CarbonSettings>,
+  round = 1
+): CarbonState {
   const settings: CarbonSettings = {
-    ...DEFAULT_SETTINGS,
+    ...DEFAULT_CARBON_SETTINGS,
     ...rawSettings,
   };
   const now = Date.now();
   const combatants = buildInitialCombatants(players, settings);
-  const waveEnemies = Object.values(combatants).filter((c) => c.isBot && c.team === "CRIMSON").length;
+  const waveEnemies = Object.values(combatants).filter(
+    (c) => c.isBot && c.team === "CRIMSON"
+  ).length;
 
   return {
     phase: "PLAYING",
@@ -118,6 +133,7 @@ function createMatchState(players: Player[], rawSettings: Partial<CarbonSettings
         : now + settings.matchDurationSec * 1000,
     wave: 1,
     waveEnemiesRemaining: settings.mode === "SURVIVAL" ? waveEnemies : 0,
+    hardpointIndex: 0,
     coreOwner: "NEUTRAL",
     coreProgress: 0,
     teamScores: {
@@ -126,6 +142,7 @@ function createMatchState(players: Player[], rawSettings: Partial<CarbonSettings
     },
     combatants,
     pickups: createInitialPickupPads(),
+    barrels: createInitialBarrels(),
     killFeed: [],
     winnerId: null,
     winnerTeam: null,
@@ -137,24 +154,24 @@ function createMatchState(players: Player[], rawSettings: Partial<CarbonSettings
 export const Carbon3DEngine: GameDefinition<CarbonState, CarbonAction, CarbonSettings> = {
   id: "carbon3d",
   slug: "carbon-3d",
-  version: 2,
-  displayNameKey: "كاربون 3D: حرب الجواهر 💎⚡",
+  version: 3,
+  displayNameKey: "عملية الأطلس 3D: فرقة النخبة 🪖🔥",
   shortDescriptionKey:
-    "ساحة قتال 3D من الأعلى بأسلوب Brawl! جمع 10 جواهر 💎، تخبّى فالأعشاب 🌿، ولعب Solo أو حتى 8 بالويفي!",
+    "شووتير تكتيكي بمنظور الكتف (TPS) فـ قاعدة ساحلية عملاقة 96×96م! جنود النخبة، قناص AWP، وبراميل متفجرة بالويفي!",
   minPlayers: 1,
   maxPlayers: 8,
   capabilities: ["MULTI_PHONE", "REALTIME", "SCORES", "TIMERS", "TEAM_MODE"],
-  defaultSettings: DEFAULT_SETTINGS,
+  defaultSettings: DEFAULT_CARBON_SETTINGS,
 
   validateSetup(players: Player[], _settings: CarbonSettings): ValidationResult {
     const active = players.filter((p) => p.status !== "LEFT");
     if (active.length < 1) {
-      return { isValid: false, errors: ["خاص على الأقل لاعب واحد باش تبدا اللعبة!"] };
+      return { isValid: false, errors: ["خاص على الأقل لاعب واحد باش تبدا العملية!"] };
     }
     if (active.length > 8) {
       return {
         isValid: false,
-        errors: ["كاربون 3D مصممة لـ 1 حتى 8 لاعبين كحد أقصى باش تبقى سريعة 60FPS فالويفي!"],
+        errors: ["عملية الأطلس 3D مصممة لـ 1 حتى 8 لاعبين كحد أقصى باش تبقى سريعة 60FPS!"],
       };
     }
     return { isValid: true };
@@ -189,7 +206,7 @@ export const Carbon3DEngine: GameDefinition<CarbonState, CarbonAction, CarbonSet
             success: false,
             newState: state,
             newPhase: state.phase,
-            error: "غير مضيف الغرفة يقدر يبدل طور المعركة",
+            error: "غير قائد الغرفة يقدر يبدل طور المعركة",
           };
         }
         const nextSettings: CarbonSettings = {
@@ -211,10 +228,21 @@ export const Carbon3DEngine: GameDefinition<CarbonState, CarbonAction, CarbonSet
         if (state.phase === "GAME_OVER") {
           return { success: true, newState: state, newPhase: state.phase };
         }
+        const mergedCombatants: Record<string, CarbonCombatant> = {
+          ...(action.combatants || state.combatants),
+        };
+        // Preserve any newly hot-joined human players so checkpoints never overwrite late-joiners
+        for (const [id, unit] of Object.entries(state.combatants || {})) {
+          if (!unit.isBot && !mergedCombatants[id]) {
+            mergedCombatants[id] = unit;
+          }
+        }
         const nextState: CarbonState = {
           ...state,
-          combatants: action.combatants || state.combatants,
+          combatants: mergedCombatants,
           pickups: action.pickups || state.pickups,
+          barrels: action.barrels || state.barrels,
+          hardpointIndex: action.hardpointIndex ?? state.hardpointIndex ?? 0,
           teamScores: action.teamScores || state.teamScores,
           coreOwner: action.coreOwner ?? state.coreOwner,
           coreProgress: action.coreProgress ?? state.coreProgress,
@@ -286,11 +314,13 @@ export const Carbon3DEngine: GameDefinition<CarbonState, CarbonAction, CarbonSet
         endsAt: s.endsAt,
         wave: s.wave,
         waveEnemiesRemaining: s.waveEnemiesRemaining,
+        hardpointIndex: s.hardpointIndex ?? 0,
         coreOwner: s.coreOwner,
         coreProgress: s.coreProgress,
         teamScores: s.teamScores,
         combatants: s.combatants,
         pickups: s.pickups,
+        barrels: s.barrels,
         killFeed: s.killFeed,
         winnerId: s.winnerId,
         winnerTeam: s.winnerTeam,
@@ -324,7 +354,7 @@ export const Carbon3DEngine: GameDefinition<CarbonState, CarbonAction, CarbonSet
     if (s.phase !== "GAME_OVER") return null;
 
     const sorted = Object.values(s.combatants).sort(
-      (a, b) => b.kills - a.kills || b.score - a.score
+      (a, b) => b.score - a.score || b.kills - a.kills
     );
 
     return {
@@ -332,12 +362,12 @@ export const Carbon3DEngine: GameDefinition<CarbonState, CarbonAction, CarbonSet
       winner: {
         team: s.winnerTeam || undefined,
         players: s.winnerId ? [s.winnerId] : undefined,
-        summary: s.winnerSummaryAr || "انتهت معركة كاربون 3D!",
+        summary: s.winnerSummaryAr || "انتهت عملية الأطلس 3D!",
       },
       scoreboard: sorted.map((c) => ({
         id: c.id,
         label: c.nickname,
-        score: c.kills * 100 + c.score,
+        score: c.score,
       })),
     };
   },

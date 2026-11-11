@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { sound } from "@/lib/sound";
 import { Carbon3DIcon } from "@/components/icons/Carbon3DIcon";
+import { DiibCardsIcon } from "@/components/icons/DiibCardsIcon";
 import { DibWolfIcon } from "@/components/icons/DibWolfIcon";
 import { Dib3DIcon } from "@/components/icons/Dib3DIcon";
 import { GhammadaIcon } from "@/components/icons/GhammadaIcon";
@@ -35,16 +36,28 @@ interface GameInfo {
 
 const GAMES: GameInfo[] = [
   {
-    id: "carbon3d",
-    title: "كاربون 3D: حرب الجواهر 💎⚡",
-    tagline: "شووتير أرينا من الأعلى 60FPS — جمع 10 جواهر 💎 وتخبّى فـ العشب! 🌿🔥",
+    id: "diib-cards",
+    title: "DIIB CARDS: كوارط الذيب 🃏👑",
+    tagline: "جديد! كوارط ملكية + كارطة المانيجر بلا ما يخرج حد من الغرفة! 👑🐺",
     description:
-      "أرينا 3D نهارية بمنظور علوي واضح ومريح للطول والعرض فـ الهاتف! سيطر على منجم الجواهر فـ الوسط، تخبّى فـ العشب الطويل باش تباغت الخصوم، أو فجّر حامل الجواهر قبل ما يسالي العد التنازلي 15 ثانية!",
+      "مصممة خصيصاً للقعدة الواقعية! الكل كيبقى فالغرفة، واحد كيطلب كارطة المانيجر باش يسيّر الليل، التسكيت 🤐، تايمر الهضرة 🎙️ والتصويت ⚖️، والباقي غير كيشوفو كوارطهم السرية بلا تعقيد تقني!",
+    players: "4-20 لاعب",
+    duration: "10-25 دقيقة",
+    modes: ["كل واحد بتليفونو 📱", "تليفون واحد كيدور 🃏"],
+    icon: <DiibCardsIcon className="w-14 h-14" />,
+    badgeColor: "from-amber-500/45 to-rose-950/65 border-amber-400/70 text-amber-200",
+  },
+  {
+    id: "carbon3d",
+    title: "عملية الأطلس 3D: فرقة النخبة 🪖🔥",
+    tagline: "شووتير تكتيكي بمنظور الكتف (TPS) — قاعدة ساحلية 96×96م، قناص AWP، وبراميل متفجرة! 🎯💥",
+    description:
+      "ادخل لقاعدة الأطلس الساحلية 3D بجنود النخبة الحقيقيين! صوّب بمنظور الكتف أو منظار القناص، سيطر على مهبط المروحيات ورصيف الحاويات والقصبة، ولعب مع صحابك بالهاتف والـ PC مباشرة بالويفي!",
     players: "1-8 لاعبين",
-    duration: "3-10 دقائق",
-    modes: ["كل واحد بتليفونو 📱", "لعب فردي Solo ⚡", "تعاوني ضد الآليين 🤖"],
+    duration: "4-10 دقائق",
+    modes: ["هاتف + PC بالويفي 📱💻", "لعب فردي Solo ⚡", "صمود الكوماندوز 🪖"],
     icon: <Carbon3DIcon className="w-14 h-14" />,
-    badgeColor: "from-cyan-500/40 to-rose-950/60 border-cyan-400/60 text-cyan-200",
+    badgeColor: "from-emerald-500/40 to-slate-950/70 border-emerald-400/60 text-emerald-200",
   },
   {
     id: "dib3d",

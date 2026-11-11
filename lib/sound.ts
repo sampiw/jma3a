@@ -388,6 +388,194 @@ class SoundEngine {
     osc.start(now);
     osc.stop(now + 0.58);
   }
+
+  /** Regal golden chord when the Manager claims the Manager Card in Diib Cards */
+  playRoyalCrown() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    [392.0, 493.88, 587.33, 783.99].forEach((freq, i) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(freq, now + i * 0.06);
+      gain.gain.setValueAtTime(0.22, now + i * 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.06 + 0.55);
+      osc.connect(gain);
+      gain.connect(this.ctx!.destination);
+      osc.start(now + i * 0.06);
+      osc.stop(now + i * 0.06 + 0.55);
+    });
+  }
+
+  /** Warm Moroccan brass bell chime when spotlight switches to a speaker */
+  playSpeakerBell() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    [659.25, 1318.51].forEach((freq, i) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(i === 0 ? 0.25 : 0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + (i === 0 ? 0.55 : 0.35));
+      osc.connect(gain);
+      gain.connect(this.ctx!.destination);
+      osc.start(now);
+      osc.stop(now + 0.6);
+    });
+  }
+
+  /** Mystical padlock clink + silence seal when Wolves mute a player */
+  playMuteSeal() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const lock = this.ctx.createOscillator();
+    const lockGain = this.ctx.createGain();
+    lock.type = "triangle";
+    lock.frequency.setValueAtTime(520, now);
+    lock.frequency.exponentialRampToValueAtTime(140, now + 0.22);
+    lockGain.gain.setValueAtTime(0.28, now);
+    lockGain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+    lock.connect(lockGain);
+    lockGain.connect(this.ctx.destination);
+    lock.start(now);
+    lock.stop(now + 0.24);
+
+    const clink = this.ctx.createOscillator();
+    const clinkGain = this.ctx.createGain();
+    clink.type = "sine";
+    clink.frequency.setValueAtTime(1240, now + 0.14);
+    clink.frequency.exponentialRampToValueAtTime(880, now + 0.28);
+    clinkGain.gain.setValueAtTime(0.2, now + 0.14);
+    clinkGain.gain.exponentialRampToValueAtTime(0.001, now + 0.29);
+    clink.connect(clinkGain);
+    clinkGain.connect(this.ctx.destination);
+    clink.start(now + 0.14);
+    clink.stop(now + 0.3);
+  }
+
+  /** Wooden courtroom gavel double-knock for voting & verdicts */
+  playGavel() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    [0, 0.16].forEach((offset) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(210, now + offset);
+      osc.frequency.exponentialRampToValueAtTime(58, now + offset + 0.11);
+      gain.gain.setValueAtTime(0.4, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.12);
+      osc.connect(gain);
+      gain.connect(this.ctx!.destination);
+      osc.start(now + offset);
+      osc.stop(now + offset + 0.12);
+    });
+  }
+
+  /** Crisp referee whistle trill when Manager flags a rule violation (e.g. muted player spoke!) */
+  playWhistle() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const lfo = this.ctx.createOscillator();
+    const lfoGain = this.ctx.createGain();
+    const gain = this.ctx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(2650, now);
+
+    lfo.type = "sine";
+    lfo.frequency.setValueAtTime(34, now);
+    lfoGain.gain.setValueAtTime(95, now);
+
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+
+    gain.gain.setValueAtTime(0.22, now);
+    gain.gain.setValueAtTime(0.22, now + 0.28);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    lfo.start(now);
+    osc.start(now);
+    lfo.stop(now + 0.38);
+    osc.stop(now + 0.38);
+  }
+
+  /** Eerie nocturnal wolf howl when Night falls in Diib Cards */
+  playWolfHowl() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(220, now);
+    osc.frequency.exponentialRampToValueAtTime(440, now + 0.35);
+    osc.frequency.setValueAtTime(430, now + 0.55);
+    osc.frequency.exponentialRampToValueAtTime(260, now + 1.05);
+
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.linearRampToValueAtTime(0.24, now + 0.25);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.1);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 1.12);
+  }
+
+  /** Silver moukahla flintlock rifle blast for Hunter revenge shot */
+  playHunterShot() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const boom = this.ctx.createOscillator();
+    const boomGain = this.ctx.createGain();
+    boom.type = "sawtooth";
+    boom.frequency.setValueAtTime(320, now);
+    boom.frequency.exponentialRampToValueAtTime(38, now + 0.38);
+    boomGain.gain.setValueAtTime(0.45, now);
+    boomGain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    boom.connect(boomGain);
+    boomGain.connect(this.ctx.destination);
+    boom.start(now);
+    boom.stop(now + 0.4);
+
+    const crack = this.ctx.createOscillator();
+    const crackGain = this.ctx.createGain();
+    crack.type = "square";
+    crack.frequency.setValueAtTime(1650, now);
+    crack.frequency.exponentialRampToValueAtTime(140, now + 0.09);
+    crackGain.gain.setValueAtTime(0.32, now);
+    crackGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+    crack.connect(crackGain);
+    crackGain.connect(this.ctx.destination);
+    crack.start(now);
+    crack.stop(now + 0.1);
+  }
 }
 
 export const sound = new SoundEngine();

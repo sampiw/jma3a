@@ -125,5 +125,10 @@
     "verify": "Did they legitimately pull it off?",
     "confirmed": "Confirmed! Point awarded",
     "denied": "Denied! Challenge was not met"
+  },
+  "diibCards": {
+    "name": "Diib Cards",
+    "tagline": "Luxury illustrated role deck + built-in Manager Card",
+    "description": "Nobody ever leaves the room! One friend claims the Manager Card to run night deaths, wolf mutes, speaking timers, and votes while everyone else just enjoys their secret card!"
   }
 }

@@ -1,16 +1,39 @@
-import { CarbonPickupKind, CarbonPickupPad, CarbonTeam } from "./types";
+import {
+  CarbonBarrelState,
+  CarbonPickupKind,
+  CarbonPickupPad,
+  CarbonTeam,
+} from "./types";
 
 /**
- * Clean, tight, action-packed Brawl-style Daylight Stadium (38m x 38m, X/Z in [-19, +19]).
- * Low-profile rounded cover blocks (1.45m tall) so the elevated Top-Down 3D camera
- * NEVER gets blocked and every player has crystal-clear 360° visibility on Portrait & Landscape phones!
+ * OPERATION ATLAS 3D — "قاعدة الأطلس الساحلية" (Coastal Military Outpost)
+ * Massive 96m x 96m Island Base (X/Z in [-48, +48]) surrounded by sunlit Mediterranean ocean:
+ * - Zone 1 (Center): Elevated Concrete Helipad Deck (18m x 18m @ y = 1.6m) with 4 wide entry ramps
+ * - Zone 2 (West): Cargo Shipping Container Dockyard + Elevated Harbor Pier (@ y = 2.0m)
+ * - Zone 3 (East): Weathered Moroccan Kasbah Stone Fortress + Elevated Sniper Terrace (@ y = 2.0m)
+ * - Zone 4 & 5 (North/South): Task Force & OpFor Garrison Compounds with blast walls & supply depots
  */
-export const ARENA_HALF = 19.0;
-export const CORE_PLATFORM_RADIUS = 4.2;
-export const CORE_PLATFORM_HEIGHT = 0.0; // Flat clean stadium court for snappy top-down aiming
-export const CORE_CAPTURE_RADIUS = 4.0;
-export const PLAYER_RADIUS = 0.54;
-export const EYE_HEIGHT = 1.2;
+export const ARENA_HALF = 48.0;
+export const CORE_PLATFORM_RADIUS = 5.6;
+export const CORE_PLATFORM_HEIGHT = 1.6;
+export const CORE_CAPTURE_RADIUS = 5.6;
+export const PLAYER_RADIUS = 0.48;
+export const EYE_HEIGHT = 1.52;
+
+export const JOG_SPEED = 5.5;
+export const SPRINT_SPEED = 7.3;
+export const ROLL_SPEED = 13.0;
+
+export type ObstacleVisualStyle =
+  | "SANDBAG"
+  | "CONTAINER_RED"
+  | "CONTAINER_BLUE"
+  | "CONTAINER_OLIVE"
+  | "WOOD_CRATE"
+  | "KASBAH_WALL"
+  | "KASBAH_LOW"
+  | "CONCRETE_BARRIER"
+  | "RADAR_TOWER";
 
 export interface ArenaBoxObstacle {
   id: string;
@@ -20,9 +43,39 @@ export interface ArenaBoxObstacle {
   halfZ: number;
   baseY: number;
   height: number;
-  style: "SANDSTONE_WALL" | "SUPPLY_CRATE" | "HEDGEROW";
-  walkableTop?: boolean;
+  style: ObstacleVisualStyle;
   accentHex?: number;
+}
+
+export interface ArenaElevatedPlatform {
+  id: string;
+  x: number;
+  z: number;
+  halfX: number;
+  halfZ: number;
+  topY: number;
+  theme: "HELIPAD" | "DOCK_PIER" | "KASBAH_TERRACE";
+}
+
+export interface ArenaRamp {
+  id: string;
+  platformId: string;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  lowY: number;
+  highY: number;
+  ascendDir: "+Z" | "-Z" | "+X" | "-X";
+}
+
+export interface ArenaHardpointZone {
+  id: string;
+  nameAr: string;
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
 }
 
 export interface ArenaJumpPad {
@@ -44,156 +97,6 @@ export interface ArenaSpawnPoint {
   team: CarbonTeam;
 }
 
-/**
- * 8 Clean, Symmetrical Low-Profile Cover Blocks (like Brawl Stars Champion Stadium):
- * - Open central Star Medallion for clean duels
- * - 4 inner cover blocks with generous lanes
- * - 4 outer wing crates/walls protecting spawns
- */
-export const ARENA_OBSTACLES: ArenaBoxObstacle[] = [
-  // 4 Inner Tactical Sandstone Cover Walls framing the center ring
-  {
-    id: "wall_nw",
-    x: -6.2,
-    z: -5.8,
-    halfX: 1.85,
-    halfZ: 0.75,
-    baseY: 0,
-    height: 1.45,
-    style: "SANDSTONE_WALL",
-  },
-  {
-    id: "wall_ne",
-    x: 6.2,
-    z: -5.8,
-    halfX: 1.85,
-    halfZ: 0.75,
-    baseY: 0,
-    height: 1.45,
-    style: "SANDSTONE_WALL",
-  },
-  {
-    id: "wall_sw",
-    x: -6.2,
-    z: 5.8,
-    halfX: 1.85,
-    halfZ: 0.75,
-    baseY: 0,
-    height: 1.45,
-    style: "SANDSTONE_WALL",
-  },
-  {
-    id: "wall_se",
-    x: 6.2,
-    z: 5.8,
-    halfX: 1.85,
-    halfZ: 0.75,
-    baseY: 0,
-    height: 1.45,
-    style: "SANDSTONE_WALL",
-  },
-
-  // 2 Side Supply Crate Clusters (East & West flanks)
-  {
-    id: "crate_west",
-    x: -11.8,
-    z: 0,
-    halfX: 1.1,
-    halfZ: 2.2,
-    baseY: 0,
-    height: 1.35,
-    style: "SUPPLY_CRATE",
-  },
-  {
-    id: "crate_east",
-    x: 11.8,
-    z: 0,
-    halfX: 1.1,
-    halfZ: 2.2,
-    baseY: 0,
-    height: 1.35,
-    style: "SUPPLY_CRATE",
-  },
-
-  // North & South Spawn Cover Walls
-  {
-    id: "cover_north",
-    x: 0,
-    z: -12.4,
-    halfX: 2.6,
-    halfZ: 0.75,
-    baseY: 0,
-    height: 1.45,
-    style: "SANDSTONE_WALL",
-  },
-  {
-    id: "cover_south",
-    x: 0,
-    z: 12.4,
-    halfX: 2.6,
-    halfZ: 0.75,
-    baseY: 0,
-    height: 1.45,
-    style: "SANDSTONE_WALL",
-  },
-];
-
-export const ARENA_JUMP_PADS: ArenaJumpPad[] = [
-  {
-    id: "jpad_nw",
-    x: -13.8,
-    z: -13.8,
-    radius: 1.35,
-    launchVx: 8.4,
-    launchVy: 10.5,
-    launchVz: 8.4,
-    colorHex: 0x06b6d4,
-  },
-  {
-    id: "jpad_ne",
-    x: 13.8,
-    z: -13.8,
-    radius: 1.35,
-    launchVx: -8.4,
-    launchVy: 10.5,
-    launchVz: 8.4,
-    colorHex: 0x06b6d4,
-  },
-  {
-    id: "jpad_sw",
-    x: -13.8,
-    z: 13.8,
-    radius: 1.35,
-    launchVx: 8.4,
-    launchVy: 10.5,
-    launchVz: -8.4,
-    colorHex: 0xf97316,
-  },
-  {
-    id: "jpad_se",
-    x: 13.8,
-    z: 13.8,
-    radius: 1.35,
-    launchVx: -8.4,
-    launchVy: 10.5,
-    launchVz: -8.4,
-    colorHex: 0xf97316,
-  },
-];
-
-export const ARENA_SPAWN_POINTS: ArenaSpawnPoint[] = [
-  // CYAN / North side
-  { x: -5.2, y: 0, z: -15.8, yaw: 0, team: "CYAN" },
-  { x: 5.2, y: 0, z: -15.8, yaw: 0, team: "CYAN" },
-  { x: -11.5, y: 0, z: -14.2, yaw: 0.35, team: "CYAN" },
-  { x: 11.5, y: 0, z: -14.2, yaw: -0.35, team: "CYAN" },
-  // CRIMSON / South side
-  { x: -5.2, y: 0, z: 15.8, yaw: Math.PI, team: "CRIMSON" },
-  { x: 5.2, y: 0, z: 15.8, yaw: Math.PI, team: "CRIMSON" },
-  { x: -11.5, y: 0, z: 14.2, yaw: Math.PI - 0.35, team: "CRIMSON" },
-  { x: 11.5, y: 0, z: 14.2, yaw: -Math.PI + 0.35, team: "CRIMSON" },
-];
-
 export interface ArenaBushZone {
   id: string;
   x: number;
@@ -202,40 +105,247 @@ export interface ArenaBushZone {
   halfZ: number;
 }
 
-/**
- * 6 Symmetrical Tall Grass Stealth Bush Clusters (Brawl Stars Ambush Zones):
- * - Walk inside to turn invisible to distant enemies (> 3.8m) until you fire or take damage!
- */
-export const ARENA_BUSHES: ArenaBushZone[] = [
-  { id: "bush_nw", x: -6.2, z: -3.25, halfX: 2.0, halfZ: 1.45 },
-  { id: "bush_ne", x: 6.2, z: -3.25, halfX: 2.0, halfZ: 1.45 },
-  { id: "bush_sw", x: -6.2, z: 3.25, halfX: 2.0, halfZ: 1.45 },
-  { id: "bush_se", x: 6.2, z: 3.25, halfX: 2.0, halfZ: 1.45 },
-  { id: "bush_west_lane", x: -15.2, z: -6.2, halfX: 1.55, halfZ: 2.6 },
-  { id: "bush_east_lane", x: 15.2, z: 6.2, halfX: 1.55, halfZ: 2.6 },
+export const HARDPOINT_ZONES: ArenaHardpointZone[] = [
+  {
+    id: "hp_helipad",
+    nameAr: "مهبط المروحيات 🚁",
+    x: 0,
+    y: 1.6,
+    z: 0,
+    radius: 5.6,
+  },
+  {
+    id: "hp_dockyard",
+    nameAr: "رصيف الحاويات 🚢",
+    x: -22.5,
+    y: 0,
+    z: 0,
+    radius: 5.6,
+  },
+  {
+    id: "hp_kasbah",
+    nameAr: "قلعة القصبة 🏰",
+    x: 22.5,
+    y: 0,
+    z: 0,
+    radius: 5.6,
+  },
 ];
 
-export function isInsideArenaBush(x: number, z: number): boolean {
-  for (const b of ARENA_BUSHES) {
-    if (Math.abs(x - b.x) <= b.halfX && Math.abs(z - b.z) <= b.halfZ) {
-      return true;
-    }
-  }
+export const ARENA_PLATFORMS: ArenaElevatedPlatform[] = [
+  {
+    id: "helipad_deck",
+    x: 0,
+    z: 0,
+    halfX: 9.0,
+    halfZ: 9.0,
+    topY: 1.6,
+    theme: "HELIPAD",
+  },
+  {
+    id: "dock_platform",
+    x: -33.0,
+    z: 0,
+    halfX: 5.0,
+    halfZ: 8.5,
+    topY: 2.0,
+    theme: "DOCK_PIER",
+  },
+  {
+    id: "kasbah_terrace",
+    x: 33.0,
+    z: 0,
+    halfX: 5.0,
+    halfZ: 8.5,
+    topY: 2.0,
+    theme: "KASBAH_TERRACE",
+  },
+];
+
+export const ARENA_RAMPS: ArenaRamp[] = [
+  // Central Helipad 4-way Ramps
+  {
+    id: "ramp_heli_n",
+    platformId: "helipad_deck",
+    minX: -2.5,
+    maxX: 2.5,
+    minZ: -14.2,
+    maxZ: -9.0,
+    lowY: 0,
+    highY: 1.6,
+    ascendDir: "+Z",
+  },
+  {
+    id: "ramp_heli_s",
+    platformId: "helipad_deck",
+    minX: -2.5,
+    maxX: 2.5,
+    minZ: 9.0,
+    maxZ: 14.2,
+    lowY: 0,
+    highY: 1.6,
+    ascendDir: "-Z",
+  },
+  {
+    id: "ramp_heli_w",
+    platformId: "helipad_deck",
+    minX: -14.2,
+    maxX: -9.0,
+    minZ: -2.5,
+    maxZ: 2.5,
+    lowY: 0,
+    highY: 1.6,
+    ascendDir: "+X",
+  },
+  {
+    id: "ramp_heli_e",
+    platformId: "helipad_deck",
+    minX: 9.0,
+    maxX: 14.2,
+    minZ: -2.5,
+    maxZ: 2.5,
+    lowY: 0,
+    highY: 1.6,
+    ascendDir: "-X",
+  },
+  // West Dockyard Pier Ramps
+  {
+    id: "ramp_dock_n",
+    platformId: "dock_platform",
+    minX: -35.2,
+    maxX: -30.8,
+    minZ: -14.5,
+    maxZ: -8.5,
+    lowY: 0,
+    highY: 2.0,
+    ascendDir: "+Z",
+  },
+  {
+    id: "ramp_dock_s",
+    platformId: "dock_platform",
+    minX: -35.2,
+    maxX: -30.8,
+    minZ: 8.5,
+    maxZ: 14.5,
+    lowY: 0,
+    highY: 2.0,
+    ascendDir: "-Z",
+  },
+  // East Kasbah Sniper Terrace Stone Ramps
+  {
+    id: "ramp_kasbah_n",
+    platformId: "kasbah_terrace",
+    minX: 30.8,
+    maxX: 35.2,
+    minZ: -14.5,
+    maxZ: -8.5,
+    lowY: 0,
+    highY: 2.0,
+    ascendDir: "+Z",
+  },
+  {
+    id: "ramp_kasbah_s",
+    platformId: "kasbah_terrace",
+    minX: 30.8,
+    maxX: 35.2,
+    minZ: 8.5,
+    maxZ: 14.5,
+    lowY: 0,
+    highY: 2.0,
+    ascendDir: "-Z",
+  },
+];
+
+export const ARENA_OBSTACLES: ArenaBoxObstacle[] = [
+  // --- ZONE 1: CENTRAL HELIPAD TACTICAL SANDBAG BUNKERS (on y = 1.6m deck) ---
+  { id: "heli_sb_nw", x: -6.2, z: -6.2, halfX: 1.65, halfZ: 0.8, baseY: 1.6, height: 1.12, style: "SANDBAG" },
+  { id: "heli_sb_ne", x: 6.2, z: -6.2, halfX: 1.65, halfZ: 0.8, baseY: 1.6, height: 1.12, style: "SANDBAG" },
+  { id: "heli_sb_sw", x: -6.2, z: 6.2, halfX: 1.65, halfZ: 0.8, baseY: 1.6, height: 1.12, style: "SANDBAG" },
+  { id: "heli_sb_se", x: 6.2, z: 6.2, halfX: 1.65, halfZ: 0.8, baseY: 1.6, height: 1.12, style: "SANDBAG" },
+
+  // Diagonal Radar & Communications Towers framing Center Plaza
+  { id: "radar_nw", x: -12.8, z: -12.8, halfX: 1.35, halfZ: 1.35, baseY: 0, height: 5.8, style: "RADAR_TOWER" },
+  { id: "radar_se", x: 12.8, z: 12.8, halfX: 1.35, halfZ: 1.35, baseY: 0, height: 5.8, style: "RADAR_TOWER" },
+
+  // --- ZONE 2: WEST CARGO DOCKYARD (Corrugated Steel ISO Containers + Timber Crates) ---
+  { id: "cont_west_n", x: -22.5, z: -9.4, halfX: 3.2, halfZ: 1.35, baseY: 0, height: 2.85, style: "CONTAINER_RED" },
+  { id: "cont_west_s", x: -22.5, z: 9.4, halfX: 3.2, halfZ: 1.35, baseY: 0, height: 2.85, style: "CONTAINER_BLUE" },
+  { id: "cont_lane_nw", x: -16.5, z: -17.5, halfX: 1.35, halfZ: 3.3, baseY: 0, height: 2.85, style: "CONTAINER_OLIVE" },
+  { id: "cont_lane_sw", x: -16.5, z: 17.5, halfX: 1.35, halfZ: 3.3, baseY: 0, height: 2.85, style: "CONTAINER_RED" },
+  { id: "cont_outer_nw", x: -31.5, z: -22.5, halfX: 3.2, halfZ: 1.35, baseY: 0, height: 2.85, style: "CONTAINER_BLUE" },
+  { id: "cont_outer_sw", x: -31.5, z: 22.5, halfX: 3.2, halfZ: 1.35, baseY: 0, height: 2.85, style: "CONTAINER_OLIVE" },
+  { id: "crate_dock_nw", x: -18.0, z: -4.4, halfX: 1.15, halfZ: 0.95, baseY: 0, height: 1.22, style: "WOOD_CRATE" },
+  { id: "crate_dock_sw", x: -18.0, z: 4.4, halfX: 1.15, halfZ: 0.95, baseY: 0, height: 1.22, style: "WOOD_CRATE" },
+  { id: "pier_cover_n", x: -28.8, z: -4.2, halfX: 0.75, halfZ: 1.85, baseY: 2.0, height: 1.15, style: "SANDBAG" },
+  { id: "pier_cover_s", x: -28.8, z: 4.2, halfX: 0.75, halfZ: 1.85, baseY: 2.0, height: 1.15, style: "SANDBAG" },
+
+  // --- ZONE 3: EAST OLD KASBAH FORTRESS (Stone Ruin Walls, Towers & Battlements) ---
+  { id: "kasbah_wall_n", x: 22.5, z: -9.4, halfX: 3.4, halfZ: 0.95, baseY: 0, height: 3.3, style: "KASBAH_WALL" },
+  { id: "kasbah_wall_s", x: 22.5, z: 9.4, halfX: 3.4, halfZ: 0.95, baseY: 0, height: 3.3, style: "KASBAH_WALL" },
+  { id: "kasbah_tower_ne", x: 16.5, z: -17.5, halfX: 1.75, halfZ: 2.5, baseY: 0, height: 3.8, style: "KASBAH_WALL" },
+  { id: "kasbah_tower_se", x: 16.5, z: 17.5, halfX: 1.75, halfZ: 2.5, baseY: 0, height: 3.8, style: "KASBAH_WALL" },
+  { id: "kasbah_outer_ne", x: 31.5, z: -22.5, halfX: 3.2, halfZ: 1.0, baseY: 0, height: 3.2, style: "KASBAH_WALL" },
+  { id: "kasbah_outer_se", x: 31.5, z: 22.5, halfX: 3.2, halfZ: 1.0, baseY: 0, height: 3.2, style: "KASBAH_WALL" },
+  { id: "kasbah_low_nw", x: 18.0, z: -4.4, halfX: 1.15, halfZ: 0.85, baseY: 0, height: 1.18, style: "KASBAH_LOW" },
+  { id: "kasbah_low_sw", x: 18.0, z: 4.4, halfX: 1.15, halfZ: 0.85, baseY: 0, height: 1.18, style: "KASBAH_LOW" },
+  { id: "terrace_parapet_n", x: 28.8, z: -4.2, halfX: 0.75, halfZ: 1.85, baseY: 2.0, height: 1.15, style: "KASBAH_LOW" },
+  { id: "terrace_parapet_s", x: 28.8, z: 4.2, halfX: 0.75, halfZ: 1.85, baseY: 2.0, height: 1.15, style: "KASBAH_LOW" },
+
+  // --- ZONES 4 & 5: NORTH & SOUTH GARRISON COMPOUNDS & MID-FIELD BUNKERS ---
+  { id: "garrison_n_wall", x: 0, z: -26.5, halfX: 4.6, halfZ: 0.95, baseY: 0, height: 2.55, style: "CONCRETE_BARRIER" },
+  { id: "garrison_s_wall", x: 0, z: 26.5, halfX: 4.6, halfZ: 0.95, baseY: 0, height: 2.55, style: "CONCRETE_BARRIER" },
+  { id: "mid_sb_nw", x: -8.2, z: -19.5, halfX: 1.85, halfZ: 0.85, baseY: 0, height: 1.18, style: "SANDBAG" },
+  { id: "mid_sb_ne", x: 8.2, z: -19.5, halfX: 1.85, halfZ: 0.85, baseY: 0, height: 1.18, style: "SANDBAG" },
+  { id: "mid_sb_sw", x: -8.2, z: 19.5, halfX: 1.85, halfZ: 0.85, baseY: 0, height: 1.18, style: "SANDBAG" },
+  { id: "mid_sb_se", x: 8.2, z: 19.5, halfX: 1.85, halfZ: 0.85, baseY: 0, height: 1.18, style: "SANDBAG" },
+  { id: "bunker_nw", x: -12.5, z: -35.0, halfX: 2.8, halfZ: 1.05, baseY: 0, height: 2.25, style: "CONCRETE_BARRIER" },
+  { id: "bunker_ne", x: 12.5, z: -35.0, halfX: 2.8, halfZ: 1.05, baseY: 0, height: 2.25, style: "CONCRETE_BARRIER" },
+  { id: "bunker_sw", x: -12.5, z: 35.0, halfX: 2.8, halfZ: 1.05, baseY: 0, height: 2.25, style: "CONCRETE_BARRIER" },
+  { id: "bunker_se", x: 12.5, z: 35.0, halfX: 2.8, halfZ: 1.05, baseY: 0, height: 2.25, style: "CONCRETE_BARRIER" },
+  { id: "crate_n_depot", x: 0, z: -38.5, halfX: 2.1, halfZ: 1.1, baseY: 0, height: 1.35, style: "WOOD_CRATE" },
+  { id: "crate_s_depot", x: 0, z: 38.5, halfX: 2.1, halfZ: 1.1, baseY: 0, height: 1.35, style: "WOOD_CRATE" },
+];
+
+export const ARENA_JUMP_PADS: ArenaJumpPad[] = [];
+
+export const ARENA_SPAWN_POINTS: ArenaSpawnPoint[] = [
+  // CYAN / Task Force North Garrison
+  { x: -6.5, y: 0, z: -31.5, yaw: 0, team: "CYAN" },
+  { x: 6.5, y: 0, z: -31.5, yaw: 0, team: "CYAN" },
+  { x: -23.5, y: 0, z: -27.5, yaw: 0.35, team: "CYAN" },
+  { x: 23.5, y: 0, z: -27.5, yaw: -0.35, team: "CYAN" },
+  // CRIMSON / OpFor South Garrison
+  { x: -6.5, y: 0, z: 31.5, yaw: Math.PI, team: "CRIMSON" },
+  { x: 6.5, y: 0, z: 31.5, yaw: Math.PI, team: "CRIMSON" },
+  { x: -23.5, y: 0, z: 27.5, yaw: Math.PI - 0.35, team: "CRIMSON" },
+  { x: 23.5, y: 0, z: 27.5, yaw: -Math.PI + 0.35, team: "CRIMSON" },
+];
+
+export const ARENA_BUSHES: ArenaBushZone[] = [];
+
+export function isInsideArenaBush(_x: number, _z: number): boolean {
   return false;
 }
 
 export function createInitialPickupPads(): CarbonPickupPad[] {
   const defs: Array<{ id: string; kind: CarbonPickupKind; x: number; y: number; z: number }> = [
-    { id: "pad_overdrive", kind: "OVERDRIVE_AMP", x: -9.8, y: 0, z: -9.8 },
-    { id: "pad_overdrive_se", kind: "OVERDRIVE_AMP", x: 9.8, y: 0, z: 9.8 },
-    { id: "pad_rail_w", kind: "WEAPON_RAILGUN", x: -15.4, y: 0, z: 0 },
-    { id: "pad_rail_e", kind: "WEAPON_RAILGUN", x: 15.4, y: 0, z: 0 },
-    { id: "pad_shotgun_n", kind: "WEAPON_SHOTGUN", x: 0, y: 0, z: -8.8 },
-    { id: "pad_shotgun_s", kind: "WEAPON_SHOTGUN", x: 0, y: 0, z: 8.8 },
-    { id: "pad_lobber_w", kind: "WEAPON_LOBBER", x: -7.5, y: 0, z: 0 },
-    { id: "pad_lobber_e", kind: "WEAPON_LOBBER", x: 7.5, y: 0, z: 0 },
-    { id: "pad_shield_ne", kind: "SHIELD_CELL", x: 9.8, y: 0, z: -9.8 },
-    { id: "pad_shield_sw", kind: "SHIELD_CELL", x: -9.8, y: 0, z: 9.8 },
+    // Elevated Sniper Overlooks (AWP Atlas Sniper)
+    { id: "pad_rail_dock", kind: "WEAPON_RAILGUN", x: -33.0, y: 2.0, z: 0 },
+    { id: "pad_rail_kasbah", kind: "WEAPON_RAILGUN", x: 33.0, y: 2.0, z: 0 },
+    // Close-Quarters Breacher Shotguns
+    { id: "pad_shotgun_n", kind: "WEAPON_SHOTGUN", x: 0, y: 0, z: -17.5 },
+    { id: "pad_shotgun_s", kind: "WEAPON_SHOTGUN", x: 0, y: 0, z: 17.5 },
+    // M32 Rotary Grenade Launchers
+    { id: "pad_lobber_w", kind: "WEAPON_LOBBER", x: -15.5, y: 0, z: -9.5 },
+    { id: "pad_lobber_e", kind: "WEAPON_LOBBER", x: 15.5, y: 0, z: 9.5 },
+    // Armor & Medkit Supply Stations
+    { id: "pad_shield_nw", kind: "SHIELD_CELL", x: -14.5, y: 0, z: 9.5 },
+    { id: "pad_shield_se", kind: "SHIELD_CELL", x: 14.5, y: 0, z: -9.5 },
+    { id: "pad_shield_n", kind: "SHIELD_CELL", x: 0, y: 0, z: -23.2 },
+    { id: "pad_shield_s", kind: "SHIELD_CELL", x: 0, y: 0, z: 23.2 },
+    // Tactical Overdrive Amps on Central Helipad Flanks
+    { id: "pad_overdrive_w", kind: "OVERDRIVE_AMP", x: -6.5, y: 1.6, z: 0 },
+    { id: "pad_overdrive_e", kind: "OVERDRIVE_AMP", x: 6.5, y: 1.6, z: 0 },
   ];
   return defs.map((d) => ({
     ...d,
@@ -244,13 +354,69 @@ export function createInitialPickupPads(): CarbonPickupPad[] {
   }));
 }
 
-export function sampleArenaGroundHeight(_x: number, _z: number, _currentY = 0): number {
-  return 0;
+export function createInitialBarrels(): CarbonBarrelState[] {
+  const pts: Array<{ id: string; x: number; y: number; z: number }> = [
+    { id: "brl_heli_n", x: 3.6, y: 1.6, z: -5.4 },
+    { id: "brl_heli_s", x: -3.6, y: 1.6, z: 5.4 },
+    { id: "brl_dock_1", x: -20.2, y: 0, z: -6.8 },
+    { id: "brl_dock_2", x: -20.2, y: 0, z: 6.8 },
+    { id: "brl_kasbah_1", x: 20.2, y: 0, z: -6.8 },
+    { id: "brl_kasbah_2", x: 20.2, y: 0, z: 6.8 },
+    { id: "brl_mid_nw", x: -5.2, y: 0, z: -18.8 },
+    { id: "brl_mid_se", x: 5.2, y: 0, z: 18.8 },
+    { id: "brl_lane_w", x: -14.4, y: 0, z: -15.2 },
+    { id: "brl_lane_e", x: 14.4, y: 0, z: 15.2 },
+  ];
+  return pts.map((p) => ({
+    ...p,
+    hp: 40,
+    alive: true,
+    respawnAt: 0,
+  }));
+}
+
+function evalRampHeight(r: ArenaRamp, x: number, z: number): number {
+  let t = 0;
+  if (r.ascendDir === "+Z") {
+    t = (z - r.minZ) / Math.max(0.01, r.maxZ - r.minZ);
+  } else if (r.ascendDir === "-Z") {
+    t = (r.maxZ - z) / Math.max(0.01, r.maxZ - r.minZ);
+  } else if (r.ascendDir === "+X") {
+    t = (x - r.minX) / Math.max(0.01, r.maxX - r.minX);
+  } else {
+    t = (r.maxX - x) / Math.max(0.01, r.maxX - r.minX);
+  }
+  const clamped = Math.max(0, Math.min(1, t));
+  return r.lowY + (r.highY - r.lowY) * clamped;
 }
 
 /**
- * Smooth sliding collision against stadium walls & low cover blocks.
- * Airborne players flying high off Jump-Pads (y >= 1.35) soar right over low cover walls!
+ * Computes exact multi-level terrain & ramp elevation at (x, z).
+ */
+export function sampleArenaGroundHeight(x: number, z: number, currentY = 0): number {
+  let bestY = 0;
+
+  for (const r of ARENA_RAMPS) {
+    if (x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ) {
+      const ry = evalRampHeight(r, x, z);
+      if (ry > bestY) bestY = ry;
+    }
+  }
+
+  for (const p of ARENA_PLATFORMS) {
+    if (Math.abs(x - p.x) <= p.halfX && Math.abs(z - p.z) <= p.halfZ) {
+      if (currentY >= p.topY - 0.68) {
+        if (p.topY > bestY) bestY = p.topY;
+      }
+    }
+  }
+
+  return bestY;
+}
+
+/**
+ * Smooth sliding collision against island seawalls, elevated platform retaining walls,
+ * shipping containers, Kasbah fortress walls, and sandbag bunkers.
  */
 export function resolveArenaMovement(
   x: number,
@@ -261,41 +427,64 @@ export function resolveArenaMovement(
   let nx = x;
   let nz = z;
 
-  const limit = ARENA_HALF - radius;
+  const limit = ARENA_HALF - radius - 0.3;
   nx = Math.max(-limit, Math.min(limit, nx));
   nz = Math.max(-limit, Math.min(limit, nz));
 
-  // Rounded stadium corners
-  const cornerStart = ARENA_HALF - 4.2;
-  if (Math.abs(nx) > cornerStart && Math.abs(nz) > cornerStart) {
-    const cx = Math.sign(nx) * cornerStart;
-    const cz = Math.sign(nz) * cornerStart;
-    const dx = nx - cx;
-    const dz = nz - cz;
-    const maxR = 4.2 - radius;
-    const d = Math.hypot(dx, dz);
-    if (d > maxR && d > 1e-4) {
-      nx = cx + (dx / d) * maxR;
-      nz = cz + (dz / d) * maxR;
+  // Elevated platforms act as solid concrete retaining walls when player is below their deck
+  // (except along connected ramp entry openings where the player smoothly ascends!)
+  for (const p of ARENA_PLATFORMS) {
+    if (y >= p.topY - 0.65) continue;
+
+    // Check if player is currently aligned inside a ramp feeding this platform near its top edge
+    let onConnectedRampTop = false;
+    for (const r of ARENA_RAMPS) {
+      if (r.platformId !== p.id) continue;
+      if (
+        nx >= r.minX + radius * 0.35 &&
+        nx <= r.maxX - radius * 0.35 &&
+        nz >= r.minZ - 0.3 &&
+        nz <= r.maxZ + 0.3 &&
+        evalRampHeight(r, nx, nz) >= p.topY - 0.72
+      ) {
+        onConnectedRampTop = true;
+        break;
+      }
+    }
+    if (onConnectedRampTop) continue;
+
+    const expandX = p.halfX + radius;
+    const expandZ = p.halfZ + radius;
+    const dx = nx - p.x;
+    const dz = nz - p.z;
+    if (Math.abs(dx) < expandX && Math.abs(dz) < expandZ) {
+      const overlapX = expandX - Math.abs(dx);
+      const overlapZ = expandZ - Math.abs(dz);
+      if (overlapX < overlapZ) {
+        nx += (dx >= 0 ? 1 : -1) * overlapX;
+      } else {
+        nz += (dz >= 0 ? 1 : -1) * overlapZ;
+      }
     }
   }
 
-  // Low-profile cover obstacles (can jump OVER them via Jump-Pads when y >= 1.35!)
-  if (y < 1.32) {
-    for (const obs of ARENA_OBSTACLES) {
-      const expandX = obs.halfX + radius;
-      const expandZ = obs.halfZ + radius;
-      const dx = nx - obs.x;
-      const dz = nz - obs.z;
+  // Cover boxes, containers, Kasbah walls, and bunkers (respecting vertical height overlap!)
+  for (const obs of ARENA_OBSTACLES) {
+    if (y >= obs.baseY + obs.height - 0.15) continue;
+    if (y + 1.75 <= obs.baseY) continue;
 
-      if (Math.abs(dx) < expandX && Math.abs(dz) < expandZ) {
-        const overlapX = expandX - Math.abs(dx);
-        const overlapZ = expandZ - Math.abs(dz);
-        if (overlapX < overlapZ) {
-          nx += (dx >= 0 ? 1 : -1) * overlapX;
-        } else {
-          nz += (dz >= 0 ? 1 : -1) * overlapZ;
-        }
+    const expandX = obs.halfX + radius;
+    const expandZ = obs.halfZ + radius;
+    const dx = nx - obs.x;
+    const dz = nz - obs.z;
+
+    if (Math.abs(dx) < expandX && Math.abs(dz) < expandZ) {
+      const overlapX = expandX - Math.abs(dx);
+      const overlapZ = expandZ - Math.abs(dz);
+      if (overlapX < overlapZ) {
+        nx += (dx >= 0 ? 1 : -1) * overlapX;
+      } else {
+        nz += (dz >= 0 ? 1 : -1) * overlapZ;
       }
     }
   }
@@ -314,7 +503,8 @@ export interface RaycastObstacleHit {
 }
 
 /**
- * Fast 3D raycast against arena cover blocks & stadium perimeter.
+ * Fast 3D raycast against coastal ground, elevated platforms, ramps, containers, Kasbah walls & sandbags.
+ * Used for both ballistic hit-detection AND TPS right-shoulder camera spring-arm anti-clipping!
  */
 export function raycastArenaWorld(
   ox: number,
@@ -419,6 +609,7 @@ export function raycastArenaWorld(
     }
   };
 
+  // Ground plane y = 0
   if (dy < -1e-4 && oy > 0) {
     const tg = -oy / dy;
     if (tg > 0.02 && tg < closestT) {
@@ -428,13 +619,14 @@ export function raycastArenaWorld(
     }
   }
 
+  // Island perimeter seawall curbs
   if (Math.abs(dx) > 1e-5) {
     const boundX = dx > 0 ? ARENA_HALF : -ARENA_HALF;
     const tx = (boundX - ox) / dx;
     if (tx > 0.02 && tx < closestT) {
       const hy = oy + dy * tx;
       const hz = oz + dz * tx;
-      if (hy >= 0 && hy <= 3.0 && Math.abs(hz) <= ARENA_HALF) {
+      if (hy >= 0 && hy <= 1.6 && Math.abs(hz) <= ARENA_HALF) {
         closestT = tx;
         hitNormal = { nx: dx > 0 ? -1 : 1, ny: 0, nz: 0 };
         found = true;
@@ -447,7 +639,7 @@ export function raycastArenaWorld(
     if (tz > 0.02 && tz < closestT) {
       const hy = oy + dy * tz;
       const hx = ox + dx * tz;
-      if (hy >= 0 && hy <= 3.0 && Math.abs(hx) <= ARENA_HALF) {
+      if (hy >= 0 && hy <= 1.6 && Math.abs(hx) <= ARENA_HALF) {
         closestT = tz;
         hitNormal = { nx: 0, ny: 0, nz: dz > 0 ? -1 : 1 };
         found = true;
@@ -455,6 +647,19 @@ export function raycastArenaWorld(
     }
   }
 
+  // Elevated Concrete / Stone Platforms
+  for (const p of ARENA_PLATFORMS) {
+    testAABB(
+      p.x - p.halfX,
+      p.x + p.halfX,
+      0,
+      p.topY,
+      p.z - p.halfZ,
+      p.z + p.halfZ
+    );
+  }
+
+  // Cover Boxes, Shipping Containers, Kasbah Walls & Bunkers
   for (const obs of ARENA_OBSTACLES) {
     testAABB(
       obs.x - obs.halfX,

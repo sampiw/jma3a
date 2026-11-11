@@ -1,8 +1,7 @@
 import {
-  ARENA_BUSHES,
-  ARENA_JUMP_PADS,
   ARENA_SPAWN_POINTS,
   EYE_HEIGHT,
+  HARDPOINT_ZONES,
   isInsideArenaBush,
   raycastArenaWorld,
   resolveArenaMovement,
@@ -22,19 +21,21 @@ import {
 } from "./types";
 
 const BOT_CALLSIGNS = [
-  "CYBER-VEX 🤖",
-  "NOVA-9 🤖",
-  "KRONOS 🤖",
-  "SPECTRE 🤖",
-  "VALKYRIE 🤖",
-  "ZERO-X 🤖",
-  "ORION 🤖",
+  "GHOST-1 🪖",
+  "VIPER-2 🪖",
+  "FALCON-3 🪖",
+  "SHADOW-4 🪖",
+  "ATLAS-5 🪖",
+  "DELTA-6 🪖",
+  "RECON-7 🪖",
 ];
 
 export interface BotRuntimeMemory {
   strafeSign: number;
   nextStrafeFlipAt: number;
   lastShotAt: number;
+  burstLeft: number;
+  burstPauseUntil: number;
   velY: number;
   targetPadId: string | null;
 }
@@ -48,10 +49,17 @@ export function createArenaBots(
     return createSurvivalWaveBots(1, Math.max(1, humanPlayersCount));
   }
 
-  // In Solo (1 human), ALWAYS spawn bots even if botFill was toggled off so Solo works immediately!
+  // Smart Bot Policy:
+  // - 1 player (Solo): ALWAYS spawn 4 tactical Spec-Ops AI opponents so Solo is immediately exciting!
+  // - 2+ real players (PC + Phone / Squad): Pure human PvP unless Host explicitly toggled botFill ON!
   if (!botFill && humanPlayersCount >= 2) return [];
 
-  const desiredTotal = mode === "SQUAD" ? Math.max(6, humanPlayersCount + (humanPlayersCount % 2)) : Math.max(6, humanPlayersCount);
+  const desiredTotal =
+    mode === "SQUAD"
+      ? Math.max(6, humanPlayersCount + (humanPlayersCount % 2))
+      : humanPlayersCount <= 1
+      ? 5
+      : Math.max(6, humanPlayersCount);
   const botCount = Math.min(8 - humanPlayersCount, Math.max(0, desiredTotal - humanPlayersCount));
   const bots: CarbonCombatant[] = [];
 
@@ -67,11 +75,11 @@ export function createArenaBots(
     const accentHex =
       mode === "SQUAD"
         ? team === "CYAN"
-          ? 0x22d3ee
+          ? 0x38bdf8
           : 0xf43f5e
         : STRIKER_PALETTE[slotIdx % STRIKER_PALETTE.length];
 
-    const weaponsPool: CarbonWeaponId[] = ["CARBINE", "SHOTGUN", "CARBINE", "LOBBER", "RAILGUN"];
+    const weaponsPool: CarbonWeaponId[] = ["CARBINE", "SHOTGUN", "CARBINE", "RAILGUN", "LOBBER"];
     const startWeapon = weaponsPool[i % weaponsPool.length];
 
     bots.push({
@@ -81,15 +89,15 @@ export function createArenaBots(
       archetype: "STRIKER",
       team,
       accentHex,
-      x: sp.x + (i % 2 === 0 ? -1.1 : 1.1),
+      x: sp.x + (i % 2 === 0 ? -1.4 : 1.4),
       y: sp.y,
       z: sp.z,
       yaw: sp.yaw,
       pitch: 0,
       hp: 100,
       maxHp: 100,
-      shield: 60,
-      maxShield: 60,
+      shield: 50,
+      maxShield: 50,
       isAlive: true,
       respawnAt: 0,
       weapon: startWeapon,
@@ -110,7 +118,7 @@ export function createArenaBots(
 }
 
 /**
- * Spawns a wave of Cyber-Survival AI enemies (Drones, Enforcers, Snipers, and Every-3rd-Wave Goliath Mech Boss!)
+ * Spawns a wave of Spec-Ops Commando AI enemies (Scouts, Heavy Breachers, Snipers, and Every-3rd-Wave Juggernaut Boss!)
  */
 export function createSurvivalWaveBots(wave: number, humanCount: number): CarbonCombatant[] {
   const isBossWave = wave % 3 === 0;
@@ -121,34 +129,34 @@ export function createSurvivalWaveBots(wave: number, humanCount: number): Carbon
   for (let i = 0; i < baseCount; i++) {
     const sp = crimsonSpawns[i % crimsonSpawns.length];
     const jitterAngle = (i / baseCount) * Math.PI * 2;
-    const sx = sp.x + Math.cos(jitterAngle) * 2.2;
-    const sz = sp.z + Math.sin(jitterAngle) * 1.6;
+    const sx = sp.x + Math.cos(jitterAngle) * 2.5;
+    const sz = sp.z + Math.sin(jitterAngle) * 2.0;
 
-    let archetype: CarbonBotArchetype = "DRONE";
-    let name = `درون استطلاع W${wave}`;
-    let maxHp = 70 + wave * 10;
-    let maxShield = 20 + wave * 5;
+    let archetype: CarbonBotArchetype = "STRIKER";
+    let name = `مغاوير الاقتحام W${wave}`;
+    let maxHp = 85 + wave * 10;
+    let maxShield = 25 + wave * 5;
     let weapon: CarbonWeaponId = "CARBINE";
     let accentHex = 0xf43f5e;
 
     if (isBossWave && i === 0) {
       archetype = "BOSS_MECH";
-      name = `⚡ العملاق المدرع GOLIATH-${wave}`;
-      maxHp = 340 + wave * 65 + humanCount * 55;
-      maxShield = 160 + wave * 25;
+      name = `🔥 المدرع القائد JUGGERNAUT-${wave}`;
+      maxHp = 360 + wave * 70 + humanCount * 60;
+      maxShield = 150 + wave * 25;
       weapon = wave % 6 === 0 ? "LOBBER" : "SHOTGUN";
       accentHex = 0xf59e0b;
     } else if (i % 4 === 1 && wave >= 2) {
       archetype = "ENFORCER";
-      name = `مدرع الصدمة #${i + 1}`;
-      maxHp = 115 + wave * 14;
-      maxShield = 65 + wave * 8;
+      name = `مقتحم مدرع #${i + 1}`;
+      maxHp = 120 + wave * 14;
+      maxShield = 60 + wave * 8;
       weapon = "SHOTGUN";
       accentHex = 0xfb923c;
     } else if (i % 4 === 2 && wave >= 2) {
       archetype = "SNIPER";
-      name = `قناص الليزر #${i + 1}`;
-      maxHp = 80 + wave * 10;
+      name = `قناص الأطلس #${i + 1}`;
+      maxHp = 85 + wave * 10;
       maxShield = 35 + wave * 6;
       weapon = "RAILGUN";
       accentHex = 0xc084fc;
@@ -162,7 +170,7 @@ export function createSurvivalWaveBots(wave: number, humanCount: number): Carbon
       team: "CRIMSON",
       accentHex,
       x: sx,
-      y: archetype === "DRONE" ? 0.55 : 0,
+      y: 0,
       z: sz,
       yaw: Math.PI,
       pitch: 0,
@@ -203,8 +211,15 @@ export function isStealthedInBush(unit: CarbonCombatant, now: number): boolean {
   );
 }
 
+const HELIPAD_RAMP_ENTRIES = [
+  { x: 0, z: -13.6 },
+  { x: 0, z: 13.6 },
+  { x: -13.6, z: 0 },
+  { x: 13.6, z: 0 },
+];
+
 /**
- * Advances all AI units on the Host Arbiter by `dt` seconds and returns any shots fired by bots.
+ * Advances all Tactical Spec-Ops AI soldiers on the Host Arbiter by `dt` seconds.
  */
 export function stepArenaBots(
   combatants: Record<string, CarbonCombatant>,
@@ -214,14 +229,17 @@ export function stepArenaBots(
   difficulty: "NORMAL" | "HARD" | "CARBON",
   now: number,
   dt: number,
-  looseGems: CarbonGemDrop[] = []
+  looseAirdrops: CarbonGemDrop[] = [],
+  hardpointIndex = 0
 ): CarbonShotPacket[] {
   const shots: CarbonShotPacket[] = [];
   const allUnits = Object.values(combatants);
 
-  const fireCadenceMult = difficulty === "CARBON" ? 0.95 : difficulty === "HARD" ? 1.15 : 1.42;
-  const aimJitter = difficulty === "CARBON" ? 0.035 : difficulty === "HARD" ? 0.068 : 0.11;
-  const moveSpeedBase = difficulty === "CARBON" ? 6.9 : difficulty === "HARD" ? 6.2 : 5.5;
+  const fireCadenceMult = difficulty === "CARBON" ? 1.05 : difficulty === "HARD" ? 1.28 : 1.65;
+  const aimJitter = difficulty === "CARBON" ? 0.032 : difficulty === "HARD" ? 0.062 : 0.1;
+  const moveSpeedBase = difficulty === "CARBON" ? 5.6 : difficulty === "HARD" ? 5.1 : 4.5;
+
+  const activeHp = HARDPOINT_ZONES[hardpointIndex % HARDPOINT_ZONES.length] || HARDPOINT_ZONES[0];
 
   for (const bot of allUnits) {
     if (!bot.isBot || !bot.isAlive) continue;
@@ -230,8 +248,10 @@ export function stepArenaBots(
     if (!mem) {
       mem = {
         strafeSign: Math.random() < 0.5 ? 1 : -1,
-        nextStrafeFlipAt: now + 1200 + Math.random() * 1400,
+        nextStrafeFlipAt: now + 1400 + Math.random() * 1600,
         lastShotAt: now - Math.random() * 500,
+        burstLeft: 4 + Math.floor(Math.random() * 4),
+        burstPauseUntil: 0,
         velY: 0,
         targetPadId: null,
       };
@@ -240,86 +260,87 @@ export function stepArenaBots(
 
     if (now >= mem.nextStrafeFlipAt) {
       mem.strafeSign *= -1;
-      mem.nextStrafeFlipAt = now + 1100 + Math.random() * 1600;
+      mem.nextStrafeFlipAt = now + 1300 + Math.random() * 1800;
     }
 
-    // Find highest-priority visible living enemy (ignore bush-stealthed enemies > 3.8m away!)
+    // Find closest / highest-priority hostile target
     let closestEnemy: CarbonCombatant | null = null;
     let closestDist = Infinity;
-    let bestTargetScore = Infinity;
 
     for (const other of allUnits) {
       if (!other.isAlive || !isHostile(bot, other, mode)) continue;
       const d = Math.hypot(other.x - bot.x, other.z - bot.z);
-      if (isStealthedInBush(other, now) && d > 3.8) continue;
-
-      // Focus enemy gem carriers holding 6+ gems!
-      const priorityDist = (other.gems || 0) >= 8 ? d * 0.58 : (other.gems || 0) >= 5 ? d * 0.78 : d;
-      if (priorityDist < bestTargetScore) {
-        bestTargetScore = priorityDist;
+      if (d < closestDist) {
         closestDist = d;
         closestEnemy = other;
       }
     }
 
-    // Decide desired objective point (Loose Gems > Shield Pads > Central Gem Mine)
-    let goalX = 0;
-    let goalZ = 0;
-    let nearestGem: CarbonGemDrop | null = null;
-    let nearestGemDist = Infinity;
-    if (mode !== "SURVIVAL" && looseGems.length > 0) {
-      for (const gm of looseGems) {
-        const gd = Math.hypot(gm.x - bot.x, gm.z - bot.z);
-        if (gd < nearestGemDist) {
-          nearestGemDist = gd;
-          nearestGem = gm;
+    // Determine tactical goal (Airdrop Crate > Low-Armor Station > Active Hardpoint)
+    let goalX = activeHp.x;
+    let goalY = activeHp.y;
+    let goalZ = activeHp.z;
+
+    if (mode !== "SURVIVAL" && looseAirdrops.length > 0) {
+      let bestDrop: CarbonGemDrop | null = null;
+      let bestDropD = 22;
+      for (const dr of looseAirdrops) {
+        const dd = Math.hypot(dr.x - bot.x, dr.z - bot.z);
+        if (dd < bestDropD) {
+          bestDropD = dd;
+          bestDrop = dr;
         }
+      }
+      if (bestDrop) {
+        goalX = bestDrop.x;
+        goalY = bestDrop.y ?? 0;
+        goalZ = bestDrop.z;
+      }
+    }
+
+    if (bot.shield < 20 || bot.hp < 65) {
+      const freeArmor = pickups.find(
+        (p) =>
+          p.available &&
+          p.kind === "SHIELD_CELL" &&
+          Math.hypot(p.x - bot.x, p.z - bot.z) < 22
+      );
+      if (freeArmor) {
+        goalX = freeArmor.x;
+        goalY = freeArmor.y;
+        goalZ = freeArmor.z;
+      }
+    }
+
+    // Smart Ramp Routing when goal is on elevated Helipad (y >= 1.5m) and bot is on ground!
+    if (goalY > 1.0 && bot.y < 0.85 && Math.abs(goalX) < 9.5 && Math.abs(goalZ) < 9.5) {
+      const alignedWithNS = Math.abs(bot.x) <= 2.1 && Math.abs(bot.z) >= 8.8;
+      const alignedWithEW = Math.abs(bot.z) <= 2.1 && Math.abs(bot.x) >= 8.8;
+      if (!alignedWithNS && !alignedWithEW) {
+        let bestRamp = HELIPAD_RAMP_ENTRIES[0];
+        let bestRampD = Infinity;
+        for (const re of HELIPAD_RAMP_ENTRIES) {
+          const rd = Math.hypot(re.x - bot.x, re.z - bot.z);
+          if (rd < bestRampD) {
+            bestRampD = rd;
+            bestRamp = re;
+          }
+        }
+        goalX = bestRamp.x;
+        goalZ = bestRamp.z;
       }
     }
 
     const spec = CARBON_WEAPONS[bot.weapon];
     const speed =
-      bot.archetype === "DRONE"
-        ? moveSpeedBase * 1.18
-        : bot.archetype === "BOSS_MECH"
-        ? moveSpeedBase * 0.78
+      bot.archetype === "BOSS_MECH"
+        ? moveSpeedBase * 0.82
         : moveSpeedBase;
-
-    const botGems = bot.gems || 0;
-
-    if (botGems >= 9 && mode !== "SURVIVAL") {
-      // Carrying game-winning gems -> sneak into nearest Tall Grass Stealth Bush!
-      let bestBush = ARENA_BUSHES[0];
-      let bestBushD = Infinity;
-      for (const b of ARENA_BUSHES) {
-        const bd = Math.hypot(b.x - bot.x, b.z - bot.z);
-        if (bd < bestBushD) {
-          bestBushD = bd;
-          bestBush = b;
-        }
-      }
-      goalX = bestBush.x;
-      goalZ = bestBush.z;
-    } else if (nearestGem && nearestGemDist < 16) {
-      goalX = nearestGem.x;
-      goalZ = nearestGem.z;
-    } else if (bot.shield < 25 || !closestEnemy || closestDist > 22) {
-      const freePad = pickups.find(
-        (p) =>
-          p.available &&
-          Math.hypot(p.x - bot.x, p.z - bot.z) < 13 &&
-          (bot.shield < 30 ? p.kind === "SHIELD_CELL" : true)
-      );
-      if (freePad) {
-        goalX = freePad.x;
-        goalZ = freePad.z;
-      }
-    }
 
     let vx = 0;
     let vz = 0;
 
-    if (closestEnemy) {
+    if (closestEnemy && closestDist < 52) {
       const toEx = closestEnemy.x - bot.x;
       const toEz = closestEnemy.z - bot.z;
       const len = Math.max(0.001, Math.hypot(toEx, toEz));
@@ -328,72 +349,65 @@ export function stepArenaBots(
       const perpX = -dirZ * mem.strafeSign;
       const perpZ = dirX * mem.strafeSign;
 
-      // Preferred combat range per weapon
       const idealRange =
         bot.weapon === "SHOTGUN"
-          ? 6.5
+          ? 8.5
           : bot.weapon === "RAILGUN"
-          ? 20.0
+          ? 34.0
           : bot.weapon === "LOBBER"
-          ? 14.0
-          : 13.5;
+          ? 20.0
+          : 19.0;
 
       let radialPush = 0;
-      if (closestDist > idealRange + 2.5) radialPush = 0.85;
-      else if (closestDist < idealRange - 2.5) radialPush = -0.65;
-      if ((bot.hp < 40 || botGems >= 9) && bot.archetype !== "BOSS_MECH") radialPush = -0.85;
+      if (closestDist > idealRange + 4.0) radialPush = 0.78;
+      else if (closestDist < idealRange - 3.5) radialPush = -0.55;
+      if (bot.hp < 35 && bot.archetype !== "BOSS_MECH") radialPush = -0.75;
 
-      // Pull strongly toward loose gems or defensive bush!
-      let objPullX = 0;
-      let objPullZ = 0;
-      if (nearestGem && nearestGemDist < 9.5 && botGems < 10 && bot.hp > 45) {
-        const gx = nearestGem.x - bot.x;
-        const gz = nearestGem.z - bot.z;
-        const gl = Math.max(0.1, Math.hypot(gx, gz));
-        objPullX = (gx / gl) * 0.95;
-        objPullZ = (gz / gl) * 0.95;
-      } else if (botGems >= 9) {
-        const gx = goalX - bot.x;
-        const gz = goalZ - bot.z;
-        const gl = Math.max(0.1, Math.hypot(gx, gz));
-        if (gl > 1.2) {
-          objPullX = (gx / gl) * 0.85;
-          objPullZ = (gz / gl) * 0.85;
-        }
-      } else if (mode !== "SURVIVAL" && Math.hypot(bot.x, bot.z) > 8.5) {
-        objPullX = -bot.x * 0.035;
-        objPullZ = -bot.z * 0.035;
-      }
+      // Gentle pull toward active Hardpoint so fights cluster naturally around landmarks
+      const toGoalX = goalX - bot.x;
+      const toGoalZ = goalZ - bot.z;
+      const goalDist = Math.hypot(toGoalX, toGoalZ);
+      const objPullX = goalDist > 4.5 ? (toGoalX / goalDist) * 0.42 : 0;
+      const objPullZ = goalDist > 4.5 ? (toGoalZ / goalDist) * 0.42 : 0;
 
-      vx = (dirX * radialPush + perpX * 0.72 + objPullX) * speed;
-      vz = (dirZ * radialPush + perpZ * 0.72 + objPullZ) * speed;
+      vx = (dirX * radialPush + perpX * 0.62 + objPullX) * speed;
+      vz = (dirZ * radialPush + perpZ * 0.62 + objPullZ) * speed;
 
-      // Smoothly aim toward enemy
       const desiredYaw = Math.atan2(toEx, toEz);
       bot.yaw = desiredYaw;
-      const dyEye = closestEnemy.y + 1.15 - (bot.y + EYE_HEIGHT);
+      const dyEye = closestEnemy.y + 1.25 - (bot.y + EYE_HEIGHT);
       bot.pitch = Math.atan2(dyEye, Math.max(1, closestDist));
 
-      // Check Line-of-Sight & Fire if ready
+      // Tactical Burst-Fire Line-of-Sight Check
       const fireInterval = spec.fireIntervalMs * fireCadenceMult;
-      if (closestDist <= spec.range && now - mem.lastShotAt >= fireInterval) {
+      if (
+        closestDist <= spec.range &&
+        now >= mem.burstPauseUntil &&
+        now - mem.lastShotAt >= fireInterval
+      ) {
         const inv3d = 1 / Math.max(0.01, Math.hypot(toEx, dyEye, toEz));
         const rdx = toEx * inv3d;
         const rdy = dyEye * inv3d;
         const rdz = toEz * inv3d;
         const wallHit = raycastArenaWorld(
           bot.x,
-          bot.y + EYE_HEIGHT * 0.9,
+          bot.y + EYE_HEIGHT * 0.92,
           bot.z,
           rdx,
           rdy,
           rdz,
-          closestDist - 0.55
+          closestDist - 0.6
         );
 
         if (!wallHit) {
           mem.lastShotAt = now;
           bot.lastFiredAt = now;
+          mem.burstLeft -= 1;
+          if (mem.burstLeft <= 0) {
+            mem.burstLeft = bot.weapon === "CARBINE" ? 4 + Math.floor(Math.random() * 4) : 2;
+            mem.burstPauseUntil = now + (difficulty === "CARBON" ? 380 : 620);
+          }
+
           const jitterYaw = (Math.random() - 0.5) * 2 * aimJitter;
           const jitterPitch = (Math.random() - 0.5) * aimJitter;
           const cosP = Math.cos(bot.pitch + jitterPitch);
@@ -405,9 +419,9 @@ export function stepArenaBots(
             id: `bshot_${bot.id}_${now.toString(36)}`,
             shooterId: bot.id,
             weapon: bot.weapon,
-            ox: bot.x + Math.sin(bot.yaw) * 0.65,
-            oy: bot.y + (bot.archetype === "BOSS_MECH" ? 1.95 : 1.28),
-            oz: bot.z + Math.cos(bot.yaw) * 0.65,
+            ox: bot.x + Math.sin(bot.yaw) * 0.62,
+            oy: bot.y + (bot.archetype === "BOSS_MECH" ? 1.85 : 1.38),
+            oz: bot.z + Math.cos(bot.yaw) * 0.62,
             dx: sdx,
             dy: sdy,
             dz: sdz,
@@ -419,27 +433,28 @@ export function stepArenaBots(
       const toGx = goalX - bot.x;
       const toGz = goalZ - bot.z;
       const gLen = Math.hypot(toGx, toGz);
-      if (gLen > 1.0) {
-        vx = (toGx / gLen) * speed * 0.8;
-        vz = (toGz / gLen) * speed * 0.8;
+      if (gLen > 1.2) {
+        vx = (toGx / gLen) * speed * 0.92;
+        vz = (toGz / gLen) * speed * 0.92;
         bot.yaw = Math.atan2(vx, vz);
       }
     }
 
-    // Apply movement & gravity/jump-pads
+    const vMag = Math.hypot(vx, vz);
+    if (vMag > speed) {
+      vx = (vx / vMag) * speed;
+      vz = (vz / vMag) * speed;
+    }
+
     const nextPos = resolveArenaMovement(bot.x + vx * dt, bot.y, bot.z + vz * dt);
     bot.x = nextPos.x;
     bot.z = nextPos.z;
 
-    for (const jpad of ARENA_JUMP_PADS) {
-      if (Math.hypot(bot.x - jpad.x, bot.z - jpad.z) < jpad.radius && bot.y < 0.35) {
-        mem.velY = jpad.launchVy * 0.85;
-      }
-    }
-
-    const floorY =
-      sampleArenaGroundHeight(bot.x, bot.z, bot.y) + (bot.archetype === "DRONE" ? 0.55 : 0);
-    if (bot.y > floorY || mem.velY > 0) {
+    const floorY = sampleArenaGroundHeight(bot.x, bot.z, bot.y);
+    if (floorY > bot.y) {
+      bot.y = floorY;
+      mem.velY = 0;
+    } else if (bot.y > floorY || mem.velY > 0) {
       mem.velY -= 24 * dt;
       bot.y += mem.velY * dt;
       if (bot.y <= floorY) {

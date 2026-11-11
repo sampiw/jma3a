@@ -6,12 +6,12 @@ import confetti from "canvas-confetti";
 import {
   Crosshair,
   DoorOpen,
+  Focus,
   Maximize2,
   Minimize2,
   RefreshCw,
   Settings2,
   Smartphone,
-  Sparkles,
   Trophy,
   Users,
   Volume2,
@@ -21,9 +21,12 @@ import {
 } from "lucide-react";
 import { isFullscreenActive, isIOS, isStandaloneApp } from "@/lib/fullscreen";
 import { sound } from "@/lib/sound";
+import { ARENA_HALF, HARDPOINT_ZONES } from "@/games/carbon3d/arenaLayout";
 import {
   CARBON_WEAPONS,
   CarbonAction,
+  CarbonBarrelExplodePacket,
+  CarbonBarrelState,
   CarbonCombatant,
   CarbonKillEventPacket,
   CarbonMode,
@@ -33,9 +36,9 @@ import {
 } from "@/games/carbon3d/types";
 import {
   ActiveShotCommand,
-  AimStickState,
   Carbon3DArena,
   LocalWeaponHudState,
+  TpsLookInputState,
 } from "./Carbon3DArena";
 import { carbonSfx } from "./carbon3d/soundFx";
 import { LocalPlayerPhysicsState, useCarbonNet } from "./carbon3d/useCarbonNet";
@@ -52,10 +55,10 @@ export interface Carbon3DGameViewProps {
 }
 
 const SHORT_WEAPON_AR: Record<string, string> = {
-  CARBINE: "رشاش ⚡",
-  SHOTGUN: "شوتغن 💥",
-  RAILGUN: "قناص 🎯",
-  LOBBER: "قاذف 🔮",
+  CARBINE: "رشاش M4 🔫",
+  SHOTGUN: "شوتغن M870 💥",
+  RAILGUN: "قناص AWP 🎯",
+  LOBBER: "قاذف M32 🚀",
 };
 
 export function Carbon3DGameView({
@@ -74,11 +77,15 @@ export function Carbon3DGameView({
   const [isMuted, setIsMuted] = useState(sound.isMuted);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [scoreboardOpen, setScoreboardOpen] = useState(false);
+  const [autoFireAssist, setAutoFireAssist] = useState(false);
+  const [adsToggled, setAdsToggled] = useState(false);
+  const [isDesktopFinePointer, setIsDesktopFinePointer] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     setMounted(true);
     setIsFullscreen(isFullscreenActive() || isStandaloneApp());
+    setIsDesktopFinePointer(Boolean(window.matchMedia?.("(pointer: fine)").matches));
 
     let wakeLock: any = null;
     if (typeof navigator !== "undefined" && "wakeLock" in navigator) {
@@ -105,72 +112,79 @@ export function Carbon3DGameView({
   const phase = (publicData?.phase as "PLAYING" | "GAME_OVER") || "PLAYING";
   const mode = (publicData?.mode as CarbonMode) || "FFA";
   const round = Number(publicData?.round ?? 1);
-  const endsAt = Number(publicData?.endsAt ?? Date.now() + 210_000);
+  const endsAt = Number(publicData?.endsAt ?? Date.now() + 270_000);
   const settings = (publicData?.settings as CarbonSettings) || {
     mode: "FFA",
-    botFill: true,
+    botFill: false,
     botDifficulty: "HARD",
     targetKillsFFA: 15,
-    targetScoreSquad: 40,
-    matchDurationSec: 210,
+    targetScoreSquad: 100,
+    matchDurationSec: 270,
   };
   const initialCombatants =
     (publicData?.combatants as Record<string, CarbonCombatant>) || {};
   const initialPickups = (publicData?.pickups as CarbonPickupPad[]) || [];
+  const initialBarrels = (publicData?.barrels as CarbonBarrelState[]) || [];
   const winnerSummaryAr = (publicData?.winnerSummaryAr as string | null) || null;
 
+  // Strict Player Identity Resolution: NEVER fall back to another human's ID when activePlayerId is known!
   const myId = useMemo(() => {
-    const candidate = activePlayerId || String(privateData?.myStrikerId ?? "");
-    if (candidate && initialCombatants[candidate]) return candidate;
+    const candidate = (activePlayerId || String(privateData?.myStrikerId ?? "")).trim();
+    if (candidate) return candidate;
     const firstHuman = Object.values(initialCombatants).find((u) => !u.isBot);
-    return firstHuman?.id || Object.keys(initialCombatants)[0] || "p_local";
+    return firstHuman?.id || "p_local";
   }, [activePlayerId, privateData?.myStrikerId, initialCombatants]);
 
   const myInitial = initialCombatants[myId];
   const localPhysRef = useRef<LocalPlayerPhysicsState>({
-    x: myInitial?.x ?? 0,
+    x: myInitial?.x ?? -6.5,
     y: myInitial?.y ?? 0,
-    z: myInitial?.z ?? -15.8,
+    z: myInitial?.z ?? -31.5,
     vx: 0,
     vy: 0,
     vz: 0,
     yaw: myInitial?.yaw ?? 0,
-    pitch: 0,
+    pitch: -0.05,
     isDashing: false,
     isAirborne: false,
+    isSprinting: false,
   });
 
   const moveStickRef = useRef<{ dx: number; dz: number }>({ dx: 0, dz: 0 });
-  const aimStickRef = useRef<AimStickState>({
-    active: false,
-    dx: 0,
-    dz: 0,
-    mag: 0,
-    autoFireTap: false,
-    manualReleaseShot: false,
-    releaseDx: 0,
-    releaseDz: 1,
-    releaseMag: 0,
+  const lookInputRef = useRef<TpsLookInputState>({
+    deltaYaw: 0,
+    deltaPitch: 0,
+    fireHeld: false,
+    fireTap: false,
+    isAds: false,
+    autoFireAssist: false,
   });
+  lookInputRef.current.isAds = adsToggled;
+  lookInputRef.current.autoFireAssist = autoFireAssist;
+
   const commandsRef = useRef<ActiveShotCommand>({
     dashRequested: false,
+    jumpRequested: false,
     grenadeRequested: false,
     reloadRequested: false,
   });
 
   const remoteShotQueueRef = useRef<CarbonShotPacket[]>([]);
+  const barrelBoomQueueRef = useRef<CarbonBarrelExplodePacket[]>([]);
   const killBurstQueueRef = useRef<Array<{ x: number; y: number; z: number; colorHex: number }>>([]);
   const screenShakeRef = useRef<number>(0);
 
   const [weaponHud, setWeaponHud] = useState<LocalWeaponHudState>({
     weapon: "CARBINE",
     secondaryWeapon: "SHOTGUN",
-    ammo: 28,
-    maxAmmo: 28,
+    ammo: 30,
+    maxAmmo: 30,
     isReloading: false,
     dashCooldownLeft: 0,
     grenadeCooldownLeft: 0,
     hasTargetLock: false,
+    isAdsActive: false,
+    pointerLocked: false,
     lastHitIsCrit: 0,
     lastHitAt: 0,
   });
@@ -187,6 +201,10 @@ export function Carbon3DGameView({
     remoteShotQueueRef.current.push(shot);
   }, []);
 
+  const handleBarrelExplode = useCallback((boom: CarbonBarrelExplodePacket) => {
+    barrelBoomQueueRef.current.push(boom);
+  }, []);
+
   const handleKillEvent = useCallback(
     (kill: CarbonKillEventPacket) => {
       killBurstQueueRef.current.push({
@@ -200,15 +218,17 @@ export function Carbon3DGameView({
       if (kill.killerId === myId) {
         carbonSfx.playKillConfirm(kill.streak);
         const callout =
-          kill.streak >= 4
-            ? "👑 سيطرة مطلقة! ما كيرحمش 🔥"
+          kill.weapon === "BARREL"
+            ? "🛢️💥 تفجير برميل قاتل!"
+            : kill.streak >= 4
+            ? "👑 سيطرة مطلقة! كوماندوز لا يقهر 🔥"
             : kill.streak === 3
-            ? "⚡ تريبل كيل! شعلتي الساحة!"
+            ? "⚡ تريبل كيل! فرقة النخبة!"
             : kill.streak === 2
-            ? "🔥 دبل كيل ناااضي!"
+            ? "🔥 دبل كيل تكتيكي!"
             : kill.isHeadshot
-            ? "🎯 ضربة قاضية!"
-            : "💥 قضيتي عليه!";
+            ? "🎯 قنصة فـ الراس (Headshot)!"
+            : "🪖 تم تحييد الهدف (+10)!";
         setKillBanner({
           text: callout,
           sub: `إقصاء ${kill.victimName}`,
@@ -222,7 +242,7 @@ export function Carbon3DGameView({
   const handleDamageTaken = useCallback(
     (_amount: number, _fromX: number, _fromZ: number, shieldBroken: boolean) => {
       setDamageFlash({ at: Date.now(), shieldBroke: shieldBroken });
-      screenShakeRef.current = Math.max(screenShakeRef.current, shieldBroken ? 0.2 : 0.09);
+      screenShakeRef.current = Math.max(screenShakeRef.current, shieldBroken ? 0.2 : 0.08);
       if (shieldBroken) carbonSfx.playShieldBreak();
       else carbonSfx.haptic(12);
     },
@@ -237,7 +257,8 @@ export function Carbon3DGameView({
     localPhysRef.current.vy = 0;
     localPhysRef.current.vz = 0;
     localPhysRef.current.yaw = yaw;
-    localPhysRef.current.pitch = 0;
+    localPhysRef.current.pitch = -0.05;
+    setAdsToggled(false);
   }, []);
 
   const {
@@ -245,18 +266,18 @@ export function Carbon3DGameView({
     hudTick,
     combatantsRef,
     pickupsRef,
+    barrelsRef,
     gemsRef,
-    countdownEndsAtRef,
-    countdownLeaderRef,
+    hardpointIndexRef,
     peersRef,
     waveRef,
     waveRemRef,
     coreOwnerRef,
-    coreProgRef,
     teamScoresRef,
     sendLocalPos,
     broadcastShot,
     claimHit,
+    claimBarrelHit,
     swapLocalWeapon,
     sendRefresh,
   } = useCarbonNet({
@@ -270,17 +291,34 @@ export function Carbon3DGameView({
     settings,
     initialCombatants,
     initialPickups,
+    initialBarrels,
     localPhysRef,
     onRemoteShot: handleRemoteShot,
     onKillEvent: handleKillEvent,
+    onBarrelExplode: handleBarrelExplode,
     onDamageTaken: handleDamageTaken,
     onRespawnLocal: handleRespawnLocal,
     onAction,
     onRefresh,
   });
 
+  // Desktop Weapon Swap Keys (Q / 1 / 2)
+  useEffect(() => {
+    const onSwapKey = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (k === "1" || k === "2" || k === "x") {
+        swapLocalWeapon();
+      }
+    };
+    window.addEventListener("keydown", onSwapKey);
+    return () => window.removeEventListener("keydown", onSwapKey);
+  }, [swapLocalWeapon]);
+
   useEffect(() => {
     if (phase === "GAME_OVER") {
+      if (document.pointerLockElement) {
+        document.exitPointerLock?.();
+      }
       carbonSfx.playKillConfirm(3);
       try {
         confetti({ particleCount: 90, spread: 75, origin: { y: 0.6 } });
@@ -288,14 +326,10 @@ export function Carbon3DGameView({
     }
   }, [phase]);
 
-  // --- UN-STICKABLE NATIVE MULTI-TOUCH TWIN-STICK SYSTEM (iOS Safari + Android + Mouse) ---
+  // --- UN-STICKABLE MOBILE MULTI-TOUCH SYSTEM: LEFT THUMBSTICK + RIGHT FREE-LOOK + DRAG-FIRE BUTTON ---
   const leftTouchRef = useRef<{ id: number; startX: number; startY: number } | null>(null);
-  const rightTouchRef = useRef<{
-    id: number;
-    startX: number;
-    startY: number;
-    maxDragMag: number;
-  } | null>(null);
+  const lookTouchRef = useRef<{ id: number; lastX: number; lastY: number } | null>(null);
+  const fireTouchRef = useRef<{ id: number; lastX: number; lastY: number } | null>(null);
 
   const [leftStickVis, setLeftStickVis] = useState<{
     active: boolean;
@@ -303,23 +337,17 @@ export function Carbon3DGameView({
     baseY: number;
     knobX: number;
     knobY: number;
-  }>({ active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0 });
+    sprinting: boolean;
+  }>({ active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0, sprinting: false });
 
-  const [rightStickVis, setRightStickVis] = useState<{
-    active: boolean;
-    baseX: number;
-    baseY: number;
-    knobX: number;
-    knobY: number;
-    isAiming: boolean;
-  }>({ active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0, isAiming: false });
+  const [fireBtnPressed, setFireBtnPressed] = useState(false);
 
-  const STICK_MAX_R = 50;
+  const STICK_MAX_R = 52;
 
   const resetLeftStick = useCallback(() => {
     leftTouchRef.current = null;
     moveStickRef.current = { dx: 0, dz: 0 };
-    setLeftStickVis({ active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0 });
+    setLeftStickVis({ active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0, sprinting: false });
   }, []);
 
   const updateLeftStickCoords = useCallback((clientX: number, clientY: number) => {
@@ -331,11 +359,15 @@ export function Carbon3DGameView({
     const angle = Math.atan2(rawY, rawX);
     const kx = dist > 1 ? Math.cos(angle) * clamped : 0;
     const ky = dist > 1 ? Math.sin(angle) * clamped : 0;
-    moveStickRef.current = {
-      dx: kx / STICK_MAX_R,
-      dz: ky / STICK_MAX_R,
-    };
-    setLeftStickVis((s) => ({ ...s, knobX: kx, knobY: ky }));
+    const dx = kx / STICK_MAX_R;
+    const dz = ky / STICK_MAX_R;
+    moveStickRef.current = { dx, dz };
+    setLeftStickVis((s) => ({
+      ...s,
+      knobX: kx,
+      knobY: ky,
+      sprinting: -dz > 0.55 && Math.hypot(dx, dz) > 0.88,
+    }));
   }, []);
 
   const beginLeftStick = useCallback((id: number, clientX: number, clientY: number) => {
@@ -347,85 +379,11 @@ export function Carbon3DGameView({
       baseY: clientY,
       knobX: 0,
       knobY: 0,
+      sprinting: false,
     });
   }, []);
 
-  // Right Dual-Mode Attack Stick: Tap = Auto-Aim Fire | Drag = 360° Ground Telegraph Aim!
-  const startRightStick = useCallback((touchId: number, clientX: number, clientY: number) => {
-    rightTouchRef.current = {
-      id: touchId,
-      startX: clientX,
-      startY: clientY,
-      maxDragMag: 0,
-    };
-    aimStickRef.current.active = true;
-    aimStickRef.current.dx = 0;
-    aimStickRef.current.dz = 0;
-    aimStickRef.current.mag = 0;
-    setRightStickVis({
-      active: true,
-      baseX: clientX,
-      baseY: clientY,
-      knobX: 0,
-      knobY: 0,
-      isAiming: false,
-    });
-  }, []);
-
-  const moveRightStick = useCallback((touchId: number, clientX: number, clientY: number) => {
-    if (!rightTouchRef.current || rightTouchRef.current.id !== touchId) return;
-    const rawX = clientX - rightTouchRef.current.startX;
-    const rawY = clientY - rightTouchRef.current.startY;
-    const dist = Math.hypot(rawX, rawY);
-    const clamped = Math.min(STICK_MAX_R, dist);
-    const mag = clamped / STICK_MAX_R;
-    rightTouchRef.current.maxDragMag = Math.max(rightTouchRef.current.maxDragMag, mag);
-
-    const angle = Math.atan2(rawY, rawX);
-    const kx = dist > 1 ? Math.cos(angle) * clamped : 0;
-    const ky = dist > 1 ? Math.sin(angle) * clamped : 0;
-
-    if (dist > 3) {
-      aimStickRef.current.dx = Math.cos(angle);
-      aimStickRef.current.dz = Math.sin(angle);
-    }
-    aimStickRef.current.mag = mag;
-    setRightStickVis((s) => ({
-      ...s,
-      knobX: kx,
-      knobY: ky,
-      isAiming: mag >= 0.24,
-    }));
-  }, []);
-
-  const endRightStick = useCallback((touchId: number, cancelled = false) => {
-    if (!rightTouchRef.current || rightTouchRef.current.id !== touchId) return;
-    const finalMag = aimStickRef.current.mag;
-    const peakMag = rightTouchRef.current.maxDragMag;
-    const rDx = aimStickRef.current.dx;
-    const rDz = aimStickRef.current.dz;
-
-    rightTouchRef.current = null;
-    aimStickRef.current.active = false;
-    aimStickRef.current.mag = 0;
-
-    if (!cancelled) {
-      if (peakMag < 0.24) {
-        // Quick-Tap -> Instant Auto-Aim Shot!
-        aimStickRef.current.autoFireTap = true;
-      } else if (finalMag >= 0.2) {
-        // Dragged & Released outside inner cancel zone -> Fire along exact aimed vector!
-        aimStickRef.current.manualReleaseShot = true;
-        aimStickRef.current.releaseDx = rDx;
-        aimStickRef.current.releaseDz = rDz;
-        aimStickRef.current.releaseMag = finalMag;
-      }
-    }
-
-    setRightStickVis({ active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0, isAiming: false });
-  }, []);
-
-  // Global Hardware Touch Reconciler: Guarantees sticks NEVER stay stuck on iOS Safari / Android!
+  // Global Hardware Touch Reconciler (Prevents Stuck Joysticks or Stuck Fire on iOS/Android!)
   useEffect(() => {
     const reconcileTouches = (e: TouchEvent) => {
       const liveIds = new Set<number>();
@@ -435,28 +393,43 @@ export function Carbon3DGameView({
         if (leftTouchRef.current && leftTouchRef.current.id === t.identifier) {
           updateLeftStickCoords(t.clientX, t.clientY);
         }
-        if (rightTouchRef.current && rightTouchRef.current.id === t.identifier) {
-          moveRightStick(t.identifier, t.clientX, t.clientY);
+        if (lookTouchRef.current && lookTouchRef.current.id === t.identifier) {
+          const dx = t.clientX - lookTouchRef.current.lastX;
+          const dy = t.clientY - lookTouchRef.current.lastY;
+          lookTouchRef.current.lastX = t.clientX;
+          lookTouchRef.current.lastY = t.clientY;
+          lookInputRef.current.deltaYaw -= dx * 0.0054;
+          lookInputRef.current.deltaPitch -= dy * 0.0042;
+        }
+        if (fireTouchRef.current && fireTouchRef.current.id === t.identifier) {
+          const dx = t.clientX - fireTouchRef.current.lastX;
+          const dy = t.clientY - fireTouchRef.current.lastY;
+          fireTouchRef.current.lastX = t.clientX;
+          fireTouchRef.current.lastY = t.clientY;
+          lookInputRef.current.deltaYaw -= dx * 0.0046;
+          lookInputRef.current.deltaPitch -= dy * 0.0038;
         }
       }
-      if (leftTouchRef.current && leftTouchRef.current.id >= 0 && !liveIds.has(leftTouchRef.current.id)) {
+
+      if (leftTouchRef.current && !liveIds.has(leftTouchRef.current.id)) {
         resetLeftStick();
       }
-      if (rightTouchRef.current && rightTouchRef.current.id >= 0 && !liveIds.has(rightTouchRef.current.id)) {
-        endRightStick(rightTouchRef.current.id, e.type === "touchcancel");
+      if (lookTouchRef.current && !liveIds.has(lookTouchRef.current.id)) {
+        lookTouchRef.current = null;
+      }
+      if (fireTouchRef.current && !liveIds.has(fireTouchRef.current.id)) {
+        fireTouchRef.current = null;
+        lookInputRef.current.fireHeld = false;
+        setFireBtnPressed(false);
       }
     };
 
     const forceResetAll = () => {
       resetLeftStick();
-      if (rightTouchRef.current) {
-        endRightStick(rightTouchRef.current.id, true);
-      }
-    };
-
-    const onMouseUpGlobal = () => {
-      if (leftTouchRef.current && leftTouchRef.current.id === -999) resetLeftStick();
-      if (rightTouchRef.current && rightTouchRef.current.id === -999) endRightStick(-999, false);
+      lookTouchRef.current = null;
+      fireTouchRef.current = null;
+      lookInputRef.current.fireHeld = false;
+      setFireBtnPressed(false);
     };
 
     const onVisChange = () => {
@@ -466,7 +439,6 @@ export function Carbon3DGameView({
     window.addEventListener("touchmove", reconcileTouches, { passive: true });
     window.addEventListener("touchend", reconcileTouches, { passive: true });
     window.addEventListener("touchcancel", reconcileTouches, { passive: true });
-    window.addEventListener("mouseup", onMouseUpGlobal);
     window.addEventListener("blur", forceResetAll);
     document.addEventListener("visibilitychange", onVisChange);
 
@@ -474,80 +446,66 @@ export function Carbon3DGameView({
       window.removeEventListener("touchmove", reconcileTouches);
       window.removeEventListener("touchend", reconcileTouches);
       window.removeEventListener("touchcancel", reconcileTouches);
-      window.removeEventListener("mouseup", onMouseUpGlobal);
       window.removeEventListener("blur", forceResetAll);
       document.removeEventListener("visibilitychange", onVisChange);
     };
-  }, [resetLeftStick, updateLeftStickCoords, moveRightStick, endRightStick]);
+  }, [resetLeftStick, updateLeftStickCoords]);
 
-  // Reset sticks whenever match phase leaves PLAYING
   useEffect(() => {
     if (phase !== "PLAYING") {
       resetLeftStick();
-      if (rightTouchRef.current) endRightStick(rightTouchRef.current.id, true);
+      lookTouchRef.current = null;
+      fireTouchRef.current = null;
+      lookInputRef.current.fireHeld = false;
+      setFireBtnPressed(false);
     }
-  }, [phase, resetLeftStick, endRightStick]);
+  }, [phase, resetLeftStick]);
 
-  const onLeftTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    const activeIds = new Set(Array.from(e.touches).map((t) => t.identifier));
-    if (leftTouchRef.current && activeIds.has(leftTouchRef.current.id)) return;
+  const onLeftZoneTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (leftTouchRef.current) return;
     const t = e.changedTouches[0];
     if (!t) return;
     beginLeftStick(t.identifier, t.clientX, t.clientY);
   };
 
-  const onLeftTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (!leftTouchRef.current) return;
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      const t = e.changedTouches[i];
-      if (t.identifier === leftTouchRef.current.id) {
-        updateLeftStickCoords(t.clientX, t.clientY);
-        break;
-      }
-    }
-  };
-
-  const onLeftTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (!leftTouchRef.current) return;
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      if (e.changedTouches[i].identifier === leftTouchRef.current.id) {
-        resetLeftStick();
-        break;
-      }
-    }
-  };
-
-  const onRightTouchStart = (e: React.TouchEvent<HTMLElement>) => {
-    e.stopPropagation();
-    const activeIds = new Set(Array.from(e.touches).map((t) => t.identifier));
-    if (rightTouchRef.current && activeIds.has(rightTouchRef.current.id)) return;
+  const onRightLookTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (lookTouchRef.current) return;
     const t = e.changedTouches[0];
     if (!t) return;
-    startRightStick(t.identifier, t.clientX, t.clientY);
+    lookTouchRef.current = {
+      id: t.identifier,
+      lastX: t.clientX,
+      lastY: t.clientY,
+    };
   };
 
-  const onRightTouchMove = (e: React.TouchEvent<HTMLElement>) => {
-    if (!rightTouchRef.current) return;
+  const onFireBtnTouchStart = (e: React.TouchEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    const t = e.changedTouches[0];
+    if (!t) return;
+    fireTouchRef.current = {
+      id: t.identifier,
+      lastX: t.clientX,
+      lastY: t.clientY,
+    };
+    lookInputRef.current.fireHeld = true;
+    lookInputRef.current.fireTap = true;
+    setFireBtnPressed(true);
+  };
+
+  const onFireBtnTouchEnd = (e: React.TouchEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (!fireTouchRef.current) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
-      const t = e.changedTouches[i];
-      if (t.identifier === rightTouchRef.current.id) {
-        moveRightStick(t.identifier, t.clientX, t.clientY);
+      if (e.changedTouches[i].identifier === fireTouchRef.current.id) {
+        fireTouchRef.current = null;
+        lookInputRef.current.fireHeld = false;
+        setFireBtnPressed(false);
         break;
       }
     }
   };
 
-  const onRightTouchEnd = (e: React.TouchEvent<HTMLElement>, cancelled = false) => {
-    if (!rightTouchRef.current) return;
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      if (e.changedTouches[i].identifier === rightTouchRef.current.id) {
-        endRightStick(rightTouchRef.current.id, cancelled);
-        break;
-      }
-    }
-  };
-
-  // Smart Fullscreen Toggle (Portrait + Landscape friendly on Android/Desktop; Safari guide on iPhone)
   const handleToggleFullscreen = async () => {
     if (isIOS() && !isStandaloneApp()) {
       window.scrollTo(0, 1);
@@ -620,19 +578,8 @@ export function Carbon3DGameView({
   const mm = String(Math.floor(secRemaining / 60)).padStart(2, "0");
   const ss = String(secRemaining % 60).padStart(2, "0");
 
-  const gemCountdownLeft =
-    countdownEndsAtRef.current > nowMs
-      ? Math.max(1, Math.ceil((countdownEndsAtRef.current - nowMs) / 1000))
-      : 0;
-  const countdownWhoId = countdownLeaderRef.current;
-  const countdownLeaderLabel =
-    countdownWhoId === "TEAM_CYAN"
-      ? "الفريق الأزرق ⚡"
-      : countdownWhoId === "TEAM_CRIMSON"
-      ? "الفريق الأحمر 🔥"
-      : countdownWhoId
-      ? combatantsRef.current[countdownWhoId]?.nickname || "البطل"
-      : "";
+  const activeHardpoint =
+    HARDPOINT_ZONES[hardpointIndexRef.current % HARDPOINT_ZONES.length] || HARDPOINT_ZONES[0];
 
   const showDamageVignette = nowMs - damageFlash.at < 320;
   const showBanner = killBanner && nowMs - killBanner.at < 2200;
@@ -641,478 +588,619 @@ export function Carbon3DGameView({
       ? ((myUnit.respawnAt - nowMs) / 1000).toFixed(1)
       : null;
 
+  const isSniperScoped =
+    phase === "PLAYING" &&
+    Boolean(myUnit?.isAlive) &&
+    weaponHud.isAdsActive &&
+    weaponHud.weapon === "RAILGUN";
+
   if (!mounted) return null;
+
+  // Mini-map coordinate mapper: [-48, +48] -> [6, 70] in 76x76 radar box
+  const toRadarCoord = (val: number) => 38 + (val / ARENA_HALF) * 32;
 
   const ui = (
     <div
       dir="rtl"
       className={
         isImmersive
-          ? "fixed inset-0 z-50 w-screen h-[100dvh] overflow-hidden bg-sky-400 select-none touch-none font-sans"
-          : "relative w-full h-[78dvh] min-h-[500px] rounded-3xl border-2 border-sky-400/60 overflow-hidden bg-sky-400 select-none touch-none font-sans shadow-2xl"
+          ? "fixed inset-0 z-50 w-screen h-[100dvh] overflow-hidden bg-slate-950 select-none touch-none font-sans"
+          : "relative w-full h-[80dvh] min-h-[520px] rounded-3xl border-2 border-sky-400/60 overflow-hidden bg-slate-950 select-none touch-none font-sans shadow-2xl"
       }
     >
-      {/* 1. 60 FPS Bright Stylized Daylight 3D Arena */}
+      {/* 1. 60FPS Coastal Military Outpost Over-the-Shoulder TPS Engine */}
       <Carbon3DArena
         myId={myId}
         mode={mode}
         phase={phase}
         combatantsRef={combatantsRef}
         pickupsRef={pickupsRef}
+        barrelsRef={barrelsRef}
         gemsRef={gemsRef}
+        hardpointIndexRef={hardpointIndexRef}
         peersRef={peersRef}
         coreOwnerRef={coreOwnerRef}
         localPhysRef={localPhysRef}
         moveStickRef={moveStickRef}
-        aimStickRef={aimStickRef}
+        lookInputRef={lookInputRef}
         commandsRef={commandsRef}
         remoteShotQueueRef={remoteShotQueueRef}
+        barrelBoomQueueRef={barrelBoomQueueRef}
         killBurstQueueRef={killBurstQueueRef}
         screenShakeRef={screenShakeRef}
         onLocalPosTick={sendLocalPos}
         onBroadcastShot={broadcastShot}
         onClaimHit={claimHit}
+        onClaimBarrelHit={claimBarrelHit}
         onHudWeaponUpdate={setWeaponHud}
       />
 
-      {/* 2. Subtle Damage Screen Vignette */}
+      {/* 2. AWP Sniper Scope Reticle Overlay (when ADS with RAILGUN) */}
+      {isSniperScoped && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_36%,rgba(2,6,23,0.92)_66%)]" />
+          <div className="relative w-[min(78vw,78vh)] h-[min(78vw,78vh)] rounded-full border-2 border-rose-400/70 shadow-[0_0_60px_rgba(0,0,0,0.95)] flex items-center justify-center">
+            <div className="absolute inset-x-0 h-[1px] bg-rose-400/75" />
+            <div className="absolute inset-y-0 w-[1px] bg-rose-400/75" />
+            <div className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_10px_#f43f5e]" />
+          </div>
+        </div>
+      )}
+
+      {/* 3. Center Tactical TPS Crosshair + Hitmarker */}
+      {phase === "PLAYING" && myUnit?.isAlive && !isSniperScoped && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+          <div className="relative flex items-center justify-center">
+            {/* Center Precision Dot */}
+            <div
+              className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                weaponHud.hasTargetLock
+                  ? "bg-rose-400 shadow-[0_0_8px_#f43f5e]"
+                  : "bg-white shadow-[0_0_4px_rgba(0,0,0,0.9)]"
+              }`}
+            />
+            {/* 4 Dynamic Spread Ticks */}
+            {(() => {
+              const gap = weaponHud.isAdsActive ? 7 : weaponHud.hasTargetLock ? 10 : 14;
+              const tickColor = weaponHud.hasTargetLock ? "bg-rose-400" : "bg-white/90";
+              return (
+                <>
+                  <span
+                    style={{ transform: `translateY(-${gap}px)` }}
+                    className={`absolute w-[2px] h-2.5 rounded-full ${tickColor} shadow`}
+                  />
+                  <span
+                    style={{ transform: `translateY(${gap}px)` }}
+                    className={`absolute w-[2px] h-2.5 rounded-full ${tickColor} shadow`}
+                  />
+                  <span
+                    style={{ transform: `translateX(-${gap}px)` }}
+                    className={`absolute h-[2px] w-2.5 rounded-full ${tickColor} shadow`}
+                  />
+                  <span
+                    style={{ transform: `translateX(${gap}px)` }}
+                    className={`absolute h-[2px] w-2.5 rounded-full ${tickColor} shadow`}
+                  />
+                </>
+              );
+            })()}
+
+            {/* Crisp Hitmarker X on Impact */}
+            {weaponHud.lastHitIsCrit > 0 && (
+              <div
+                className={`absolute w-7 h-7 rotate-45 border-2 pointer-events-none ${
+                  weaponHud.lastHitIsCrit === 2
+                    ? "border-amber-300 scale-125"
+                    : "border-rose-400"
+                }`}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 4. Subtle Damage Screen Vignette */}
       {showDamageVignette && (
         <div
-          className={`pointer-events-none absolute inset-0 transition-opacity duration-200 ${
+          className={`pointer-events-none absolute inset-0 z-20 transition-opacity duration-200 ${
             damageFlash.shieldBroke
-              ? "shadow-[inset_0_0_75px_rgba(14,165,233,0.75)]"
-              : "shadow-[inset_0_0_70px_rgba(239,68,68,0.65)]"
+              ? "shadow-[inset_0_0_80px_rgba(56,189,248,0.8)]"
+              : "shadow-[inset_0_0_75px_rgba(239,68,68,0.7)]"
           }`}
         />
       )}
 
-      {/* 3. Full-Screen Split Twin-Stick Touch Zones (Un-Stickable Native Touch + Mouse Fallback) */}
-      {phase === "PLAYING" && (
+      {/* 5. Mobile Split Touch Zones: Left Floating Stick + Right Free-Look Camera Swipe */}
+      {phase === "PLAYING" && !isDesktopFinePointer && (
         <>
           <div
-            onTouchStart={onLeftTouchStart}
-            onTouchMove={onLeftTouchMove}
-            onTouchEnd={onLeftTouchEnd}
-            onTouchCancel={onLeftTouchEnd}
-            onMouseDown={(e) => {
-              if (e.button === 0) beginLeftStick(-999, e.clientX, e.clientY);
-            }}
-            onMouseMove={(e) => {
-              if (leftTouchRef.current?.id === -999) updateLeftStickCoords(e.clientX, e.clientY);
-            }}
-            className="absolute inset-y-12 left-0 w-1/2 z-10 touch-none"
+            onTouchStart={onLeftZoneTouchStart}
+            className="absolute top-14 bottom-4 left-0 w-[46%] z-10 touch-none"
           />
           <div
-            onTouchStart={onRightTouchStart}
-            onTouchMove={onRightTouchMove}
-            onTouchEnd={(e) => onRightTouchEnd(e, false)}
-            onTouchCancel={(e) => onRightTouchEnd(e, true)}
-            className="absolute inset-y-12 right-0 w-1/2 z-10 touch-none"
+            onTouchStart={onRightLookTouchStart}
+            className="absolute top-14 bottom-4 right-0 w-[54%] z-10 touch-none"
           />
         </>
       )}
 
-      {/* Floating Left Move Stick Visual */}
+      {/* Desktop PointerLock Prompt Pill */}
+      {phase === "PLAYING" && isDesktopFinePointer && !weaponHud.pointerLocked && (
+        <div className="pointer-events-none absolute top-14 inset-x-0 z-25 flex justify-center px-3">
+          <div className="px-3.5 py-1.5 rounded-full bg-slate-950/80 border border-sky-400/50 text-[11px] font-bold text-sky-200 backdrop-blur-md shadow-lg">
+            🖱️ كليكي وسط الشاشة باش تصوّب بالماوس + تحرّك بـ WASD + كليك يمين للمنظار (Esc للخروج)
+          </div>
+        </div>
+      )}
+
+      {/* Floating Left Move / Sprint Thumbstick Visual */}
       {leftStickVis.active && (
         <div
           style={{
             left: leftStickVis.baseX - 54,
             top: leftStickVis.baseY - 54,
           }}
-          className="pointer-events-none fixed z-20 w-[108px] h-[108px] rounded-full border-2 border-sky-300/80 bg-slate-900/35 backdrop-blur-xs flex items-center justify-center shadow-lg"
+          className={`pointer-events-none fixed z-25 w-[108px] h-[108px] rounded-full border-2 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center shadow-lg ${
+            leftStickVis.sprinting ? "border-emerald-400" : "border-sky-300/75"
+          }`}
         >
           <div
             style={{
               transform: `translate(${leftStickVis.knobX}px, ${leftStickVis.knobY}px)`,
             }}
-            className="w-11 h-11 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 border-2 border-white shadow-md"
-          />
-        </div>
-      )}
-
-      {/* Floating Right Dual-Mode Attack Stick Visual (while touching right half) */}
-      {rightStickVis.active && (
-        <div
-          style={{
-            left: rightStickVis.baseX - 56,
-            top: rightStickVis.baseY - 56,
-          }}
-          className={`pointer-events-none fixed z-20 w-[112px] h-[112px] rounded-full border-2 flex items-center justify-center shadow-xl ${
-            rightStickVis.isAiming
-              ? "border-amber-300 bg-rose-950/40"
-              : "border-rose-400/80 bg-slate-900/35"
-          }`}
-        >
-          <div
-            style={{
-              transform: `translate(${rightStickVis.knobX}px, ${rightStickVis.knobY}px)`,
-            }}
-            className="w-12 h-12 rounded-full bg-gradient-to-br from-rose-500 to-amber-500 border-2 border-white flex items-center justify-center text-white shadow-lg"
+            className={`w-11 h-11 rounded-full border-2 border-white shadow-md flex items-center justify-center text-[11px] font-black text-white ${
+              leftStickVis.sprinting
+                ? "bg-gradient-to-br from-emerald-400 to-teal-600"
+                : "bg-gradient-to-br from-sky-400 to-blue-600"
+            }`}
           >
-            <Crosshair className="w-5 h-5" />
+            {leftStickVis.sprinting ? "🏃" : ""}
           </div>
         </div>
       )}
 
-      {/* 4. Ultra-Compact Safe-Area Top Header (Zero Clipping on 360px Portrait & Landscape!) */}
-      <div className="pointer-events-none absolute top-0 inset-x-0 z-30 pt-[max(0.5rem,env(safe-area-inset-top))] px-[max(0.6rem,env(safe-area-inset-right))] pl-[max(0.6rem,env(safe-area-inset-left))] flex items-center justify-between gap-1.5">
-        {/* Right (RTL Start): Compact Score + Timer Pill (Tap for Scoreboard) */}
-        <button
-          type="button"
-          onClick={() => setScoreboardOpen((v) => !v)}
-          className="pointer-events-auto flex items-center gap-1.5 bg-slate-900/80 backdrop-blur-md border border-white/25 rounded-2xl px-2.5 py-1.5 shadow-lg active:scale-95 min-w-0"
-        >
-          <span
-            className={`w-2 h-2 rounded-full shrink-0 ${
-              isLive ? "bg-emerald-400" : "bg-sky-400"
-            }`}
-          />
-          {mode === "SQUAD" ? (
-            <div className="flex items-center gap-1 text-[11px] font-black whitespace-nowrap">
-              <span>💎</span>
-              <span className="text-sky-300">{teamScoresRef.current.CYAN}</span>
-              <span className="text-slate-400">-</span>
-              <span className="text-rose-400">{teamScoresRef.current.CRIMSON}</span>
-            </div>
-          ) : mode === "SURVIVAL" ? (
-            <div className="flex items-center gap-1 text-[11px] font-black whitespace-nowrap">
-              <span className="text-amber-300">🌊 {waveRef.current}</span>
-              <span className="text-rose-300">({waveRemRef.current})</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5 text-[11px] font-black min-w-0">
-              <span className="px-1.5 py-0.5 rounded-lg bg-fuchsia-500/25 border border-fuchsia-400/50 text-fuchsia-200 font-mono whitespace-nowrap">
-                💎 {myUnit?.gems ?? 0}/10
-              </span>
-              <span className="text-white truncate max-w-[68px] sm:max-w-[110px]">
-                👑 {sortedLeaderboard[0]?.nickname || "—"}
-              </span>
-              <span className="text-amber-300 font-mono whitespace-nowrap">
-                ({sortedLeaderboard[0]?.gems ?? 0}💎)
-              </span>
-            </div>
-          )}
-
-          {mode !== "SURVIVAL" && (
-            <span
-              dir="ltr"
-              className="font-mono text-[11px] font-black px-1.5 py-0.5 rounded-lg bg-white/10 text-amber-200"
-            >
-              {mm}:{ss}
-            </span>
-          )}
-        </button>
-
-        {/* Left (RTL End): 4 Crisp Compact Icon Buttons (Fullscreen, Mode, Mute, Room) */}
-        <div className="pointer-events-auto flex items-center gap-1 shrink-0">
-          {canConfigure && (
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              className="w-9 h-9 rounded-xl bg-slate-900/80 border border-amber-400/50 text-amber-300 backdrop-blur-md flex items-center justify-center shadow-md active:scale-90"
-              title="تبديل طور اللعب"
-            >
-              <Settings2 className="w-4 h-4" />
-            </button>
-          )}
-
+      {/* 6. Top Safe-Area Tactical HUD Bar + Live 96x96m Mini-Radar */}
+      <div className="pointer-events-none absolute top-0 inset-x-0 z-30 pt-[max(0.5rem,env(safe-area-inset-top))] px-[max(0.6rem,env(safe-area-inset-right))] pl-[max(0.6rem,env(safe-area-inset-left))] flex items-start justify-between gap-2">
+        {/* Right (RTL Start): Live Status + Scoreboard Pill + Active Hardpoint Callout */}
+        <div className="flex flex-col items-start gap-1.5 min-w-0">
           <button
             type="button"
-            onClick={toggleMute}
-            className="w-9 h-9 rounded-xl bg-slate-900/80 border border-white/25 text-white backdrop-blur-md flex items-center justify-center shadow-md active:scale-90"
-            title="الصوت"
+            onClick={() => setScoreboardOpen((v) => !v)}
+            className="pointer-events-auto flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md border border-white/20 rounded-2xl px-2.5 py-1.5 shadow-lg active:scale-95 min-w-0"
           >
-            {isMuted ? (
-              <VolumeX className="w-4 h-4 text-rose-400" />
+            <span
+              title={isLive ? "متصل مباشرة بالويفي" : "جاري الاتصال..."}
+              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                isLive
+                  ? "bg-emerald-400 shadow-[0_0_8px_#34d399]"
+                  : "bg-amber-400 animate-pulse"
+              }`}
+            />
+            {mode === "SQUAD" ? (
+              <div className="flex items-center gap-1.5 text-[11px] font-black whitespace-nowrap">
+                <span>🚩</span>
+                <span className="text-sky-300">{teamScoresRef.current.CYAN}</span>
+                <span className="text-slate-500">/100</span>
+                <span className="text-slate-400">-</span>
+                <span className="text-rose-400">{teamScoresRef.current.CRIMSON}</span>
+              </div>
+            ) : mode === "SURVIVAL" ? (
+              <div className="flex items-center gap-1 text-[11px] font-black whitespace-nowrap">
+                <span className="text-amber-300">🪖 موجة {waveRef.current}</span>
+                <span className="text-rose-300">({waveRemRef.current})</span>
+              </div>
             ) : (
-              <Volume2 className="w-4 h-4 text-emerald-300" />
+              <div className="flex items-center gap-1.5 text-[11px] font-black min-w-0">
+                <span className="px-1.5 py-0.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-200 font-mono whitespace-nowrap">
+                  🚩 {myUnit?.gems ?? 0}/100
+                </span>
+                <span className="text-white truncate max-w-[72px] sm:max-w-[115px]">
+                  👑 {sortedLeaderboard[0]?.nickname || "—"}
+                </span>
+                <span className="text-amber-300 font-mono whitespace-nowrap">
+                  ({sortedLeaderboard[0]?.kills ?? 0}💀)
+                </span>
+              </div>
+            )}
+
+            {mode !== "SURVIVAL" && (
+              <span
+                dir="ltr"
+                className="font-mono text-[11px] font-black px-1.5 py-0.5 rounded-lg bg-white/10 text-amber-200"
+              >
+                {mm}:{ss}
+              </span>
             )}
           </button>
 
-          <button
-            type="button"
-            onClick={() => setIsImmersive((v) => !v)}
-            className="w-9 h-9 rounded-xl bg-slate-900/80 border border-white/25 text-slate-200 backdrop-blur-md flex items-center justify-center shadow-md active:scale-90"
-            title={isImmersive ? "إظهار الغرفة وكود QR" : "تكبير اللعبة"}
-          >
-            <DoorOpen className="w-4 h-4" />
-          </button>
+          {/* Active Rotating Hardpoint Indicator */}
+          {mode !== "SURVIVAL" && phase === "PLAYING" && (
+            <div className="px-2.5 py-1 rounded-xl bg-slate-950/75 border border-amber-400/35 backdrop-blur-md text-[10px] font-black text-amber-200 shadow">
+              📍 المنطقة النشطة: {activeHardpoint.nameAr}
+            </div>
+          )}
+        </div>
 
-          <button
-            type="button"
-            onClick={handleToggleFullscreen}
-            className="h-9 px-2.5 rounded-xl bg-amber-500 text-slate-950 font-black text-[11px] flex items-center gap-1 shadow-md active:scale-90"
-            title="ملء الشاشة الكاملة"
-          >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            <span className="hidden xs:inline sm:inline">شاشة كاملة</span>
-          </button>
+        {/* Left (RTL End): Controls + Auto-Fire Toggle + Mini-Radar */}
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <div className="pointer-events-auto flex items-center gap-1">
+            {!isDesktopFinePointer && (
+              <button
+                type="button"
+                onClick={() => setAutoFireAssist((v) => !v)}
+                className={`px-2 py-1.5 rounded-xl border text-[10px] font-black transition active:scale-95 ${
+                  autoFireAssist
+                    ? "bg-emerald-500/30 border-emerald-400 text-emerald-200"
+                    : "bg-slate-950/80 border-white/20 text-slate-300"
+                }`}
+              >
+                {autoFireAssist ? "🎯 تلقائي" : "🎯 يدوي"}
+              </button>
+            )}
+
+            {canConfigure && (
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(true)}
+                aria-label="إعدادات المعركة"
+                className="w-8 h-8 rounded-xl bg-slate-950/80 backdrop-blur-md border border-white/20 text-white flex items-center justify-center active:scale-90"
+              >
+                <Settings2 className="w-4 h-4" />
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={toggleMute}
+              aria-label="الصوت"
+              className="w-8 h-8 rounded-xl bg-slate-950/80 backdrop-blur-md border border-white/20 text-white flex items-center justify-center active:scale-90"
+            >
+              {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsImmersive((v) => !v)}
+              title="الغرفة والكود"
+              className="w-8 h-8 rounded-xl bg-slate-950/80 backdrop-blur-md border border-white/20 text-sky-300 flex items-center justify-center active:scale-90"
+            >
+              <DoorOpen className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={handleToggleFullscreen}
+              className={`h-8 px-2 rounded-xl border flex items-center gap-1 text-[11px] font-black shadow-md active:scale-95 ${
+                isFullscreen
+                  ? "bg-slate-950/80 border-white/20 text-white"
+                  : "bg-amber-400 border-amber-200 text-slate-950"
+              }`}
+            >
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+
+          {/* Live 96m x 96m Tactical Outpost Mini-Radar */}
+          {phase === "PLAYING" && (
+            <div className="relative w-[76px] h-[76px] rounded-2xl bg-slate-950/80 border border-sky-400/35 backdrop-blur-md shadow-lg overflow-hidden">
+              {/* Road crosshairs */}
+              <div className="absolute inset-x-1 top-1/2 h-[1px] bg-white/10" />
+              <div className="absolute inset-y-1 left-1/2 w-[1px] bg-white/10" />
+              {/* Active Hardpoint Ring */}
+              {mode !== "SURVIVAL" && (
+                <div
+                  style={{
+                    left: toRadarCoord(activeHardpoint.x) - 7,
+                    top: toRadarCoord(activeHardpoint.z) - 7,
+                  }}
+                  className="absolute w-3.5 h-3.5 rounded-full border border-amber-400 bg-amber-400/25 animate-pulse"
+                />
+              )}
+              {/* Combatant Blips */}
+              {allUnits.map((u) => {
+                if (!u.isAlive) return null;
+                const isMe = u.id === myId;
+                const isAlly = myUnit && !isMe && (mode === "SQUAD" || mode === "SURVIVAL") && u.team === myUnit.team;
+                const recentlyFired = nowMs - (u.lastFiredAt || 0) < 2200;
+                // Show self, allies, and enemies who fired recently or are near Hardpoint!
+                if (!isMe && !isAlly && !recentlyFired && Math.hypot(u.x - localPhysRef.current.x, u.z - localPhysRef.current.z) > 28) {
+                  return null;
+                }
+                const rx = toRadarCoord(isMe ? localPhysRef.current.x : u.x);
+                const rz = toRadarCoord(isMe ? localPhysRef.current.z : u.z);
+                return (
+                  <span
+                    key={u.id}
+                    style={{ left: rx - 3, top: rz - 3 }}
+                    className={`absolute w-1.5 h-1.5 rounded-full ${
+                      isMe
+                        ? "w-2 h-2 bg-emerald-400 ring-2 ring-white"
+                        : isAlly
+                        ? "bg-sky-400"
+                        : "bg-rose-500"
+                    }`}
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* 10-Gem 15-Second Brawl Countdown Alert Banner! */}
-      {gemCountdownLeft > 0 && phase === "PLAYING" && (
-        <div className="pointer-events-none absolute top-[calc(max(0.5rem,env(safe-area-inset-top))+2.85rem)] left-1/2 -translate-x-1/2 z-30 text-center">
-          <div className="px-4 py-1.5 rounded-2xl bg-gradient-to-r from-fuchsia-950/95 via-purple-900/95 to-rose-950/95 border-2 border-amber-300 shadow-[0_0_25px_rgba(232,121,249,0.65)] animate-pulse">
-            <p className="text-xs sm:text-sm font-black text-amber-300 whitespace-nowrap">
-              🚨 العد التنازلي للجواهر: {gemCountdownLeft}s!
-            </p>
-            <p className="text-[10px] font-bold text-fuchsia-100 whitespace-nowrap">
-              💎 {countdownLeaderLabel} جامع 10+ جواهر — وقّفوه دابا!
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Kill-Streak Hype Callout */}
-      {showBanner && killBanner && gemCountdownLeft === 0 && (
-        <div className="pointer-events-none absolute top-[calc(max(0.5rem,env(safe-area-inset-top))+2.85rem)] left-1/2 -translate-x-1/2 z-30 text-center">
-          <div className="px-4 py-1.5 rounded-2xl bg-slate-900/90 border-2 border-amber-400 shadow-xl">
-            <p className="text-xs sm:text-sm font-black text-amber-300">{killBanner.text}</p>
-            <p className="text-[10px] font-bold text-white">{killBanner.sub}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Compact Killfeed (Safely positioned BELOW top-right score pill — zero overlap!) */}
+      {/* 7. Live Kill Feed & Elimination Banner */}
       {liveKillFeed.length > 0 && phase === "PLAYING" && (
-        <div className="pointer-events-none absolute top-[calc(max(0.5rem,env(safe-area-inset-top))+2.85rem)] right-[max(0.6rem,env(safe-area-inset-right))] z-20 flex flex-col gap-1 max-w-[185px]">
-          {liveKillFeed.map((kf) => (
+        <div className="pointer-events-none absolute top-28 right-2.5 z-25 flex flex-col items-start gap-1 max-w-[56vw]">
+          {liveKillFeed.slice(0, 2).map((kf) => (
             <div
               key={kf.id}
-              className="px-2 py-0.5 rounded-lg bg-slate-900/70 border border-white/15 text-[10px] font-bold text-white flex items-center gap-1 backdrop-blur-xs"
+              className="px-2 py-0.5 rounded-lg bg-slate-950/75 backdrop-blur-sm border border-white/15 text-[10px] font-bold text-white flex items-center gap-1 shadow truncate max-w-full"
             >
-              <span className="text-emerald-300 truncate max-w-[68px]">{kf.killerName}</span>
-              <span className="text-amber-300">⚡</span>
-              <span className="text-rose-300 truncate max-w-[68px]">{kf.victimName}</span>
+              <span className="text-sky-300 truncate max-w-[72px]">{kf.killerName}</span>
+              <span className="text-amber-400">
+                {kf.weapon === "BARREL" ? "🛢️💥" : kf.isHeadshot ? "🎯" : "🔫"}
+              </span>
+              <span className="text-rose-300 truncate max-w-[72px]">{kf.victimName}</span>
             </div>
           ))}
         </div>
       )}
 
-      {/* Respawn Countdown Overlay */}
-      {respawnLeftSec && phase === "PLAYING" && (
-        <div className="pointer-events-none absolute inset-0 z-30 bg-slate-950/45 backdrop-blur-xs flex items-center justify-center">
-          <div className="px-6 py-4 rounded-3xl bg-slate-900/95 border-2 border-amber-400 text-center shadow-2xl">
-            <p className="text-base font-black text-white mb-0.5">راجعين للساحة! 🚀</p>
-            <span className="font-mono text-3xl font-black text-amber-300">{respawnLeftSec}s</span>
+      {showBanner && killBanner && (
+        <div className="pointer-events-none absolute top-16 inset-x-0 z-30 flex justify-center px-3">
+          <div className="px-4 py-1.5 rounded-2xl bg-slate-950/90 border border-amber-300 shadow-xl text-center">
+            <div className="text-xs sm:text-sm font-black text-amber-300">{killBanner.text}</div>
+            <div className="text-[10px] font-bold text-slate-200">{killBanner.sub}</div>
           </div>
         </div>
       )}
 
-      {/* 5. Zero-Overlap Ergonomic Bottom Controls (Portrait + Landscape Ready!) */}
-      {phase === "PLAYING" && (
+      {/* Respawn Overlay */}
+      {respawnLeftSec && phase === "PLAYING" && (
+        <div className="pointer-events-none absolute inset-0 z-30 bg-slate-950/55 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="px-6 py-4 rounded-3xl bg-slate-900/95 border border-rose-400/70 text-center shadow-2xl">
+            <div className="text-sm font-black text-rose-400 mb-1">💥 سقطت فـ الميدان!</div>
+            <div className="text-xs text-slate-200 font-bold">
+              عودة للقاعدة خلال <span className="text-amber-300 font-mono text-base">{respawnLeftSec}s</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. Bottom Tactical HUD + COD/PUBG Mobile Right-Thumb Action Cluster */}
+      {phase === "PLAYING" && myUnit && (
         <>
-          {/* Idle Left Move Stick Visual Guide */}
-          {!leftStickVis.active && (
-            <div className="pointer-events-none absolute bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-[max(1.1rem,env(safe-area-inset-left))] z-10 w-[82px] h-[82px] rounded-full border-2 border-white/35 bg-slate-900/25 flex items-center justify-center">
-              <div className="w-9 h-9 rounded-full bg-sky-400/60 border-2 border-white/80" />
+          {/* Bottom-Center Compact Armor + HP + Weapon Swap Pill */}
+          <div className="pointer-events-none absolute bottom-0 inset-x-0 z-30 pb-[max(0.55rem,env(safe-area-inset-bottom))] px-3 flex justify-center">
+            <div className="pointer-events-auto flex flex-col gap-1.5 bg-slate-950/85 backdrop-blur-md border border-white/20 rounded-2xl px-3 py-2 shadow-xl w-full max-w-[290px]">
+              <div className="flex items-center gap-2">
+                <div className="flex-1 flex flex-col gap-1">
+                  {/* Ballistic Armor Bar */}
+                  <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      style={{
+                        width: `${Math.max(
+                          0,
+                          Math.min(100, (myUnit.shield / Math.max(1, myUnit.maxShield)) * 100)
+                        )}%`,
+                      }}
+                      className="h-full bg-gradient-to-r from-sky-400 to-cyan-300 transition-all duration-100"
+                    />
+                  </div>
+                  {/* Soldier HP Bar */}
+                  <div className="h-2.5 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      style={{
+                        width: `${Math.max(
+                          0,
+                          Math.min(100, (myUnit.hp / Math.max(1, myUnit.maxHp)) * 100)
+                        )}%`,
+                      }}
+                      className={`h-full transition-all duration-100 ${
+                        myUnit.hp > 40
+                          ? "bg-gradient-to-r from-emerald-500 to-lime-400"
+                          : "bg-gradient-to-r from-rose-600 to-amber-500"
+                      }`}
+                    />
+                  </div>
+                </div>
+                <span className="font-mono text-xs font-black text-white w-8 text-left" dir="ltr">
+                  {Math.round(myUnit.hp)}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => swapLocalWeapon()}
+                  className={`flex-1 flex items-center justify-between gap-1 px-2.5 py-1 rounded-xl border text-[11px] font-black active:scale-95 ${
+                    CARBON_WEAPONS[weaponHud.weapon].badgeColor
+                  }`}
+                >
+                  <span className="truncate">{SHORT_WEAPON_AR[weaponHud.weapon]}</span>
+                  {weaponHud.secondaryWeapon && (
+                    <span className="px-1.5 py-0.5 rounded bg-white/15 text-[9px] text-white shrink-0">
+                      بدّل ⇄
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    commandsRef.current.reloadRequested = true;
+                  }}
+                  dir="ltr"
+                  className="px-2.5 py-1 rounded-xl bg-slate-900 border border-white/15 text-[11px] font-mono font-black text-white flex items-center gap-1 active:scale-95 shrink-0"
+                >
+                  {weaponHud.isReloading ? (
+                    <span className="text-amber-300 text-[10px]">تعمير...</span>
+                  ) : (
+                    <>
+                      <span>{weaponHud.ammo}</span>
+                      <span className="text-slate-400">/{weaponHud.maxAmmo}</span>
+                      <RefreshCw className="w-3 h-3 text-sky-300" />
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Ergonomic Mobile Right-Thumb Combat Cluster (Fire + ADS Scope + Roll + Jump + Grenade) */}
+          {!isDesktopFinePointer && (
+            <div
+              style={{
+                right: "max(0.65rem, env(safe-area-inset-right))",
+                bottom: "calc(max(0.65rem, env(safe-area-inset-bottom)) + 4.5rem)",
+              }}
+              className="pointer-events-auto fixed z-30 flex flex-col items-end gap-2"
+            >
+              {/* Upper Utility Row: Frag Grenade + Jump + ADS Scope */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onTouchStart={(e) => {
+                    e.stopPropagation();
+                    commandsRef.current.grenadeRequested = true;
+                  }}
+                  onClick={() => {
+                    commandsRef.current.grenadeRequested = true;
+                  }}
+                  disabled={weaponHud.grenadeCooldownLeft > 0.05}
+                  className={`w-11 h-11 rounded-full border-2 flex flex-col items-center justify-center shadow-lg active:scale-90 ${
+                    weaponHud.grenadeCooldownLeft > 0.05
+                      ? "bg-slate-900/75 border-slate-600 text-slate-400"
+                      : "bg-amber-600/90 border-amber-200 text-white"
+                  }`}
+                >
+                  <span className="text-sm leading-none">💣</span>
+                  {weaponHud.grenadeCooldownLeft > 0.05 && (
+                    <span className="text-[8px] font-mono font-black">
+                      {Math.ceil(weaponHud.grenadeCooldownLeft)}s
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onTouchStart={(e) => {
+                    e.stopPropagation();
+                    commandsRef.current.jumpRequested = true;
+                  }}
+                  onClick={() => {
+                    commandsRef.current.jumpRequested = true;
+                  }}
+                  className="w-11 h-11 rounded-full border-2 border-sky-200 bg-sky-600/85 text-white flex flex-col items-center justify-center shadow-lg active:scale-90"
+                >
+                  <span className="text-xs font-black leading-none">⏫</span>
+                  <span className="text-[8px] font-black">قفز</span>
+                </button>
+
+                <button
+                  type="button"
+                  onTouchStart={(e) => {
+                    e.stopPropagation();
+                    setAdsToggled((v) => !v);
+                  }}
+                  onClick={() => setAdsToggled((v) => !v)}
+                  className={`w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center shadow-lg active:scale-90 ${
+                    adsToggled
+                      ? "bg-amber-400 border-white text-slate-950"
+                      : "bg-slate-900/90 border-sky-300/80 text-sky-200"
+                  }`}
+                >
+                  <Focus className="w-5 h-5" />
+                  <span className="text-[8px] font-black">منظار</span>
+                </button>
+              </div>
+
+              {/* Primary Row: Combat Roll + Big Hold/Drag Fire Trigger */}
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onTouchStart={(e) => {
+                    e.stopPropagation();
+                    commandsRef.current.dashRequested = true;
+                  }}
+                  onClick={() => {
+                    commandsRef.current.dashRequested = true;
+                  }}
+                  disabled={weaponHud.dashCooldownLeft > 0.05}
+                  className={`w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center shadow-lg active:scale-90 ${
+                    weaponHud.dashCooldownLeft > 0.05
+                      ? "bg-slate-900/75 border-slate-600 text-slate-400"
+                      : "bg-emerald-600/90 border-emerald-200 text-white"
+                  }`}
+                >
+                  <Zap className="w-4 h-4" />
+                  <span className="text-[8px] font-black">
+                    {weaponHud.dashCooldownLeft > 0.05
+                      ? `${weaponHud.dashCooldownLeft.toFixed(1)}s`
+                      : "دحرجة"}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onTouchStart={onFireBtnTouchStart}
+                  onTouchEnd={onFireBtnTouchEnd}
+                  onTouchCancel={onFireBtnTouchEnd}
+                  className={`w-[74px] h-[74px] rounded-full border-[3px] flex flex-col items-center justify-center shadow-2xl transition-transform ${
+                    fireBtnPressed
+                      ? "scale-95 bg-gradient-to-br from-amber-400 to-rose-600 border-white text-white"
+                      : "bg-gradient-to-br from-rose-500 to-red-700 border-rose-200 text-white"
+                  }`}
+                >
+                  <Crosshair className="w-7 h-7" />
+                  <span className="text-[10px] font-black mt-0.5">إطلاق</span>
+                </button>
+              </div>
             </div>
           )}
-
-          {/* Compact Center Weapon-Swap / Reload Pill (118px wide — never touches sticks!) */}
-          <div className="pointer-events-auto absolute bottom-[max(1.45rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-30 flex items-center gap-1">
-            <button
-              type="button"
-              onTouchStart={(e) => e.stopPropagation()}
-              onClick={() => {
-                if (swapLocalWeapon()) carbonSfx.playPickup();
-                else commandsRef.current.reloadRequested = true;
-              }}
-              className="px-3 py-1.5 rounded-full bg-slate-900/85 border border-white/30 backdrop-blur-md shadow-lg flex items-center gap-1.5 text-[11px] font-black text-white active:scale-95"
-            >
-              <span>{SHORT_WEAPON_AR[weaponHud.weapon] || weaponHud.weapon}</span>
-              <span className="font-mono text-amber-300">
-                {weaponHud.isReloading ? "⏳" : `${weaponHud.ammo}`}
-              </span>
-              {weaponHud.secondaryWeapon && <RefreshCw className="w-3 h-3 text-sky-300" />}
-            </button>
-          </div>
-
-          {/* Right Action Cluster: Dual-Mode Attack Stick + Arced Dash & Shock Bomb */}
-          <div className="pointer-events-none absolute bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-[max(1.1rem,env(safe-area-inset-right))] z-30">
-            {/* EMP Shock Bomb (Diagonally Up-Left of Attack Stick) */}
-            <button
-              type="button"
-              onTouchStart={(e) => {
-                e.stopPropagation();
-                commandsRef.current.grenadeRequested = true;
-              }}
-              onClick={() => {
-                commandsRef.current.grenadeRequested = true;
-              }}
-              disabled={weaponHud.grenadeCooldownLeft > 0.05}
-              className={`pointer-events-auto absolute -top-11 right-[76px] w-11 h-11 rounded-full border-2 flex flex-col items-center justify-center font-black shadow-lg transition-transform active:scale-90 ${
-                weaponHud.grenadeCooldownLeft > 0.05
-                  ? "bg-slate-900/75 border-slate-600 text-slate-400"
-                  : "bg-sky-500 border-white text-white"
-              }`}
-            >
-              <span className="text-sm leading-none">💣</span>
-              {weaponHud.grenadeCooldownLeft > 0.05 && (
-                <span className="text-[8px] font-mono">
-                  {weaponHud.grenadeCooldownLeft.toFixed(0)}s
-                </span>
-              )}
-            </button>
-
-            {/* Jet-Dash (Directly Above Attack Stick) */}
-            <button
-              type="button"
-              onTouchStart={(e) => {
-                e.stopPropagation();
-                commandsRef.current.dashRequested = true;
-              }}
-              onClick={() => {
-                commandsRef.current.dashRequested = true;
-              }}
-              disabled={weaponHud.dashCooldownLeft > 0.05}
-              className={`pointer-events-auto absolute -top-[62px] right-2 w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center font-black shadow-lg transition-transform active:scale-90 ${
-                weaponHud.dashCooldownLeft > 0.05
-                  ? "bg-slate-900/75 border-slate-600 text-slate-400"
-                  : "bg-emerald-500 border-white text-slate-950"
-              }`}
-            >
-              <Zap className="w-5 h-5" />
-              {weaponHud.dashCooldownLeft > 0.05 && (
-                <span className="text-[8px] font-mono text-white">
-                  {weaponHud.dashCooldownLeft.toFixed(1)}s
-                </span>
-              )}
-            </button>
-
-            {/* Anchored Dual-Mode Attack Stick (Tap = Auto-Aim 🎯 | Drag = Manual Aim!) */}
-            <div
-              onTouchStart={onRightTouchStart}
-              onTouchMove={onRightTouchMove}
-              onTouchEnd={(e) => onRightTouchEnd(e, false)}
-              onTouchCancel={(e) => onRightTouchEnd(e, true)}
-              onMouseDown={(e) => {
-                if (e.button === 0) {
-                  e.stopPropagation();
-                  startRightStick(-999, e.clientX, e.clientY);
-                }
-              }}
-              onMouseMove={(e) => {
-                if (rightTouchRef.current?.id === -999) {
-                  moveRightStick(-999, e.clientX, e.clientY);
-                }
-              }}
-              className={`pointer-events-auto w-[84px] h-[84px] rounded-full border-4 border-white shadow-[0_6px_24px_rgba(244,63,94,0.55)] flex flex-col items-center justify-center text-white transition-transform ${
-                rightStickVis.active
-                  ? "scale-95 bg-rose-600/70"
-                  : "bg-gradient-to-br from-rose-500 via-red-500 to-amber-500"
-              }`}
-            >
-              <Crosshair className="w-7 h-7" />
-              <span className="text-[9px] font-black leading-none mt-0.5">اضغط / اسحب</span>
-            </div>
-          </div>
         </>
       )}
 
-      {/* 6. iPhone Safari Fullscreen & Hide-Toolbar Helper Modal */}
-      {iosFullscreenHelpOpen && (
+      {/* 9. Live Scoreboard Drawer */}
+      {scoreboardOpen && (
         <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4"
-          onClick={() => setIosFullscreenHelpOpen(false)}
-        >
-          <div
-            className="w-full max-w-sm rounded-3xl bg-slate-900 border-2 border-amber-400 p-5 text-right space-y-3.5 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-black text-amber-300 flex items-center gap-1.5">
-                <Smartphone className="w-5 h-5" />
-                <span>شاشة كاملة فـ iPhone</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIosFullscreenHelpOpen(false)}
-                className="p-1.5 rounded-full bg-slate-800 text-slate-300"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-3 rounded-2xl bg-slate-800/90 border border-white/10 space-y-1">
-              <p className="text-xs font-black text-emerald-300">
-                ⚡ حل سريع وسط Safari (ضغطة وحدة):
-              </p>
-              <p className="text-xs text-slate-200 leading-relaxed">
-                كليكي على الأيقونة <strong>[=]</strong> (أو <strong>عA</strong>) اللي كاينة حدا{" "}
-                <span dir="ltr" className="font-mono text-sky-300">
-                  jma3a.vercel.app
-                </span>{" "}
-                واختار <strong>&quot;إخفاء شريط الأدوات / Hide Toolbar&quot;</strong>!
-              </p>
-            </div>
-
-            <div className="p-3 rounded-2xl bg-slate-800/90 border border-white/10 space-y-1">
-              <p className="text-xs font-black text-amber-300">
-                🏆 شاشة كاملة 100% بحال تطبيق (الأفضل!):
-              </p>
-              <p className="text-xs text-slate-200 leading-relaxed">
-                كليكي على زر المشاركة <strong>(Share ⬆️)</strong> واختار{" "}
-                <strong>&quot;Add to Home Screen / إضافة إلى الشاشة الرئيسية&quot;</strong> وحلّ
-                JMA3A منها بلا حتى شريط!
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setIosFullscreenHelpOpen(false)}
-              className="w-full py-3 rounded-2xl bg-amber-400 text-slate-950 font-black text-sm active:scale-95"
-            >
-              واخا، يالاه نلعبو! 🎮
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 7. Live Scoreboard Modal */}
-      {scoreboardOpen && phase === "PLAYING" && (
-        <div
-          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={() => setScoreboardOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-950/65 backdrop-blur-sm flex items-center justify-center p-4"
         >
           <div
-            className="w-full max-w-md rounded-3xl bg-slate-900 border-2 border-sky-400/50 p-5 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-3xl bg-slate-900 border border-white/20 p-4 shadow-2xl text-white"
           >
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-black text-sky-300 flex items-center gap-2">
+              <div className="flex items-center gap-2 font-black text-sm text-amber-300">
                 <Users className="w-4 h-4" />
-                <span>ترتيب الأبطال ({humanCount <= 1 ? "وضع فردي" : "ويفي مباشر"})</span>
-              </h3>
+                <span>ترتيب فرقة النخبة ({allUnits.length}/8)</span>
+              </div>
               <button
                 type="button"
                 onClick={() => setScoreboardOpen(false)}
-                className="p-1.5 rounded-full bg-slate-800 text-slate-300"
+                className="p-1.5 rounded-xl bg-white/10"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="space-y-1.5 max-h-64 overflow-y-auto">
+            <div className="space-y-1.5 max-h-[55vh] overflow-y-auto">
               {sortedLeaderboard.map((u, idx) => (
                 <div
                   key={u.id}
-                  className={`px-3 py-2 rounded-xl flex items-center justify-between text-xs font-bold ${
+                  className={`flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-bold ${
                     u.id === myId
-                      ? "bg-emerald-950/80 border border-emerald-400/60 text-white"
-                      : "bg-slate-800/80 text-slate-200"
+                      ? "bg-emerald-500/20 border-emerald-400/60"
+                      : "bg-slate-800/80 border-white/10"
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="text-amber-400 font-black">#{idx + 1}</span>
-                    <span>{u.nickname}</span>
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="text-amber-300 font-mono w-5">#{idx + 1}</span>
+                    <span className="truncate">{u.nickname}</span>
                   </div>
-                  <div className="flex items-center gap-3 font-mono">
-                    {mode !== "SURVIVAL" && (
-                      <span className="text-fuchsia-300">💎 {u.gems || 0}</span>
-                    )}
-                    <span className="text-emerald-300">{u.kills} K</span>
-                    <span className="text-rose-300">{u.deaths} D</span>
+                  <div className="flex items-center gap-3 font-mono shrink-0">
+                    {mode !== "SURVIVAL" && <span className="text-sky-300">🚩 {u.gems || 0}</span>}
+                    <span className="text-emerald-300">{u.kills} إقصاء</span>
+                    <span className="text-slate-400">{u.deaths} موت</span>
                   </div>
                 </div>
               ))}
@@ -1121,81 +1209,110 @@ export function Carbon3DGameView({
         </div>
       )}
 
-      {/* 8. Match Mode & Difficulty Drawer */}
+      {/* 10. Host Match Mode & Bot Fill Modal */}
       {settingsOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/75 backdrop-blur-md flex items-center justify-center p-4"
           onClick={() => setSettingsOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4"
         >
           <div
-            className="w-full max-w-md rounded-3xl bg-slate-900 border-2 border-amber-400/60 p-5 shadow-2xl text-right"
             onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-3xl bg-slate-900 border border-sky-400/40 p-5 shadow-2xl text-white space-y-4"
           >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-black text-white flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-amber-400" />
-                <span>أطوار الساحة (1 حتى 8 لاعبين)</span>
-              </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-black text-sky-300">⚙️ إعدادات عملية الأطلس 3D</h3>
               <button
                 type="button"
                 onClick={() => setSettingsOpen(false)}
-                className="p-1.5 rounded-full bg-slate-800 text-slate-300"
+                className="p-1.5 rounded-xl bg-white/10"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-2 mb-4">
-              {(
-                [
-                  {
-                    id: "FFA",
-                    title: "💎 حرب الجواهر فردي (Gem Showdown)",
-                    desc: "جمع 10 جواهر من المنجم، تخبّى فالأعشاب 🌿، وصمد 15 ثانية! إلا طحتي كتشتت جواهرك كاملة!",
-                  },
-                  {
-                    id: "SQUAD",
-                    title: "⚡💎 حرب الجواهر فرق (4 ضد 4)",
-                    desc: "الفريق اللي كيجمع 10 جواهر ويحمي حامل الجواهر 15 ثانية كيربح التاج!",
-                  },
-                  {
-                    id: "SURVIVAL",
-                    title: "🤖 صمود الموجات التعاوني (Solo / Co-op)",
-                    desc: "تعاونو ضد موجات الدرونات والعملاق GOLIATH!",
-                  },
-                ] as const
-              ).map((m) => (
-                <button
-                  type="button"
-                  key={m.id}
-                  onClick={() => handleModeSwitch(m.id)}
-                  className={`w-full p-3 rounded-2xl border text-right transition-all ${
-                    mode === m.id
-                      ? "bg-sky-950/80 border-sky-400 text-white"
-                      : "bg-slate-800/60 border-white/10 text-slate-300"
-                  }`}
-                >
-                  <div className="text-sm font-black">{m.title}</div>
-                  <div className="text-[11px] text-slate-400">{m.desc}</div>
-                </button>
-              ))}
+            <div className="space-y-2">
+              <div className="text-xs font-bold text-slate-300">طور العملية:</div>
+              <div className="grid grid-cols-1 gap-2">
+                {(
+                  [
+                    {
+                      id: "FFA",
+                      title: "🚩 السيطرة الميدانية (Hardpoint + الكل ضد الكل)",
+                      desc: "سيطر على المهبط، الرصيف، والقصبة! أول جندي يوصل لـ 100 نقطة أو 15 إقصاء كيربح!",
+                    },
+                    {
+                      id: "SQUAD",
+                      title: "⚔️ معركة الفرق 4 ضد 4",
+                      desc: "فرقة الأطلس الزرقاء ضد قوات الاقتحام الحمراء على خريطة 96×96م!",
+                    },
+                    {
+                      id: "SURVIVAL",
+                      title: "🚁 صمود الكوماندوز (تعاوني ضد الموجات)",
+                      desc: "تعاون مع صحابك أو بوحدك ضد موجات المغاوير والمدرع القائد Juggernaut!",
+                    },
+                  ] as const
+                ).map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => handleModeSwitch(m.id)}
+                    className={`text-right p-3 rounded-2xl border transition active:scale-98 ${
+                      mode === m.id
+                        ? "bg-sky-500/20 border-sky-400"
+                        : "bg-slate-800/70 border-white/10"
+                    }`}
+                  >
+                    <div className="text-xs font-black text-white">{m.title}</div>
+                    <div className="text-[11px] text-slate-300 mt-0.5">{m.desc}</div>
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="flex items-center justify-between gap-2 pt-3 border-t border-white/10">
-              <span className="text-xs font-bold text-slate-300">مستوى البوتات:</span>
-              <div className="flex gap-1.5">
-                {(["NORMAL", "HARD", "CARBON"] as const).map((diff) => (
+            {/* Smart Bot Toggle */}
+            {mode !== "SURVIVAL" && (
+              <div className="space-y-1.5">
+                <div className="text-xs font-bold text-slate-300">🤖 جنود الذكاء الاصطناعي (Bots):</div>
+                <button
+                  type="button"
+                  onClick={() => handleModeSwitch(mode, settings.botDifficulty, !settings.botFill)}
+                  className={`w-full p-2.5 rounded-xl border text-xs font-black flex items-center justify-between ${
+                    settings.botFill
+                      ? "bg-amber-500/20 border-amber-400 text-amber-200"
+                      : "bg-emerald-500/20 border-emerald-400 text-emerald-200"
+                  }`}
+                >
+                  <span>
+                    {settings.botFill
+                      ? "🤖 شغّال دائماً (إضافة البوتات حتى مع الأصدقاء)"
+                      : "👥 مواجهة حقيقية (بدون بوتات ملي يدخلو 2+ لاعبين)"}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-white/15 text-[10px]">تبديل</span>
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <div className="text-xs font-bold text-slate-300">مستوى ذكاء البوتات:</div>
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { id: "NORMAL", label: "عادي 🙂" },
+                    { id: "HARD", label: "محترف 🔥" },
+                    { id: "CARBON", label: "كوماندوز 💀" },
+                  ] as const
+                ).map((d) => (
                   <button
+                    key={d.id}
                     type="button"
-                    key={diff}
-                    onClick={() => handleModeSwitch(mode, diff)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-black border ${
-                      settings.botDifficulty === diff
-                        ? "bg-amber-400 text-slate-950 border-amber-300"
+                    onClick={() => handleModeSwitch(mode, d.id)}
+                    className={`py-2 rounded-xl border text-xs font-black ${
+                      settings.botDifficulty === d.id
+                        ? "bg-amber-500/25 border-amber-400 text-amber-200"
                         : "bg-slate-800 border-white/10 text-slate-300"
                     }`}
                   >
-                    {diff === "NORMAL" ? "عادي" : diff === "HARD" ? "محترف" : "أسطوري 🔥"}
+                    {d.label}
                   </button>
                 ))}
               </div>
@@ -1204,74 +1321,101 @@ export function Carbon3DGameView({
         </div>
       )}
 
-      {/* 9. Post-Match Victory Podium */}
-      {phase === "GAME_OVER" && (
-        <div className="fixed inset-0 z-40 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-3xl bg-slate-900 border-2 border-amber-400 p-6 shadow-2xl text-center">
-            <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-400/60 flex items-center justify-center mx-auto mb-3">
-              <Trophy className="w-9 h-9 text-amber-400" />
+      {/* 11. iPhone Safari Fullscreen Helper */}
+      {iosFullscreenHelpOpen && (
+        <div
+          onClick={() => setIosFullscreenHelpOpen(false)}
+          className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-3xl bg-slate-900 border border-amber-400/50 p-5 text-white space-y-3 shadow-2xl"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-300 font-black text-sm">
+                <Smartphone className="w-5 h-5" />
+                <span>شاشة كاملة فـ iPhone</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIosFullscreenHelpOpen(false)}
+                className="p-1 rounded-lg bg-white/10"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <h2 className="text-2xl font-black text-white mb-1">نهاية المعركة! 🏆</h2>
-            <p className="text-sm font-bold text-amber-300 mb-4">
-              {winnerSummaryAr || "سالات الجولة!"}
+            <p className="text-xs text-slate-200 leading-relaxed">
+              فـ Safari ديال iPhone، كليكي على زر المشاركة <strong>Share ⬆️</strong> لتحت، واختار{" "}
+              <strong>Add to Home Screen (إضافة للشاشة الرئيسية)</strong> باش تلعب فـ شاشة كاملة 100%!
             </p>
+          </div>
+        </div>
+      )}
 
-            <div className="space-y-1.5 mb-5 max-h-52 overflow-y-auto text-right">
-              {sortedLeaderboard.slice(0, 8).map((u, idx) => (
+      {/* 12. Match Victory Podium */}
+      {phase === "GAME_OVER" && (
+        <div className="absolute inset-0 z-40 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="w-full max-w-md rounded-3xl bg-slate-900 border-2 border-amber-400/60 p-5 text-white shadow-2xl space-y-4">
+            <div className="text-center space-y-1">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-300 text-xs font-black">
+                <Trophy className="w-4 h-4" />
+                <span>انتهت عملية الأطلس!</span>
+              </div>
+              <h2 className="text-lg font-black text-white pt-1">
+                {winnerSummaryAr || "انتهت المعركة!"}
+              </h2>
+            </div>
+
+            <div className="space-y-1.5 max-h-[40vh] overflow-y-auto">
+              {sortedLeaderboard.slice(0, 6).map((u, i) => (
                 <div
                   key={u.id}
-                  className={`px-3.5 py-2 rounded-xl flex items-center justify-between text-xs font-bold ${
-                    idx === 0
-                      ? "bg-amber-500/20 border border-amber-400 text-amber-200"
-                      : u.id === myId
-                      ? "bg-emerald-950/70 border border-emerald-400/50 text-emerald-200"
-                      : "bg-slate-800/80 text-slate-300"
+                  className={`flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-bold ${
+                    i === 0
+                      ? "bg-amber-500/20 border-amber-400/60 text-amber-100"
+                      : "bg-slate-800/80 border-white/10 text-slate-200"
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="font-black">{idx === 0 ? "👑" : `#${idx + 1}`}</span>
-                    <span>{u.nickname}</span>
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="font-mono font-black text-amber-300">
+                      {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
+                    </span>
+                    <span className="truncate">{u.nickname}</span>
                   </div>
-                  <div className="font-mono flex items-center gap-3">
-                    {mode !== "SURVIVAL" && (
-                      <span className="text-fuchsia-300">💎 {u.gems || 0}</span>
-                    )}
+                  <div className="flex items-center gap-3 font-mono shrink-0">
+                    {mode !== "SURVIVAL" && <span className="text-sky-300">🚩 {u.gems || 0}</span>}
                     <span className="text-emerald-300">{u.kills} إقصاء</span>
-                    <span className="text-amber-300">{u.score} نقطة</span>
                   </div>
                 </div>
               ))}
             </div>
 
-            {canConfigure ? (
-              <div className="grid grid-cols-2 gap-2.5">
+            <div className="flex items-center gap-2 pt-1">
+              {canConfigure && (
                 <button
                   type="button"
                   onClick={handleRestartMatch}
-                  className="py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm shadow-lg active:scale-95"
+                  className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-sky-500 text-slate-950 font-black text-sm shadow-lg active:scale-95"
                 >
-                  جولة جديدة 🚀
+                  🔄 عملية جديدة!
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setSettingsOpen(true)}
-                  className="py-3 rounded-2xl bg-slate-800 border border-white/15 text-slate-200 font-bold text-sm active:scale-95"
-                >
-                  بدّل الطور ⚙️
-                </button>
-              </div>
-            ) : (
-              <p className="text-xs font-bold text-slate-400 animate-pulse">
-                كنتسناو مضيف الغرفة يبدا الجولة الجاية...
-              </p>
-            )}
+              )}
+              <button
+                type="button"
+                onClick={() => setIsImmersive(false)}
+                className="px-4 py-3 rounded-2xl bg-slate-800 border border-white/20 text-xs font-black text-white active:scale-95"
+              >
+                الغرفة
+              </button>
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 
-  return isImmersive ? createPortal(ui, document.body) : ui;
+  if (isImmersive && typeof document !== "undefined") {
+    return createPortal(ui, document.body);
+  }
+  return ui;
 }
-
-export default Carbon3DGameView;

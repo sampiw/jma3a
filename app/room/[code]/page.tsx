@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AuthorizedGameState, GameId, DevicePlayerInfo } from "@/lib/types";
 import { QRCodeModal } from "@/components/QRCodeModal";
 import { PassThePhoneCurtain } from "@/components/PassThePhoneCurtain";
+import { DiibCardsGameView } from "@/components/games/DiibCardsGameView";
 import { DibGameView } from "@/components/games/DibGameView";
 import { DibNightTimer } from "@/components/games/DibNightTimer";
 import { Carbon3DGameView } from "@/components/games/Carbon3DGameView";
@@ -39,11 +40,12 @@ import {
   Minimize,
 } from "lucide-react";
 
-// Active flagship games: PROTOCOL CARBON 3D, DIB 3D, Ghammada 3D & Classic DIB
-const ACTIVE_GAMES: GameId[] = ["carbon3d", "dib3d", "ghammada", "dib"];
+// Active flagship games: DIIB CARDS, PROTOCOL CARBON 3D, DIB 3D, Ghammada 3D & Classic DIB
+const ACTIVE_GAMES: GameId[] = ["diib-cards", "carbon3d", "dib3d", "ghammada", "dib"];
 
 const GAME_NAMES: Record<GameId, string> = {
-  carbon3d: "كاربون 3D: حرب السايبر ⚡🎯",
+  "diib-cards": "DIIB CARDS: كوارط الذيب 🃏👑",
+  carbon3d: "عملية الأطلس 3D: فرقة النخبة 🪖🔥",
   dib3d: "الذيب 3D: الدرب المظلم 🐺🔪",
   ghammada: "غمّيضة 3D (Prop Hunt) 📦🔨",
   dib: "الذيب الكلاسيكي (DIB) 🐺",
@@ -182,8 +184,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       return;
     }
 
-    // 1. Check DIB One-Phone relay turn
-    const relayTurnId = (gameState?.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId;
+    // 1. Check DIB One-Phone relay turn or Diib Cards dealRelay turn
+    const relayTurnId =
+      (gameState?.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId ||
+      (gameState?.room?.gameView?.publicData as any)?.dealRelay?.currentPlayerId;
     if (relayTurnId && devPlayers.some((p) => p.id === relayTurnId)) {
       if (activeLocalPlayerId !== relayTurnId) {
         setActiveLocalPlayerId(relayTurnId);
@@ -413,7 +417,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     (player ? [{ ...player, privateView: gameState.privateView }] : []);
 
   // In One-Phone mode (relay or passThePhone), automatically focus the player whose turn it is
-  const relayTurnPlayerId = (gameState.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId;
+  const relayTurnPlayerId =
+    (gameState.room?.gameView?.publicData as any)?.relay?.currentTurnPlayerId ||
+    (gameState.room?.gameView?.publicData as any)?.dealRelay?.currentPlayerId;
+  const diibCardsManagerId =
+    room.selectedGameId === "diib-cards"
+      ? ((gameState.room?.gameView?.publicData as any)?.managerId as string | undefined)
+      : undefined;
   const passCurtainPlayerId = gameState.passThePhone?.currentPlayerId;
   const hunterTurnPlayerId = room.gameView?.phase === "REACTION_QUEUE"
     ? room.gameView.publicData.currentShooterId : undefined;
@@ -424,6 +434,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       ? relayTurnPlayerId
       : (passCurtainPlayerId && myDevicePlayers.some((p) => p.id === passCurtainPlayerId))
       ? passCurtainPlayerId
+      : (isOnePhone && diibCardsManagerId && myDevicePlayers.some((p) => p.id === diibCardsManagerId))
+      ? diibCardsManagerId
       : null;
 
   const currentActivePlayerId =
@@ -590,6 +602,14 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   <span>عرض QR</span>
                 </button>
               </div>
+
+              {/* Diib Cards Quick Info Banner in Lobby */}
+              {room.selectedGameId === "diib-cards" && (
+                <div className="mt-4 pt-3.5 border-t border-jma3a-border/50 text-xs text-amber-200/90 leading-relaxed">
+                  👑 <strong>بلا ما يخرج حتى واحد من الغرفة!</strong> دخلو كاملين، وملي تبداو غادي يطلب واحد فيكم{" "}
+                  <strong className="text-amber-300">كارطة المانيجر</strong> باش يسيّر الليل، التسكيت، تايمر الهضرة والتصويت!
+                </div>
+              )}
 
               {/* Carbon 3D Quick Mode Selector in Lobby */}
               {room.selectedGameId === "carbon3d" && (
@@ -1096,6 +1116,20 @@ function renderActiveGameView(
   onRefresh?: () => void
 ) {
   switch (gameId) {
+    case "diib-cards":
+      return (
+        <DiibCardsGameView
+          publicData={publicData}
+          privateData={privateData}
+          myRole={myRole}
+          isHost={isHost}
+          onAction={onAction}
+          players={players}
+          activePlayerId={activePlayerId}
+          devicePlayers={devicePlayers}
+          onSelectPlayer={onSelectPlayer}
+        />
+      );
     case "carbon3d":
       return (
         <Carbon3DGameView

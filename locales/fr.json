@@ -125,5 +125,10 @@
     "verify": "A-t-il/elle vraiment réussi la mission ?",
     "confirmed": "Validé ! Point accordé",
     "denied": "Refusé ! Mission non validée"
+  },
+  "diibCards": {
+    "name": "Diib Cards (Cartes du Loup)",
+    "tagline": "Jeu de cartes illustré avec Carte Manager intégrée au salon",
+    "description": "Personne ne quitte le salon ! Un joueur réclame la Carte Manager pour gérer la nuit, le silence, le chrono de parole et les votes !"
   }
 }

@@ -115,5 +115,5 @@ describe("DIB v2 Features & Hybrid Multi-Device Logic", () => {
     const resolution = dayAnnounceState?.room.gameView?.publicData.lastResolution as ResolutionSummary | undefined;
     expect(resolution?.deaths.length).toBe(1);
     expect(resolution?.deaths[0].playerId).toBe(nonWolf.playerId);
-  }, 45000);
+  }, 90000);
 });

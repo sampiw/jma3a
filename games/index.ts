@@ -1,4 +1,5 @@
 import { registerGame, getGameDefinition, getAllGameDefinitions } from "./registry";
+import { DiibCardsEngine } from "./diib-cards/engine";
 import { Carbon3DEngine } from "./carbon3d/engine";
 import { Dib3DEngine } from "./dib3d/engine";
 import { GhammadaEngine } from "./ghammada/engine";
@@ -10,6 +11,7 @@ import { Mamnou3Engine } from "./mamnou3/engine";
 import { MissionSirriyaEngine } from "./mission-sirriya/engine";
 
 // Register all production games
+registerGame(DiibCardsEngine);
 registerGame(Carbon3DEngine);
 registerGame(Dib3DEngine);
 registerGame(GhammadaEngine);
@@ -23,6 +25,7 @@ registerGame(MissionSirriyaEngine);
 export {
   getGameDefinition,
   getAllGameDefinitions,
+  DiibCardsEngine,
   Carbon3DEngine,
   Dib3DEngine,
   GhammadaEngine,

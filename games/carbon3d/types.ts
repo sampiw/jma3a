@@ -23,7 +23,7 @@ export interface CarbonWeaponSpec {
   pellets: number;
   spreadRad: number;
   range: number;
-  projectileSpeed: number; // 0 = instant hitscan beam
+  projectileSpeed: number; // 0 = instant hitscan supersonic round
   splashRadius: number;
   bounces: number;
   knockback: number;
@@ -36,79 +36,79 @@ export interface CarbonWeaponSpec {
 export const CARBON_WEAPONS: Record<CarbonWeaponId, CarbonWeaponSpec> = {
   CARBINE: {
     id: "CARBINE",
-    nameEn: "VX-4 Carbon Carbine",
-    nameAr: "رشاش كاربون VX-4",
-    fireIntervalMs: 135,
-    damage: 19,
-    critMultiplier: 1.4,
+    nameEn: "M4A1 Tactical Carbine",
+    nameAr: "رشاش M4 التكتيكي",
+    fireIntervalMs: 118,
+    damage: 22,
+    critMultiplier: 1.45,
     pellets: 1,
-    spreadRad: 0.022,
-    range: 36,
-    projectileSpeed: 64,
+    spreadRad: 0.017,
+    range: 82,
+    projectileSpeed: 94,
     splashRadius: 0,
     bounces: 0,
-    knockback: 1.2,
-    magSize: 28,
-    reloadMs: 1300,
-    colorHex: 0x22d3ee,
-    badgeColor: "text-cyan-300 border-cyan-400/50 bg-cyan-950/60",
+    knockback: 1.0,
+    magSize: 30,
+    reloadMs: 1500,
+    colorHex: 0x38bdf8,
+    badgeColor: "text-sky-300 border-sky-400/50 bg-sky-950/70",
   },
   SHOTGUN: {
     id: "SHOTGUN",
-    nameEn: "KR-8 Breacher",
-    nameAr: "شوتغن الصدمة KR-8",
-    fireIntervalMs: 660,
-    damage: 13,
-    critMultiplier: 1.3,
-    pellets: 8,
-    spreadRad: 0.125,
-    range: 15.5,
-    projectileSpeed: 54,
+    nameEn: "M870 Breacher",
+    nameAr: "شوتغن الاقتحام M870",
+    fireIntervalMs: 700,
+    damage: 14,
+    critMultiplier: 1.35,
+    pellets: 7,
+    spreadRad: 0.086,
+    range: 25,
+    projectileSpeed: 76,
     splashRadius: 0,
     bounces: 0,
-    knockback: 8.5,
-    magSize: 6,
-    reloadMs: 1500,
+    knockback: 6.2,
+    magSize: 8,
+    reloadMs: 1750,
     colorHex: 0xfb923c,
-    badgeColor: "text-amber-300 border-amber-400/50 bg-amber-950/60",
+    badgeColor: "text-amber-300 border-amber-400/50 bg-amber-950/70",
   },
   RAILGUN: {
     id: "RAILGUN",
-    nameEn: "XR-1 Ion Railgun",
-    nameAr: "قناص الليزر XR-1",
-    fireIntervalMs: 1120,
-    damage: 78,
-    critMultiplier: 1.45,
+    nameEn: "AWP Atlas Sniper",
+    nameAr: "قناص الأطلس AWP",
+    fireIntervalMs: 1080,
+    damage: 85,
+    critMultiplier: 1.95, // 166 headshot damage = instant 1-shot headshot!
     pellets: 1,
-    spreadRad: 0.003,
-    range: 54,
-    projectileSpeed: 0, // Hitscan piercing beam
+    spreadRad: 0.0025,
+    range: 125,
+    projectileSpeed: 0, // Instant supersonic sniper round
     splashRadius: 0,
     bounces: 0,
-    knockback: 4.5,
+    knockback: 4.2,
     magSize: 5,
-    reloadMs: 1750,
+    reloadMs: 1950,
     colorHex: 0xf43f5e,
-    badgeColor: "text-rose-300 border-rose-400/50 bg-rose-950/60",
+    badgeColor: "text-rose-300 border-rose-400/50 bg-rose-950/70",
   },
   LOBBER: {
     id: "LOBBER",
-    nameEn: "GL-6 Pulse Lobber",
-    nameAr: "قاذف البلازما GL-6",
-    fireIntervalMs: 740,
-    damage: 56,
+    nameEn: "M32 Rotary Launcher",
+    nameAr: "قاذف القنابل M32",
+    fireIntervalMs: 800,
+    damage: 62,
     critMultiplier: 1.15,
     pellets: 1,
-    spreadRad: 0.018,
-    range: 29,
-    projectileSpeed: 28,
-    splashRadius: 3.8,
+    spreadRad: 0.015,
+    range: 62,
+    projectileSpeed: 38,
+    splashRadius: 4.5,
     bounces: 1,
-    knockback: 7.0,
+    knockback: 6.5,
     magSize: 6,
-    reloadMs: 1600,
+    reloadMs: 2000,
     colorHex: 0xc084fc,
-    badgeColor: "text-purple-300 border-purple-400/50 bg-purple-950/60",
+    badgeColor: "text-purple-300 border-purple-400/50 bg-purple-950/70",
   },
 };
 
@@ -135,7 +135,7 @@ export interface CarbonCombatant {
   kills: number;
   deaths: number;
   assists: number;
-  gems: number;
+  gems: number; // Tactical Airdrop / Intel points
   score: number;
   streak: number;
   overdriveUntil: number;
@@ -143,11 +143,24 @@ export interface CarbonCombatant {
   lastFiredAt?: number;
 }
 
+/** Golden Tactical Supply Drop / Intel Crate */
 export interface CarbonGemDrop {
   id: string;
   x: number;
+  y?: number;
   z: number;
   spawnedAt: number;
+}
+
+/** Shootable Red Hazard Explosive Barrel */
+export interface CarbonBarrelState {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  hp: number;
+  alive: boolean;
+  respawnAt: number;
 }
 
 export interface CarbonPickupPad {
@@ -160,11 +173,13 @@ export interface CarbonPickupPad {
   respawnAt: number;
 }
 
+export type CarbonDamageSource = CarbonWeaponId | "GRENADE" | "BARREL";
+
 export interface CarbonKillFeedEntry {
   id: string;
   killerName: string;
   victimName: string;
-  weapon: CarbonWeaponId | "GRENADE";
+  weapon: CarbonDamageSource;
   isHeadshot?: boolean;
   streak?: number;
   at: number;
@@ -187,6 +202,7 @@ export interface CarbonState {
   endsAt: number;
   wave: number;
   waveEnemiesRemaining: number;
+  hardpointIndex?: number;
   coreOwner: CarbonTeam | "CONTESTED" | "NEUTRAL";
   coreProgress: number; // -100 (CRIMSON) .. +100 (CYAN)
   teamScores: {
@@ -195,6 +211,7 @@ export interface CarbonState {
   };
   combatants: Record<string, CarbonCombatant>;
   pickups: CarbonPickupPad[];
+  barrels?: CarbonBarrelState[];
   killFeed: CarbonKillFeedEntry[];
   winnerId: string | null;
   winnerTeam: CarbonTeam | null;
@@ -213,6 +230,8 @@ export type CarbonAction =
       type: "SYNC_CHECKPOINT";
       combatants: Record<string, CarbonCombatant>;
       pickups?: CarbonPickupPad[];
+      barrels?: CarbonBarrelState[];
+      hardpointIndex?: number;
       teamScores?: { CYAN: number; CRIMSON: number };
       coreOwner?: CarbonTeam | "CONTESTED" | "NEUTRAL";
       coreProgress?: number;
@@ -235,7 +254,7 @@ export type CarbonAction =
     };
 
 // ---------------------------------------------------------------------------
-// Ultra-compact Realtime WebSocket Packets (Supabase Broadcast @ 20Hz)
+// Ultra-compact Realtime Relay Packets (Upstash Redis 11Hz Live Channel)
 // ---------------------------------------------------------------------------
 
 export interface CarbonLivePeerPacket {
@@ -248,8 +267,9 @@ export interface CarbonLivePeerPacket {
   yw: number; // yaw
   pt: number; // pitch
   w: CarbonWeaponId;
-  d?: number; // dashing flag (1 = dashing)
+  d?: number; // dashing/rolling flag (1 = rolling)
   ab?: number; // airborne flag
+  sp?: number; // sprinting flag
   t: number; // local receive timestamp
 }
 
@@ -269,7 +289,7 @@ export interface CarbonShotPacket {
 export interface CarbonHitClaimPacket {
   shooterId: string;
   targetId: string;
-  weapon: CarbonWeaponId | "GRENADE";
+  weapon: CarbonDamageSource;
   damage: number;
   isCrit: boolean;
   hx: number;
@@ -279,13 +299,27 @@ export interface CarbonHitClaimPacket {
   kz: number;
 }
 
+export interface CarbonBarrelHitPacket {
+  shooterId: string;
+  barrelId: string;
+  damage: number;
+}
+
+export interface CarbonBarrelExplodePacket {
+  barrelId: string;
+  shooterId: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
 export interface CarbonKillEventPacket {
   id: string;
   killerId: string;
   killerName: string;
   victimId: string;
   victimName: string;
-  weapon: CarbonWeaponId | "GRENADE";
+  weapon: CarbonDamageSource;
   isHeadshot: boolean;
   streak: number;
   vx: number;
@@ -302,6 +336,7 @@ export interface CarbonWorldSyncPacket {
   endsAt: number;
   wave: number;
   waveRem: number;
+  hpIdx?: number;
   coreOwner: CarbonTeam | "CONTESTED" | "NEUTRAL";
   coreProg: number;
   scores: { CYAN: number; CRIMSON: number };
@@ -310,7 +345,12 @@ export interface CarbonWorldSyncPacket {
   gems?: Array<{
     i: string;
     x: number;
+    y?: number;
     z: number;
+  }>;
+  barrels?: Array<{
+    i: string;
+    a: 0 | 1;
   }>;
   units: Array<{
     i: string;
@@ -323,6 +363,7 @@ export interface CarbonWorldSyncPacket {
     y: number;
     z: number;
     yw: number;
+    pt?: number;
     hp: number;
     mhp: number;
     sh: number;
@@ -347,12 +388,12 @@ export interface CarbonWorldSyncPacket {
 }
 
 export const STRIKER_PALETTE: number[] = [
-  0x22d3ee, // Electric Cyan
-  0xf43f5e, // Hyper Crimson
-  0xa855f7, // Neon Violet
-  0xf59e0b, // Solar Gold
-  0x10b981, // Cyber Emerald
-  0x3b82f6, // Cobalt Pulse
-  0xec4899, // Magenta Laser
-  0x84cc16, // Volt Lime
+  0x38bdf8, // Tactical Sky Cyan
+  0xf43f5e, // Crimson OpFor
+  0x10b981, // Ranger Emerald
+  0xf59e0b, // Desert Gold
+  0xa855f7, // Spec-Ops Violet
+  0x3b82f6, // Navy Taskforce
+  0xf97316, // Hazard Amber
+  0x84cc16, // Recon Lime
 ];

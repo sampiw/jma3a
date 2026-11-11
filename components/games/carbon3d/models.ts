@@ -12,31 +12,85 @@ import { getCarbonPBRMaterials } from "./textures";
 
 export type HeroVisualRole = "ME" | "ALLY" | "ENEMY";
 
-const HERO_GLB_URL = "/models/hunter.glb";
-const HERO_TARGET_HEIGHT = 1.82;
-const NATIVE_GLB_HEIGHT = 4.79;
+const SOLDIER_GLB_URL = "/models/shooter/Soldier.glb";
+const BARREL_GLB_URL = "/models/food/barrel.glb";
+const CRATE_GLB_URL = "/models/furniture/cardboardBoxClosed.glb";
 
-let cachedHeroGltf: GLTF | null = null;
-let heroLoadPromise: Promise<GLTF | null> | null = null;
+let cachedSoldierGltf: GLTF | null = null;
+let soldierLoadPromise: Promise<GLTF | null> | null = null;
+
+let cachedBarrelGltf: GLTF | null = null;
+let barrelLoadPromise: Promise<GLTF | null> | null = null;
+
+let cachedCrateGltf: GLTF | null = null;
+let crateLoadPromise: Promise<GLTF | null> | null = null;
 
 export function loadCarbonHeroAsset(): Promise<GLTF | null> {
-  if (cachedHeroGltf) return Promise.resolve(cachedHeroGltf);
-  if (heroLoadPromise) return heroLoadPromise;
+  if (cachedSoldierGltf) return Promise.resolve(cachedSoldierGltf);
+  if (soldierLoadPromise) return soldierLoadPromise;
   if (typeof window === "undefined") return Promise.resolve(null);
 
   const loader = new GLTFLoader();
-  heroLoadPromise = new Promise<GLTF | null>((resolve) => {
+  soldierLoadPromise = new Promise<GLTF | null>((resolve) => {
     loader.load(
-      HERO_GLB_URL,
+      SOLDIER_GLB_URL,
       (gltf) => {
-        cachedHeroGltf = gltf;
+        gltf.scene.updateMatrixWorld(true);
+        cachedSoldierGltf = gltf;
         resolve(gltf);
       },
       undefined,
       () => resolve(null)
     );
   });
-  return heroLoadPromise;
+
+  // Warm-cache barrel & airdrop crate GLBs in parallel
+  loadExplosiveBarrelAsset();
+  loadSupplyCrateAsset();
+
+  return soldierLoadPromise;
+}
+
+export function loadExplosiveBarrelAsset(): Promise<GLTF | null> {
+  if (cachedBarrelGltf) return Promise.resolve(cachedBarrelGltf);
+  if (barrelLoadPromise) return barrelLoadPromise;
+  if (typeof window === "undefined") return Promise.resolve(null);
+
+  const loader = new GLTFLoader();
+  barrelLoadPromise = new Promise<GLTF | null>((resolve) => {
+    loader.load(
+      BARREL_GLB_URL,
+      (gltf) => {
+        gltf.scene.updateMatrixWorld(true);
+        cachedBarrelGltf = gltf;
+        resolve(gltf);
+      },
+      undefined,
+      () => resolve(null)
+    );
+  });
+  return barrelLoadPromise;
+}
+
+export function loadSupplyCrateAsset(): Promise<GLTF | null> {
+  if (cachedCrateGltf) return Promise.resolve(cachedCrateGltf);
+  if (crateLoadPromise) return crateLoadPromise;
+  if (typeof window === "undefined") return Promise.resolve(null);
+
+  const loader = new GLTFLoader();
+  crateLoadPromise = new Promise<GLTF | null>((resolve) => {
+    loader.load(
+      CRATE_GLB_URL,
+      (gltf) => {
+        gltf.scene.updateMatrixWorld(true);
+        cachedCrateGltf = gltf;
+        resolve(gltf);
+      },
+      undefined,
+      () => resolve(null)
+    );
+  });
+  return crateLoadPromise;
 }
 
 export interface StrikerRig {
@@ -47,7 +101,6 @@ export interface StrikerRig {
   weaponMeshes: Record<CarbonWeaponId, THREE.Group>;
   muzzleFlash: THREE.Mesh;
   dashTrailCone: THREE.Mesh;
-  gyroRing?: THREE.Mesh;
   shieldMesh: THREE.Mesh;
   shieldMat: THREE.ShaderMaterial;
   hudSprite: THREE.Sprite;
@@ -69,128 +122,183 @@ export interface StrikerRig {
 function getRolePalette(role: HeroVisualRole, archetype: CarbonBotArchetype) {
   if (archetype === "BOSS_MECH") {
     return {
-      primary: 0xf59e0b, // Royal Gold
-      secondary: 0xb91c1c, // Deep Crimson
+      visor: 0xf59e0b,
       ring: 0xf59e0b,
       hpBar: "#f59e0b",
     };
   }
   if (role === "ME") {
     return {
-      primary: 0x10b981, // Vibrant Emerald
-      secondary: 0xf8fafc, // Pearl White
+      visor: 0x10b981,
       ring: 0x22c55e,
       hpBar: "#22c55e",
     };
   }
   if (role === "ALLY") {
     return {
-      primary: 0x0ea5e9, // Bright Sky Blue
-      secondary: 0xf8fafc, // Pearl White
+      visor: 0x38bdf8,
       ring: 0x38bdf8,
       hpBar: "#38bdf8",
     };
   }
   return {
-    primary: 0xef4444, // Vivid Coral Red
-    secondary: 0x1e293b, // Clean Slate
+    visor: 0xef4444,
     ring: 0xef4444,
     hpBar: "#ef4444",
   };
 }
 
-/** Builds clean, readable stylized Overwatch/Brawl-proportioned 3D weapons */
+/**
+ * Builds Detailed Grounded Special-Ops 3D Weapons (+Z = Muzzle Forward)
+ * 1. CARBINE  -> M4A1 Tactical Carbine with Holo Sight & STANAG Mag
+ * 2. SHOTGUN  -> M870 Tactical Pump Breacher
+ * 3. RAILGUN  -> AWP Atlas Magnified Sniper Rifle with Scope & Bipod
+ * 4. LOBBER   -> M32 6-Shot Rotary Grenade Launcher
+ */
 export function buildWeaponMesh(weaponId: CarbonWeaponId): THREE.Group {
   const mats = getCarbonPBRMaterials();
   const spec = CARBON_WEAPONS[weaponId];
   const g = new THREE.Group();
 
-  const accentMat = new THREE.MeshStandardMaterial({
+  const opticMat = new THREE.MeshStandardMaterial({
     color: spec.colorHex,
     emissive: spec.colorHex,
-    emissiveIntensity: 0.45,
-    roughness: 0.3,
-    metalness: 0.15,
+    emissiveIntensity: 0.7,
+    roughness: 0.2,
+    metalness: 0.3,
   });
 
   if (weaponId === "CARBINE") {
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.46, 6, 12), mats.weaponLight);
-    body.rotation.x = Math.PI / 2;
-    body.position.set(0, 0, 0.2);
-    g.add(body);
+    // Buttstock
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.11, 0.22), mats.weaponDark);
+    stock.position.set(0, -0.01, -0.14);
+    g.add(stock);
+
+    // Upper & Lower Receiver
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.11, 0.28), mats.weaponDark);
+    receiver.position.set(0, 0.01, 0.08);
+    g.add(receiver);
+
+    // Curved Magazine
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.044, 0.17, 0.075), mats.weaponSteel);
+    mag.position.set(0, -0.1, 0.14);
+    mag.rotation.x = 0.22;
+    g.add(mag);
+
+    // Quad-Rail Handguard + Barrel + Suppressor/Compensator
+    const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.062, 0.078, 0.28), mats.weaponTan);
+    handguard.position.set(0, 0.02, 0.34);
+    g.add(handguard);
 
     const barrel = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.032, 0.036, 0.38, 12),
+      new THREE.CylinderGeometry(0.018, 0.02, 0.28, 10),
+      mats.weaponSteel
+    );
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.025, 0.56);
+    g.add(barrel);
+
+    // Holographic Optic Housing
+    const holo = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.058, 0.09), mats.weaponDark);
+    holo.position.set(0, 0.09, 0.1);
+    g.add(holo);
+    const lens = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.036, 0.015), opticMat);
+    lens.position.set(0, 0.092, 0.145);
+    g.add(lens);
+  } else if (weaponId === "SHOTGUN") {
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.058, 0.12, 0.24), mats.weaponDark);
+    stock.position.set(0, -0.02, -0.12);
+    stock.rotation.x = -0.12;
+    g.add(stock);
+
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.11, 0.28), mats.weaponSteel);
+    receiver.position.set(0, 0.015, 0.1);
+    g.add(receiver);
+
+    // Main Top Barrel + Under-barrel Mag Tube
+    const topBarrel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.024, 0.026, 0.52, 12),
+      mats.weaponDark
+    );
+    topBarrel.rotation.x = Math.PI / 2;
+    topBarrel.position.set(0, 0.042, 0.46);
+    g.add(topBarrel);
+
+    const magTube = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.021, 0.021, 0.44, 10),
+      mats.weaponSteel
+    );
+    magTube.rotation.x = Math.PI / 2;
+    magTube.position.set(0, -0.005, 0.42);
+    g.add(magTube);
+
+    // Tactical Pump Forend
+    const pump = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.22, 10), mats.weaponTan);
+    pump.rotation.x = Math.PI / 2;
+    pump.position.set(0, -0.008, 0.38);
+    g.add(pump);
+  } else if (weaponId === "RAILGUN") {
+    // AWP Atlas Sniper Chassis (Olive/Tan Polymer + Long Fluted Bull Barrel + Magnified Scope)
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.12, 0.54), mats.weaponTan);
+    chassis.position.set(0, 0, 0.06);
+    g.add(chassis);
+
+    const barrel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.019, 0.024, 0.68, 12),
       mats.weaponDark
     );
     barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0.02, 0.54);
+    barrel.position.set(0, 0.032, 0.62);
     g.add(barrel);
 
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.38), accentMat);
-    stripe.position.set(0, 0.03, 0.24);
-    g.add(stripe);
-  } else if (weaponId === "SHOTGUN") {
-    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.48), mats.weaponDark);
-    receiver.position.set(0, 0, 0.18);
-    g.add(receiver);
+    // Muzzle Brake
+    const brake = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.038, 0.085), mats.weaponSteel);
+    brake.position.set(0, 0.032, 0.96);
+    g.add(brake);
 
-    for (const ox of [-0.045, 0.045]) {
-      const bore = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.044, 0.048, 0.5, 12),
-        mats.weaponLight
-      );
-      bore.rotation.x = Math.PI / 2;
-      bore.position.set(ox, 0.03, 0.44);
-      g.add(bore);
-    }
-
-    const pump = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.28, 10), accentMat);
-    pump.rotation.x = Math.PI / 2;
-    pump.position.set(0, -0.045, 0.38);
-    g.add(pump);
-  } else if (weaponId === "RAILGUN") {
-    const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.17, 0.48), mats.weaponLight);
-    chassis.position.set(0, 0, 0.12);
-    g.add(chassis);
-
-    for (const oy of [0.052, -0.028]) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.036, 0.82), mats.weaponDark);
-      rail.position.set(0, oy, 0.58);
-      g.add(rail);
-    }
-
-    const coreBeam = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.026, 0.026, 0.78, 10),
-      accentMat
-    );
-    coreBeam.rotation.x = Math.PI / 2;
-    coreBeam.position.set(0, 0.012, 0.56);
-    g.add(coreBeam);
-  } else {
-    // LOBBER
-    const drum = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.13, 0.13, 0.26, 16),
-      mats.weaponLight
-    );
-    drum.rotation.x = Math.PI / 2;
-    drum.position.set(0, 0, 0.22);
-    g.add(drum);
-
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.132, 0.02, 8, 20), accentMat);
-    ring.position.set(0, 0, 0.22);
-    g.add(ring);
-
-    const mortar = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.075, 0.062, 0.36, 14),
+    // Long Sniper Scope Tube + Glowing Objective Lens
+    const scopeTube = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.028, 0.024, 0.34, 14),
       mats.weaponDark
     );
-    mortar.rotation.x = Math.PI / 2;
-    mortar.position.set(0, 0.02, 0.48);
-    g.add(mortar);
+    scopeTube.rotation.x = Math.PI / 2;
+    scopeTube.position.set(0, 0.11, 0.14);
+    g.add(scopeTube);
+
+    const scopeLens = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.026, 0.026, 0.015, 14),
+      opticMat
+    );
+    scopeLens.rotation.x = Math.PI / 2;
+    scopeLens.position.set(0, 0.11, 0.31);
+    g.add(scopeLens);
+  } else {
+    // M32 6-Chamber Rotary Grenade Launcher
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.09, 0.22), mats.weaponDark);
+    stock.position.set(0, 0, -0.1);
+    g.add(stock);
+
+    const drum = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.105, 0.105, 0.2, 16),
+      mats.weaponTan
+    );
+    drum.rotation.x = Math.PI / 2;
+    drum.position.set(0, -0.01, 0.16);
+    g.add(drum);
+
+    const shroud = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.048, 0.048, 0.34, 14),
+      mats.weaponDark
+    );
+    shroud.rotation.x = Math.PI / 2;
+    shroud.position.set(0, 0.02, 0.42);
+    g.add(shroud);
+
+    const optic = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 0.06), opticMat);
+    optic.position.set(0, 0.11, 0.18);
+    g.add(optic);
   }
 
-  g.scale.setScalar(1.18);
   g.traverse((c) => {
     if ((c as THREE.Mesh).isMesh) {
       c.castShadow = true;
@@ -199,149 +307,278 @@ export function buildWeaponMesh(weaponId: CarbonWeaponId): THREE.Group {
   return g;
 }
 
-/** Floating 3D Pickup Visuals */
+/** Floating 3D Weapon Rack / Armor Medkit / Tactical Overdrive Pickup Visuals */
 export function buildPickupVisual(kind: CarbonPickupKind): THREE.Group {
   const g = new THREE.Group();
   if (kind === "WEAPON_SHOTGUN") {
     const w = buildWeaponMesh("SHOTGUN");
-    w.scale.setScalar(1.35);
+    w.scale.setScalar(1.45);
     w.position.set(0, 0, -0.22);
     g.add(w);
   } else if (kind === "WEAPON_RAILGUN") {
     const w = buildWeaponMesh("RAILGUN");
-    w.scale.setScalar(1.25);
-    w.position.set(0, 0, -0.32);
+    w.scale.setScalar(1.3);
+    w.position.set(0, 0, -0.35);
     g.add(w);
   } else if (kind === "WEAPON_LOBBER") {
     const w = buildWeaponMesh("LOBBER");
-    w.scale.setScalar(1.35);
-    w.position.set(0, 0, -0.22);
+    w.scale.setScalar(1.45);
+    w.position.set(0, 0, -0.2);
     g.add(w);
   } else if (kind === "SHIELD_CELL") {
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x0ea5e9,
-      emissive: 0x0284c7,
-      emissiveIntensity: 0.65,
-      roughness: 0.2,
-      metalness: 0.15,
+    // Tactical Ballistic Armor Vest / Medkit Case
+    const vestMat = new THREE.MeshStandardMaterial({
+      color: 0x0284c7,
+      emissive: 0x0369a1,
+      emissiveIntensity: 0.45,
+      roughness: 0.35,
+      metalness: 0.3,
     });
-    const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.4, 0), mat);
-    g.add(crystal);
-    const halo = new THREE.Mesh(
-      new THREE.TorusGeometry(0.54, 0.04, 8, 24),
-      new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+    const caseMesh = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.42, 0.22), vestMat);
+    g.add(caseMesh);
+    const crossH = new THREE.Mesh(
+      new THREE.BoxGeometry(0.26, 0.08, 0.24),
+      new THREE.MeshBasicMaterial({ color: 0xf8fafc })
     );
-    halo.rotation.x = Math.PI / 3;
-    g.add(halo);
+    const crossV = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.26, 0.24),
+      new THREE.MeshBasicMaterial({ color: 0xf8fafc })
+    );
+    g.add(crossH, crossV);
   } else {
-    // OVERDRIVE_AMP
+    // OVERDRIVE_AMP (Tactical Adrenaline / Ammo Boost)
     const mat = new THREE.MeshStandardMaterial({
       color: 0xf59e0b,
       emissive: 0xd97706,
-      emissiveIntensity: 0.75,
-      roughness: 0.2,
-      metalness: 0.25,
+      emissiveIntensity: 0.65,
+      roughness: 0.25,
+      metalness: 0.4,
     });
-    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.45, 0), mat);
+    const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.42, 0), mat);
     g.add(core);
     const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(0.62, 0.045, 8, 28),
-      new THREE.MeshBasicMaterial({ color: 0xfbbf24 })
+      new THREE.TorusGeometry(0.58, 0.04, 8, 28),
+      new THREE.MeshBasicMaterial({ color: 0xfde047 })
     );
-    ring.rotation.x = Math.PI / 4;
+    ring.rotation.x = Math.PI / 3;
     g.add(ring);
   }
   return g;
 }
 
-function buildSmoothFallbackHero(primaryHex: number, secondaryHex: number): THREE.Group {
+/**
+ * Shootable Red Hazard Explosive Barrel (uses /models/food/barrel.glb tinted crimson + hazard band)
+ */
+export function buildExplosiveBarrelMesh(): THREE.Group {
+  const mats = getCarbonPBRMaterials();
+  const group = new THREE.Group();
+
+  // Immediate crisp 55-gallon crimson explosive drum
+  const fallbackGroup = new THREE.Group();
+  const drum = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.42, 0.42, 1.16, 20),
+    mats.explosiveBarrelRed
+  );
+  drum.position.y = 0.58;
+  drum.castShadow = true;
+  drum.receiveShadow = true;
+  fallbackGroup.add(drum);
+
+  for (const ry of [0.18, 0.58, 0.98]) {
+    const rib = new THREE.Mesh(
+      new THREE.TorusGeometry(0.43, 0.025, 8, 24),
+      mats.weaponDark
+    );
+    rib.rotation.x = Math.PI / 2;
+    rib.position.y = ry;
+    fallbackGroup.add(rib);
+  }
+  group.add(fallbackGroup);
+
+  // Hazard yellow-black warning band around waist (always visible!)
+  const hazardBand = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.435, 0.435, 0.22, 20, 1, true),
+    mats.hazardStripe
+  );
+  hazardBand.position.y = 0.58;
+  group.add(hazardBand);
+
+  // Upgrade drum body with barrel.glb mesh if loaded while keeping crimson PBR material!
+  const applyBarrelGlb = (gltf: GLTF | null) => {
+    if (!gltf) return;
+    const clone = gltf.scene.clone(true);
+    clone.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(clone);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    if (size.y > 0.01) {
+      const s = 1.16 / size.y;
+      clone.scale.setScalar(s);
+      clone.updateMatrixWorld(true);
+      const box2 = new THREE.Box3().setFromObject(clone);
+      clone.position.y -= box2.min.y;
+    }
+    clone.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (m.isMesh) {
+        m.material = mats.explosiveBarrelRed;
+        m.castShadow = true;
+        m.receiveShadow = true;
+      }
+    });
+    group.remove(fallbackGroup);
+    group.add(clone);
+  };
+
+  if (cachedBarrelGltf) {
+    applyBarrelGlb(cachedBarrelGltf);
+  } else {
+    loadExplosiveBarrelAsset().then(applyBarrelGlb);
+  }
+
+  return group;
+}
+
+/**
+ * Golden Tactical Supply Drop Crate (replaces floating gems with Military Airdrop Cases!)
+ */
+export function buildCrystalGemMesh(): THREE.Group {
+  const mats = getCarbonPBRMaterials();
   const g = new THREE.Group();
-  const primaryMat = new THREE.MeshStandardMaterial({
-    color: primaryHex,
-    roughness: 0.42,
-    metalness: 0.1,
+
+  const caseBox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.68, 0.46, 0.52),
+    mats.hardwoodCrate
+  );
+  caseBox.castShadow = true;
+  g.add(caseBox);
+
+  const goldStrapMat = new THREE.MeshStandardMaterial({
+    color: 0xfacc15,
+    emissive: 0xd97706,
+    emissiveIntensity: 0.55,
+    roughness: 0.25,
+    metalness: 0.65,
   });
-  const secondaryMat = new THREE.MeshStandardMaterial({
-    color: secondaryHex,
-    roughness: 0.38,
-    metalness: 0.08,
+  for (const ox of [-0.2, 0.2]) {
+    const strap = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.48, 0.54), goldStrapMat);
+    strap.position.x = ox;
+    g.add(strap);
+  }
+
+  const beacon = new THREE.Mesh(
+    new THREE.SphereGeometry(0.11, 12, 10),
+    new THREE.MeshBasicMaterial({ color: 0xfef08a })
+  );
+  beacon.position.y = 0.32;
+  g.add(beacon);
+
+  return g;
+}
+
+export function buildTallGrassBushCluster(_halfX: number, _halfZ: number): THREE.Group {
+  return new THREE.Group();
+}
+
+function buildFallbackSoldierMesh(visorHex: number): THREE.Group {
+  const g = new THREE.Group();
+  const camoMat = new THREE.MeshStandardMaterial({
+    color: 0x4b5563,
+    roughness: 0.75,
+    metalness: 0.15,
+  });
+  const vestMat = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    roughness: 0.6,
+    metalness: 0.25,
   });
   const visorMat = new THREE.MeshStandardMaterial({
-    color: 0x0f172a,
-    emissive: 0x38bdf8,
-    emissiveIntensity: 0.35,
+    color: visorHex,
+    emissive: visorHex,
+    emissiveIntensity: 0.65,
     roughness: 0.2,
   });
 
-  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.62, 10, 18), primaryMat);
-  torso.position.y = 0.78;
+  const legs = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 0.55, 6, 12), camoMat);
+  legs.position.y = 0.52;
+  legs.castShadow = true;
+  g.add(legs);
+
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.56, 0.28), vestMat);
+  torso.position.y = 1.12;
   torso.castShadow = true;
   g.add(torso);
 
-  const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.44, 0.24), secondaryMat);
-  backpack.position.set(0, 0.88, -0.24);
-  backpack.castShadow = true;
-  g.add(backpack);
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 14), camoMat);
+  helmet.position.y = 1.62;
+  helmet.castShadow = true;
+  g.add(helmet);
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.32, 20, 16), secondaryMat);
-  head.position.y = 1.48;
-  head.castShadow = true;
-  g.add(head);
-
-  const visor = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.24, 6, 12), visorMat);
-  visor.rotation.z = Math.PI / 2;
-  visor.position.set(0, 1.49, 0.24);
+  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.1, 0.12), visorMat);
+  visor.position.set(0, 1.61, 0.17);
   g.add(visor);
 
   return g;
 }
 
-function attachAnimatedGltfHero(
+function attachAnimatedSoldierGltf(
   rig: StrikerRig,
   gltf: GLTF,
-  primaryHex: number,
-  secondaryHex: number
+  fallbackGroup: THREE.Group
 ) {
   if (rig.disposed) return;
 
-  // IMPORTANT: updateMatrixWorld before SkeletonUtils.clone, and NEVER call Box3.setFromObject on cloned armature!
   gltf.scene.updateMatrixWorld(true);
-  const cloned = SkeletonUtils.clone(gltf.scene);
-  const scale = HERO_TARGET_HEIGHT / NATIVE_GLB_HEIGHT;
-  cloned.scale.setScalar(scale);
-  cloned.position.set(0, 0, 0);
+  const cloned = SkeletonUtils.clone(gltf.scene) as THREE.Group;
 
-  cloned.traverse((child) => {
-    const mesh = child as THREE.Mesh;
-    if (mesh.isMesh) {
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.frustumCulled = false;
+  // Soldier.glb is natively 1.83m tall at scale 1.0, facing -Z -> rotate Y by PI so soldier faces +Z!
+  const targetScale = rig.archetype === "BOSS_MECH" ? 1.36 : 1.0;
+  cloned.scale.setScalar(targetScale);
+  cloned.rotation.y = Math.PI;
 
-      const srcMats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      const tinted = srcMats.map((mat) => {
-        const std = mat as THREE.MeshStandardMaterial;
-        if (!std || !("color" in std)) return mat;
-        const m = std.clone();
-        const name = (m.name || "").toLowerCase();
-        if (name.includes("main") || name.includes("orange") || name.includes("yellow")) {
-          m.color.setHex(primaryHex);
-        } else if (name.includes("grey") || name.includes("gray")) {
-          m.color.setHex(secondaryHex);
-        } else if (name.includes("black")) {
-          m.color.setHex(0x0f172a);
-        }
-        m.metalness = 0.1;
-        m.roughness = 0.45;
-        return m;
-      });
-      mesh.material = Array.isArray(mesh.material) ? tinted : tinted[0];
+  const pal = getRolePalette(rig.role, rig.archetype);
+
+  const visorMat = new THREE.MeshStandardMaterial({
+    color: pal.visor,
+    emissive: pal.visor,
+    emissiveIntensity: 0.85,
+    roughness: 0.18,
+    metalness: 0.6,
+  });
+
+  cloned.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.frustumCulled = false;
+
+    const mName = (mesh.name || "").toLowerCase();
+    if (mName.includes("visor")) {
+      mesh.material = visorMat;
+    } else if (mesh.material) {
+      const orig = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      const std = (orig as THREE.MeshStandardMaterial).clone();
+      if (rig.archetype === "BOSS_MECH") {
+        std.color.setHex(0xd97706);
+        std.emissive = new THREE.Color(0x451a03);
+        std.emissiveIntensity = 0.25;
+      } else if (rig.role === "ENEMY") {
+        // Subtle warm crimson rim identification while preserving authentic military PBR textures!
+        std.emissive = new THREE.Color(0x450a0a);
+        std.emissiveIntensity = 0.18;
+      } else if (rig.role === "ALLY") {
+        std.emissive = new THREE.Color(0x082f49);
+        std.emissiveIntensity = 0.16;
+      }
+      mesh.material = std;
     }
   });
 
-  rig.bodyContainer.clear();
+  rig.bodyContainer.remove(fallbackGroup);
   rig.bodyContainer.add(cloned);
 
+  // Bind Mixamo Skeletal Animations: Idle, Walk, Run
   const mixer = new THREE.AnimationMixer(cloned);
   const actions: Record<string, THREE.AnimationAction> = {};
   for (const clip of gltf.animations) {
@@ -349,159 +586,56 @@ function attachAnimatedGltfHero(
   }
   rig.mixer = mixer;
   rig.actions = actions;
-  rig.currentAnim = "";
-  playHeroClip(rig, "Idle", 0.05);
+
+  const idleClip = actions["Idle"];
+  if (idleClip) {
+    idleClip.reset().fadeIn(0.1).play();
+    rig.currentAnim = "Idle";
+  }
 }
 
-function playHeroClip(rig: StrikerRig, clipName: "Idle" | "Running" | "Walking" | "Jump", fade = 0.16) {
-  if (!rig.mixer || rig.currentAnim === clipName) return;
-  const next = rig.actions[clipName] || rig.actions["Idle"];
-  if (!next) return;
-  const prev = rig.actions[rig.currentAnim];
-  next.reset().setEffectiveWeight(1).fadeIn(fade).play();
-  if (prev && prev !== next) prev.fadeOut(fade);
-  rig.currentAnim = clipName;
-}
-
-/**
- * Creates a smooth stylized Hero / Hover-Drone / Boss rig with Brawl-style ground ring & overhead bar.
- */
 export function createStrikerRig(
-  role: HeroVisualRole,
-  archetype: CarbonBotArchetype = "STRIKER",
-  initialWeapon: CarbonWeaponId = "CARBINE"
+  _accentHex: number,
+  archetype: CarbonBotArchetype,
+  initialWeapon: CarbonWeaponId,
+  role: HeroVisualRole = "ENEMY"
 ): StrikerRig {
-  const palette = getRolePalette(role, archetype);
   const root = new THREE.Group();
-  const bodyContainer = new THREE.Group();
-  root.add(bodyContainer);
+  const pal = getRolePalette(role, archetype);
 
-  // 1. Crisp Brawl-Stars Ground Circle Indicator at y = 0.03
+  // 1. Tactical Ground Role Indicator Ring (subtle for ME, vivid for ALLY / ENEMY)
   const groundRingGroup = new THREE.Group();
   groundRingGroup.position.y = 0.03;
 
-  const ringRadius = archetype === "BOSS_MECH" ? 1.05 : 0.72;
-  const fillDisc = new THREE.Mesh(
-    new THREE.CircleGeometry(ringRadius, 32),
-    new THREE.MeshBasicMaterial({
-      color: palette.ring,
-      transparent: true,
-      opacity: role === "ME" ? 0.24 : 0.15,
-      depthWrite: false,
-    })
+  const ringOuterR = archetype === "BOSS_MECH" ? 1.15 : 0.68;
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: pal.ring,
+    transparent: true,
+    opacity: role === "ME" ? 0.42 : 0.78,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const baseRing = new THREE.Mesh(
+    new THREE.RingGeometry(ringOuterR - 0.09, ringOuterR, 32),
+    ringMat
   );
-  fillDisc.rotation.x = -Math.PI / 2;
-  groundRingGroup.add(fillDisc);
-
-  const rimRing = new THREE.Mesh(
-    new THREE.RingGeometry(ringRadius - 0.1, ringRadius, 36),
-    new THREE.MeshBasicMaterial({
-      color: palette.ring,
-      transparent: true,
-      opacity: role === "ME" ? 0.95 : 0.82,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    })
-  );
-  rimRing.rotation.x = -Math.PI / 2;
-  groundRingGroup.add(rimRing);
-
-  // Forward direction arrow on local player's ground ring
-  if (role === "ME") {
-    const arrowShape = new THREE.Shape();
-    arrowShape.moveTo(0, 0.26);
-    arrowShape.lineTo(-0.2, -0.05);
-    arrowShape.lineTo(0.2, -0.05);
-    arrowShape.closePath();
-    const arrowMesh = new THREE.Mesh(
-      new THREE.ShapeGeometry(arrowShape),
-      new THREE.MeshBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        opacity: 0.95,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      })
-    );
-    arrowMesh.rotation.x = Math.PI / 2;
-    arrowMesh.position.set(0, 0.005, ringRadius + 0.14);
-    groundRingGroup.add(arrowMesh);
-  }
+  baseRing.rotation.x = -Math.PI / 2;
+  groundRingGroup.add(baseRing);
   root.add(groundRingGroup);
 
-  // 2. Weapon Anchor + Dash Trail Cone
+  // 2. Soldier Body Container
+  const bodyContainer = new THREE.Group();
+  root.add(bodyContainer);
+
+  const fallbackHero = buildFallbackSoldierMesh(pal.visor);
+  bodyContainer.add(fallbackHero);
+
+  // 3. Right-Shoulder/Chest Tactical Weapon Mount
+  // Note: When facing +Z with +Y up, the soldier's RIGHT hand is at -X!
+  const scaleMult = archetype === "BOSS_MECH" ? 1.35 : 1.0;
   const weaponAnchor = new THREE.Group();
-  let gyroRing: THREE.Mesh | undefined;
-
-  const dashGeo = new THREE.ConeGeometry(0.22, 0.75, 10);
-  dashGeo.rotateX(-Math.PI / 2);
-  const dashTrailCone = new THREE.Mesh(
-    dashGeo,
-    new THREE.MeshBasicMaterial({
-      color: palette.ring,
-      transparent: true,
-      opacity: 0.75,
-      depthWrite: false,
-    })
-  );
-  dashTrailCone.position.set(0, 0.85, -0.65);
-  dashTrailCone.visible = false;
-  root.add(dashTrailCone);
-
-  if (archetype === "DRONE") {
-    // Smooth Stylized Hovering Recon Drone
-    bodyContainer.position.y = 0.95;
-    const shell = new THREE.Mesh(
-      new THREE.SphereGeometry(0.4, 22, 18),
-      new THREE.MeshStandardMaterial({
-        color: palette.secondary,
-        roughness: 0.35,
-        metalness: 0.1,
-      })
-    );
-    shell.castShadow = true;
-    bodyContainer.add(shell);
-
-    const cap = new THREE.Mesh(
-      new THREE.SphereGeometry(0.41, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.45),
-      new THREE.MeshStandardMaterial({
-        color: palette.primary,
-        roughness: 0.4,
-        metalness: 0.1,
-      })
-    );
-    bodyContainer.add(cap);
-
-    const eye = new THREE.Mesh(
-      new THREE.SphereGeometry(0.16, 16, 12),
-      new THREE.MeshStandardMaterial({
-        color: 0x38bdf8,
-        emissive: 0x0ea5e9,
-        emissiveIntensity: 0.85,
-      })
-    );
-    eye.position.set(0, 0.02, 0.32);
-    bodyContainer.add(eye);
-
-    gyroRing = new THREE.Mesh(
-      new THREE.TorusGeometry(0.58, 0.055, 10, 28),
-      new THREE.MeshStandardMaterial({
-        color: palette.primary,
-        roughness: 0.35,
-        metalness: 0.15,
-      })
-    );
-    gyroRing.rotation.x = Math.PI / 2;
-    bodyContainer.add(gyroRing);
-
-    weaponAnchor.position.set(0, -0.25, 0.12);
-    bodyContainer.add(weaponAnchor);
-  } else {
-    // Smooth Stylized Humanoid Hero (loads /models/hunter.glb with instant smooth capsule fallback)
-    bodyContainer.add(buildSmoothFallbackHero(palette.primary, palette.secondary));
-    weaponAnchor.position.set(-0.36, 0.96, 0.22);
-    root.add(weaponAnchor);
-  }
+  weaponAnchor.position.set(-0.22 * scaleMult, 1.32 * scaleMult, 0.16 * scaleMult);
+  root.add(weaponAnchor);
 
   const weaponMeshes: Record<CarbonWeaponId, THREE.Group> = {
     CARBINE: buildWeaponMesh("CARBINE"),
@@ -509,56 +643,63 @@ export function createStrikerRig(
     RAILGUN: buildWeaponMesh("RAILGUN"),
     LOBBER: buildWeaponMesh("LOBBER"),
   };
-  for (const [id, mesh] of Object.entries(weaponMeshes) as Array<[CarbonWeaponId, THREE.Group]>) {
-    mesh.visible = id === initialWeapon;
-    weaponAnchor.add(mesh);
-  }
+  (Object.keys(weaponMeshes) as CarbonWeaponId[]).forEach((wid) => {
+    weaponMeshes[wid].visible = wid === initialWeapon;
+    if (archetype === "BOSS_MECH") weaponMeshes[wid].scale.setScalar(1.32);
+    weaponAnchor.add(weaponMeshes[wid]);
+  });
 
-  // Crisp Muzzle Flash Pop
-  const muzzleGeo = new THREE.SphereGeometry(0.2, 10, 8);
+  // Crisp Muzzle Flash Star
   const muzzleMat = new THREE.MeshBasicMaterial({
     color: 0xfef08a,
     transparent: true,
     opacity: 0,
     depthWrite: false,
   });
-  const muzzleFlash = new THREE.Mesh(muzzleGeo, muzzleMat);
-  muzzleFlash.position.set(0, 0.02, 0.88);
+  const muzzleFlash = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), muzzleMat);
+  muzzleFlash.scale.set(1, 1, 2.4);
+  muzzleFlash.position.set(0, 0.03, 0.82);
   weaponAnchor.add(muzzleFlash);
 
-  // Energy Shield Bubble
+  // Tactical Combat Roll / Sprint Dust Wake
+  const dashConeGeo = new THREE.ConeGeometry(0.42, 1.4, 12, 1, true);
+  dashConeGeo.rotateX(-Math.PI / 2);
+  const dashMat = new THREE.MeshBasicMaterial({
+    color: 0xe2e8f0,
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const dashTrailCone = new THREE.Mesh(dashConeGeo, dashMat);
+  dashTrailCone.position.set(0, 0.65, -0.75);
+  root.add(dashTrailCone);
+
+  // Ballistic Armor Hit-Flash Rim
   const shieldMat = createHexShieldMaterial(0x38bdf8);
-  const shieldMesh = new THREE.Mesh(new THREE.SphereGeometry(0.92, 20, 16), shieldMat);
-  shieldMesh.scale.set(0.86, 1.12, 0.86);
-  shieldMesh.position.set(0, 1.0, 0);
+  const shieldRadius = archetype === "BOSS_MECH" ? 1.35 : 0.85;
+  const shieldMesh = new THREE.Mesh(new THREE.SphereGeometry(shieldRadius, 18, 14), shieldMat);
+  shieldMesh.position.y = archetype === "BOSS_MECH" ? 1.35 : 1.0;
   root.add(shieldMesh);
 
-  // Overhead Brawl-Style Floating Bar (Nickname + Shield + HP + Ammo for Local Player!)
+  // Overhead Enemy / Teammate Nameplate + HP/Armor Bar (hidden for ME in TPS so camera stays clean!)
   const hudCanvas = document.createElement("canvas");
-  hudCanvas.width = 280;
-  hudCanvas.height = 96;
+  hudCanvas.width = 256;
+  hudCanvas.height = 76;
   const hudTex = new THREE.CanvasTexture(hudCanvas);
-  hudTex.colorSpace = THREE.SRGBColorSpace;
-  const spriteMat = new THREE.SpriteMaterial({
-    map: hudTex,
-    transparent: true,
-    depthTest: false,
-  });
-  const hudSprite = new THREE.Sprite(spriteMat);
-  hudSprite.scale.set(2.45, 0.84, 1);
-  hudSprite.position.set(0, archetype === "DRONE" ? 1.95 : 2.38, 0);
-  hudSprite.renderOrder = 15;
+  hudTex.minFilter = THREE.LinearFilter;
+  const hudSprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: hudTex,
+      transparent: true,
+      depthTest: false,
+    })
+  );
+  hudSprite.renderOrder = 25;
+  hudSprite.scale.set(archetype === "BOSS_MECH" ? 2.9 : 2.1, archetype === "BOSS_MECH" ? 0.85 : 0.62, 1);
+  hudSprite.position.y = archetype === "BOSS_MECH" ? 2.85 : 2.18;
+  hudSprite.visible = role !== "ME";
   root.add(hudSprite);
-
-  if (archetype === "BOSS_MECH") {
-    bodyContainer.scale.setScalar(1.52);
-    weaponAnchor.scale.setScalar(1.38);
-    weaponAnchor.position.set(-0.54, 1.42, 0.3);
-    hudSprite.position.y = 3.25;
-    hudSprite.scale.set(3.0, 1.0, 1);
-  } else if (archetype === "ENFORCER") {
-    bodyContainer.scale.set(1.16, 1.12, 1.16);
-  }
 
   const rig: StrikerRig = {
     root,
@@ -568,7 +709,6 @@ export function createStrikerRig(
     weaponMeshes,
     muzzleFlash,
     dashTrailCone,
-    gyroRing,
     shieldMesh,
     shieldMat,
     hudSprite,
@@ -577,125 +717,27 @@ export function createStrikerRig(
     lastHudKey: "",
     mixer: null,
     actions: {},
-    currentAnim: "",
+    currentAnim: "Idle",
     activeWeapon: initialWeapon,
     archetype,
     role,
     recoil: 0,
     shieldFlash: 0,
-    animPhase: Math.random() * 10,
+    animPhase: Math.random() * Math.PI * 2,
     disposed: false,
   };
 
-  if (archetype !== "DRONE") {
-    if (cachedHeroGltf) {
-      attachAnimatedGltfHero(rig, cachedHeroGltf, palette.primary, palette.secondary);
-    } else {
-      loadCarbonHeroAsset().then((gltf) => {
-        if (gltf && !rig.disposed) {
-          attachAnimatedGltfHero(rig, gltf, palette.primary, palette.secondary);
-        }
-      });
-    }
+  if (cachedSoldierGltf) {
+    attachAnimatedSoldierGltf(rig, cachedSoldierGltf, fallbackHero);
+  } else {
+    loadCarbonHeroAsset().then((gltf) => {
+      if (gltf) attachAnimatedSoldierGltf(rig, gltf, fallbackHero);
+    });
   }
 
   return rig;
 }
 
-/**
- * Builds a sparkling Brawl-Stars-style 3D Purple/Magenta Crystal Gem (💎)
- */
-export function buildCrystalGemMesh(): THREE.Group {
-  const g = new THREE.Group();
-  const crystalMat = new THREE.MeshStandardMaterial({
-    color: 0xd946ef,
-    emissive: 0xa21caf,
-    emissiveIntensity: 0.65,
-    roughness: 0.14,
-    metalness: 0.2,
-  });
-  const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.36, 0), crystalMat);
-  gem.scale.set(0.88, 1.25, 0.88);
-  gem.castShadow = true;
-  g.add(gem);
-
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.36, 0.48, 24),
-    new THREE.MeshBasicMaterial({
-      color: 0xf0abfc,
-      transparent: true,
-      opacity: 0.72,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    })
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = -0.35;
-  g.add(ring);
-
-  return g;
-}
-
-/**
- * Builds a lush stylized 3D Tall Grass Stealth Bush zone (swaying rounded emerald blades)
- */
-export function buildTallGrassBushCluster(halfX: number, halfZ: number): THREE.Group {
-  const group = new THREE.Group();
-
-  // Soft mossy turf base pad
-  const baseMat = new THREE.MeshStandardMaterial({
-    color: 0x15803d,
-    roughness: 0.85,
-    metalness: 0.02,
-  });
-  const base = new THREE.Mesh(
-    new THREE.BoxGeometry(halfX * 2, 0.12, halfZ * 2),
-    baseMat
-  );
-  base.position.y = 0.06;
-  base.receiveShadow = true;
-  group.add(base);
-
-  const lushLight = new THREE.MeshStandardMaterial({
-    color: 0x22c55e,
-    roughness: 0.58,
-    metalness: 0.04,
-  });
-  const lushMid = new THREE.MeshStandardMaterial({
-    color: 0x16a34a,
-    roughness: 0.62,
-    metalness: 0.04,
-  });
-
-  const cols = Math.max(2, Math.round(halfX * 2.1));
-  const rows = Math.max(2, Math.round(halfZ * 2.1));
-  const stepX = (halfX * 1.72) / Math.max(1, cols - 1);
-  const stepZ = (halfZ * 1.72) / Math.max(1, rows - 1);
-
-  for (let ix = 0; ix < cols; ix++) {
-    for (let iz = 0; iz < rows; iz++) {
-      const lx = -halfX * 0.86 + ix * stepX + ((iz % 2) - 0.5) * 0.14;
-      const lz = -halfZ * 0.86 + iz * stepZ + ((ix % 2) - 0.5) * 0.14;
-      const r = 0.54 + ((ix + iz) % 3) * 0.07;
-      const h = 1.05 + ((ix * 3 + iz) % 3) * 0.12;
-      const tuft = new THREE.Mesh(
-        new THREE.DodecahedronGeometry(r, 1),
-        (ix + iz) % 2 === 0 ? lushLight : lushMid
-      );
-      tuft.scale.set(1.05, h / (r * 1.5), 1.05);
-      tuft.position.set(lx, 0.52, lz);
-      tuft.castShadow = true;
-      tuft.receiveShadow = true;
-      group.add(tuft);
-    }
-  }
-
-  return group;
-}
-
-/**
- * Redraws Brawl-Stars-style overhead nameplate + Gems 💎 + Shield + HP + (for ME) Orange Ammo Bar!
- */
 export function syncStrikerHudPlate(
   rig: StrikerRig,
   nickname: string,
@@ -703,162 +745,141 @@ export function syncStrikerHudPlate(
   maxHp: number,
   shield: number,
   maxShield: number,
-  overdrive: boolean,
-  ammoRatio = -1,
-  isReloading = false,
-  gems = 0,
-  inBushStealth = false
+  isOverdrive: boolean,
+  airdropPts = 0
 ) {
-  const hpQ = Math.max(0, Math.round((hp / Math.max(1, maxHp)) * 28));
-  const shQ = Math.max(0, Math.round((shield / Math.max(1, maxShield)) * 24));
-  const amQ = ammoRatio >= 0 ? Math.max(0, Math.round(ammoRatio * 20)) : -1;
-  const hpNum = Math.max(0, Math.round(hp + shield));
-  const key = `${nickname}|${hpQ}|${shQ}|${amQ}|${isReloading ? 1 : 0}|${overdrive ? 1 : 0}|${gems}|${inBushStealth ? 1 : 0}|${rig.role}`;
-  if (key === rig.lastHudKey) return;
+  if (rig.role === "ME") {
+    rig.hudSprite.visible = false;
+    return;
+  }
+  rig.hudSprite.visible = true;
+
+  const hpPct = Math.max(0, Math.min(1, hp / Math.max(1, maxHp)));
+  const shPct = Math.max(0, Math.min(1, shield / Math.max(1, maxShield)));
+  const key = `${nickname}|${Math.round(hpPct * 25)}|${Math.round(shPct * 25)}|${
+    isOverdrive ? 1 : 0
+  }|${rig.role}|${airdropPts}`;
+  if (rig.lastHudKey === key) return;
   rig.lastHudKey = key;
 
+  const pal = getRolePalette(rig.role, rig.archetype);
   const ctx = rig.hudCanvas.getContext("2d");
   if (!ctx) return;
 
-  const palette = getRolePalette(rig.role, rig.archetype);
-  ctx.clearRect(0, 0, 280, 96);
+  ctx.clearRect(0, 0, 256, 76);
 
-  // Nickname + Gem Badge (💎) + Bush Stealth Badge (🌿)
-  const cleanName = nickname.length > 11 ? nickname.slice(0, 10) + "…" : nickname;
-  const gemTag = gems >= 10 ? `👑💎${gems} ` : gems > 0 ? `💎${gems} ` : "";
-  const stealthTag = inBushStealth ? "🌿 " : "";
-  const title = `${stealthTag}${gemTag}${overdrive ? "⚡" : ""}${cleanName}`;
-  ctx.font = "900 19px system-ui, -apple-system, sans-serif";
+  // Tactical Callsign Label
+  const shortName = nickname.length > 15 ? nickname.slice(0, 14) + "…" : nickname;
+  const label = `${isOverdrive ? "⚡ " : ""}${shortName}`;
+  ctx.font = "900 20px system-ui, -apple-system, sans-serif";
   ctx.textAlign = "center";
   ctx.lineWidth = 5;
-  ctx.strokeStyle = "rgba(15, 23, 42, 0.95)";
-  ctx.strokeText(title, 140, 22);
-  ctx.fillStyle =
-    gems >= 10
-      ? "#fde047"
-      : gems > 0
-      ? "#f0abfc"
-      : overdrive
-      ? "#fde047"
-      : rig.role === "ME"
-      ? "#86efac"
-      : "#ffffff";
-  ctx.fillText(title, 140, 22);
+  ctx.strokeStyle = "rgba(2, 6, 23, 0.92)";
+  ctx.strokeText(label, 128, 24);
+  ctx.fillStyle = isOverdrive ? "#fde047" : "#ffffff";
+  ctx.fillText(label, 128, 24);
 
-  // Bar container pill
-  const barX = 34;
-  const barW = 212;
-  const pillH = amQ >= 0 ? 52 : 38;
-  ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
+  // Segmented HP + Ballistic Armor Plate Bar
+  const bx = 34;
+  const bw = 188;
+  ctx.fillStyle = "rgba(2, 6, 23, 0.85)";
   ctx.beginPath();
-  ctx.roundRect(barX - 6, 29, barW + 12, pillH, 11);
+  ctx.roundRect(bx - 3, 33, bw + 6, 24, 7);
   ctx.fill();
-  ctx.lineWidth = gems >= 10 ? 3.2 : 2.5;
-  ctx.strokeStyle =
-    gems >= 10 ? "#fde047" : gems > 0 ? "#e879f9" : overdrive ? "#fbbf24" : "rgba(255,255,255,0.35)";
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+  ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  // Shield Bar (Sky Cyan)
-  ctx.fillStyle = "rgba(51, 65, 85, 0.9)";
-  ctx.fillRect(barX, 34, barW, 7);
-  if (shQ > 0) {
+  if (shPct > 0.01) {
     ctx.fillStyle = "#38bdf8";
-    ctx.fillRect(barX, 34, (barW * shQ) / 24, 7);
+    ctx.fillRect(bx, 36, Math.max(4, bw * shPct), 6);
   }
 
-  // Health Bar (Emerald for ME, Sky Blue for ALLY, Coral Red for ENEMY)
-  ctx.fillStyle = "rgba(51, 65, 85, 0.95)";
-  ctx.fillRect(barX, 44, barW, 15);
-  const hpFrac = hpQ / 28;
-  ctx.fillStyle = palette.hpBar;
-  ctx.fillRect(barX, 44, barW * hpFrac, 15);
-
-  // Crisp numeric total HP centered inside HP bar
-  ctx.font = "900 12px system-ui, sans-serif";
-  ctx.fillStyle = "#ffffff";
-  ctx.fillText(`${hpNum}`, 140, 56);
-
-  // Local Player Ammo / Reload Bar (Vibrant Brawl-style Orange!)
-  if (amQ >= 0) {
-    ctx.fillStyle = "rgba(51, 65, 85, 0.95)";
-    ctx.fillRect(barX, 63, barW, 10);
-    ctx.fillStyle = isReloading ? "#fde047" : "#fb923c";
-    ctx.fillRect(barX, 63, barW * (amQ / 20), 10);
-
-    // 3 segment ticks like Brawl Stars ammo slots
-    ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-    ctx.fillRect(barX + barW * 0.333, 63, 2.5, 10);
-    ctx.fillRect(barX + barW * 0.666, 63, 2.5, 10);
-  }
+  ctx.fillStyle = pal.hpBar;
+  ctx.fillRect(bx, 44, Math.max(4, bw * hpPct), 10);
 
   rig.hudTex.needsUpdate = true;
 }
 
-/** Updates skeletal animations, weapon recoil, muzzle flash, shield pulse & dash trail @ 60 FPS */
+function fadeToSoldierAction(rig: StrikerRig, nextName: string, timeScale = 1) {
+  if (!rig.mixer) return;
+  const next = rig.actions[nextName];
+  if (!next) return;
+  next.timeScale = timeScale;
+  if (rig.currentAnim === nextName) return;
+
+  const prev = rig.actions[rig.currentAnim];
+  if (prev) prev.fadeOut(0.15);
+  next.reset().fadeIn(0.15).play();
+  rig.currentAnim = nextName;
+}
+
 export function updateStrikerRig(
   rig: StrikerRig,
   dt: number,
   elapsedSec: number,
-  speedXZ: number,
-  weapon: CarbonWeaponId,
-  isDashing: boolean,
+  moveSpeed: number,
   isAirborne: boolean,
-  hasShield: boolean,
-  overdrive: boolean
+  isDashing: boolean,
+  pitch: number,
+  shieldRatio: number
 ) {
-  if (rig.activeWeapon !== weapon) {
-    rig.weaponMeshes[rig.activeWeapon].visible = false;
-    rig.weaponMeshes[weapon].visible = true;
-    rig.activeWeapon = weapon;
+  // 1. Update Mixamo Skeletal Soldier Animations
+  if (rig.mixer) {
+    if (moveSpeed > 3.6 || isDashing) {
+      const runSpeed = isDashing ? 1.55 : Math.min(1.32, Math.max(0.82, moveSpeed / 5.5));
+      fadeToSoldierAction(rig, "Run", runSpeed);
+    } else if (moveSpeed > 0.32 && rig.actions["Walk"]) {
+      fadeToSoldierAction(rig, "Walk", Math.min(1.35, Math.max(0.85, moveSpeed / 2.8)));
+    } else {
+      fadeToSoldierAction(rig, "Idle", 1.0);
+    }
+    rig.mixer.update(dt);
+  } else {
+    rig.animPhase += dt * (moveSpeed > 0.35 ? 10 : 2.2);
+    rig.bodyContainer.position.y =
+      moveSpeed > 0.35 && !isAirborne ? Math.abs(Math.sin(rig.animPhase)) * 0.05 : 0;
+  }
+
+  // Forward tactical lean during combat roll / sprint
+  const targetTiltX = isDashing ? 0.32 : moveSpeed > 6.2 ? 0.08 : 0;
+  rig.bodyContainer.rotation.x += (targetTiltX - rig.bodyContainer.rotation.x) * Math.min(1, dt * 12);
+
+  // 2. Active Weapon Visibility, Vertical Aim Pitch (-pitch tilts barrel UP when facing +Z!) & Recoil
+  if (rig.weaponMeshes[rig.activeWeapon] && !rig.weaponMeshes[rig.activeWeapon].visible) {
+    (Object.keys(rig.weaponMeshes) as CarbonWeaponId[]).forEach((wid) => {
+      rig.weaponMeshes[wid].visible = wid === rig.activeWeapon;
+    });
   }
 
   rig.recoil = Math.max(0, rig.recoil - dt * 7.5);
-  rig.shieldFlash = Math.max(0, rig.shieldFlash - dt * 3.5);
+  const scaleMult = rig.archetype === "BOSS_MECH" ? 1.35 : 1.0;
+  // Remember: facing +Z, rotation around +X by -pitch raises +Z tip upward when pitch > 0!
+  rig.weaponAnchor.rotation.x = -pitch - rig.recoil * 0.22;
+  rig.weaponAnchor.position.z = 0.16 * scaleMult - rig.recoil * 0.09;
 
-  const flashMat = rig.muzzleFlash.material as THREE.MeshBasicMaterial;
-  if (flashMat.opacity > 0) {
-    flashMat.opacity = Math.max(0, flashMat.opacity - dt * 18);
-    rig.muzzleFlash.scale.setScalar(0.6 + flashMat.opacity * 0.7);
+  const muzzleMat = rig.muzzleFlash.material as THREE.MeshBasicMaterial;
+  if (muzzleMat.opacity > 0) {
+    muzzleMat.opacity = Math.max(0, muzzleMat.opacity - dt * 18);
+    rig.muzzleFlash.rotation.z += dt * 28;
   }
 
+  // 3. Combat Roll Dust Trail
+  const dashMat = rig.dashTrailCone.material as THREE.MeshBasicMaterial;
+  const targetDashOp = isDashing ? 0.45 : 0;
+  dashMat.opacity += (targetDashOp - dashMat.opacity) * Math.min(1, dt * 16);
+
+  // 4. Ballistic Armor Hit-Flash
+  rig.shieldFlash = Math.max(0, rig.shieldFlash - dt * 3.8);
   rig.shieldMat.uniforms.uTime.value = elapsedSec;
-  const baseShield = overdrive ? 0.35 : hasShield ? 0.08 : 0.0;
-  rig.shieldMat.uniforms.uOpacity.value = Math.min(0.85, baseShield + rig.shieldFlash * 0.75);
+  const targetShieldOp = shieldRatio > 0.02 ? rig.shieldFlash * 0.65 : 0;
+  rig.shieldMat.uniforms.uOpacity.value = targetShieldOp;
+  rig.shieldMesh.visible = targetShieldOp > 0.01;
+}
 
-  rig.dashTrailCone.visible = isDashing;
-  if (isDashing) {
-    rig.dashTrailCone.scale.set(1, 1, 0.9 + Math.sin(elapsedSec * 40) * 0.25);
-  }
-
-  if (rig.archetype === "DRONE") {
-    rig.animPhase += dt * (4.2 + speedXZ * 0.5);
-    rig.bodyContainer.position.y = 0.95 + Math.sin(rig.animPhase) * 0.1;
-    rig.bodyContainer.rotation.x = Math.min(0.28, speedXZ * 0.035);
-    if (rig.gyroRing) rig.gyroRing.rotation.z += dt * 5.5;
-    rig.weaponAnchor.position.z = 0.12 - rig.recoil * 0.15;
-    return;
-  }
-
-  // Advance GLB Skeletal Animation Mixer!
-  if (rig.mixer) {
-    const desiredClip = isAirborne
-      ? "Jump"
-      : speedXZ > 0.45 || isDashing
-      ? "Running"
-      : "Idle";
-    playHeroClip(rig, desiredClip);
-    rig.mixer.timeScale = isDashing ? 1.55 : speedXZ > 0.45 ? Math.min(1.35, 0.75 + speedXZ * 0.07) : 1.0;
-    rig.mixer.update(dt);
-  } else {
-    // Smooth hop while GLB loads
-    if (speedXZ > 0.45) {
-      rig.animPhase += dt * 11;
-      rig.bodyContainer.position.y = Math.abs(Math.sin(rig.animPhase)) * 0.12;
-    } else {
-      rig.bodyContainer.position.y = 0;
-    }
-  }
-
-  const baseZ = rig.archetype === "BOSS_MECH" ? 0.3 : 0.22;
-  rig.weaponAnchor.position.z = baseZ - rig.recoil * 0.16;
+export function triggerRigMuzzleFlash(rig: StrikerRig, colorHex: number) {
+  rig.recoil = 1.0;
+  const mat = rig.muzzleFlash.material as THREE.MeshBasicMaterial;
+  mat.color.setHex(colorHex);
+  mat.opacity = 0.95;
 }
