@@ -3,6 +3,7 @@ import {
   DiibCardsEngine,
   getRecommendedDiibCardsDistribution,
 } from "../games/diib-cards/engine";
+import { DIIB_CARDS_ROLE_META } from "../games/diib-cards/types";
 import { Player } from "../lib/types";
 import { RoomStore } from "../lib/rooms/store";
 
@@ -333,5 +334,15 @@ describe("Diib Cards (كوارط الذيب) Production Engine & Rules", () => {
     expect(rotatedPub.phase).toBe("ROLE_REVEAL");
     expect(rotatedPub.managerId).toBeDefined();
     expect(rotatedPub.managerId).not.toBe(friend2.id);
+  });
+
+  it("uses pure lightweight vector card metadata with zero heavy external image dependencies", () => {
+    const roles = Object.values(DIIB_CARDS_ROLE_META);
+    expect(roles.length).toBe(8);
+    for (const meta of roles) {
+      expect(meta.title.length).toBeGreaterThan(0);
+      expect(meta.description.length).toBeGreaterThan(0);
+      expect("image" in (meta as any)).toBe(false);
+    }
   });
 });

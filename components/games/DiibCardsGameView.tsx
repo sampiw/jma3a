@@ -254,30 +254,35 @@ export function DiibCardsGameView({
   // WRAPPER BACKDROP: LUXURY MOROCCAN TABLETOP TEXTURE
   // =========================================================================
   return (
-    <div className="relative w-full max-w-2xl mx-auto pb-8">
-      {/* Subtle Ambient Moroccan Tabletop Texture Card */}
+    <div dir="rtl" className="relative w-full max-w-2xl mx-auto pb-6">
+      {/* Subtle Ambient Moroccan Tabletop Glow (Zero External Images) */}
       <div
-        className="fixed inset-0 pointer-events-none opacity-[0.14] z-0 bg-cover bg-center"
-        style={{ backgroundImage: `url('/images/diib-cards/table-bg.png')` }}
+        className="fixed inset-0 pointer-events-none z-0"
+        style={{
+          background:
+            "radial-gradient(circle at 50% 18%, rgba(245, 158, 11, 0.08) 0%, transparent 60%)",
+        }}
       />
 
-      <div className="relative z-10 space-y-4">
+      <div className="relative z-10 space-y-3.5 sm:space-y-4">
         {/* ===================================================================
             TOP GAME HUD RIBBON (Match #, Manager Badge, Peek Card, Master Sheet)
            =================================================================== */}
         {phase !== "MANAGER_SELECT" && (
-          <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-2xl bg-jma3a-card/90 border border-amber-400/25 backdrop-blur-md shadow-lg">
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-300 text-xs font-black flex items-center gap-1.5">
-                <Crown className="w-3.5 h-3.5 text-amber-400" />
-                <span>المانيجر: {managerPlayer?.nickname || "—"}</span>
+          <div className="flex items-center justify-between gap-2 p-2.5 sm:p-3 rounded-2xl bg-jma3a-card/95 border border-amber-400/25 shadow-lg">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-300 text-xs font-black flex items-center gap-1 min-w-0">
+                <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="truncate max-w-[105px] sm:max-w-[180px]">
+                  {managerPlayer?.nickname || "—"}
+                </span>
               </span>
-              <span className="px-2.5 py-1 rounded-xl bg-jma3a-surface border border-jma3a-border text-jma3a-muted text-[11px] font-bold">
-                الجولة {matchNumber} &bull; اليوم {round}
+              <span className="px-2 py-1 rounded-xl bg-jma3a-surface border border-jma3a-border text-jma3a-muted text-[11px] font-bold whitespace-nowrap shrink-0">
+                طرح {matchNumber} &bull; يوم {round}
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 shrink-0">
               {/* Regular Player: Discreet Secret Card Peek Button */}
               {!isManager && phase !== "ROLE_REVEAL" && phase !== "GAME_OVER" && (
                 <button
@@ -286,9 +291,9 @@ export function DiibCardsGameView({
                     setPeekCardFlipped(false);
                     setPeekModalOpen(true);
                   }}
-                  className="px-3 py-1.5 rounded-xl bg-jma3a-surface hover:bg-jma3a-border border border-amber-400/40 text-amber-200 text-xs font-black flex items-center gap-1.5 transition-all active:scale-95"
+                  className="px-2.5 py-1.5 rounded-xl bg-jma3a-surface hover:bg-jma3a-border border border-amber-400/40 text-amber-200 text-xs font-black flex items-center gap-1 transition-all active:scale-95 whitespace-nowrap"
                 >
-                  <Eye className="w-3.5 h-3.5 text-amber-400" />
+                  <Eye className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                   <span>كارتتي 🃏</span>
                 </button>
               )}
@@ -300,14 +305,14 @@ export function DiibCardsGameView({
                     sound.playCardFlip();
                     setMasterRosterOpen(!masterRosterOpen);
                   }}
-                  className={`px-3 py-1.5 rounded-xl border text-xs font-black flex items-center gap-1.5 transition-all active:scale-95 ${
+                  className={`px-2.5 py-1.5 rounded-xl border text-xs font-black flex items-center gap-1 transition-all active:scale-95 whitespace-nowrap ${
                     masterRosterOpen
                       ? "bg-amber-500 text-jma3a-dark border-amber-300 shadow-md"
                       : "bg-amber-950/70 text-amber-200 border-amber-400/50 hover:bg-amber-900/60"
                   }`}
                 >
-                  <ScrollText className="w-3.5 h-3.5" />
-                  <span>كشف الكوارط ({publicData?.alivePlayerIds?.length || 0} حيين)</span>
+                  <ScrollText className="w-3.5 h-3.5 shrink-0" />
+                  <span>الكوارط ({publicData?.alivePlayerIds?.length || 0})</span>
                 </button>
               )}
             </div>
@@ -766,9 +771,9 @@ export function DiibCardsGameView({
                   <>
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-400/40 text-amber-300 text-xs font-black">
                       <Lock className="w-3.5 h-3.5" />
-                      <span>
-                        توزيع الكوارط بتلفون واحد ({publicData.dealRelay.currentIndex + 1} /{" "}
-                        {publicData.dealRelay.totalCount})
+                      <span>توزيع الكوارط بتلفون واحد</span>
+                      <span dir="ltr" className="font-mono tabular-nums">
+                        ({publicData.dealRelay.currentIndex + 1} / {publicData.dealRelay.totalCount})
                       </span>
                     </div>
 
@@ -850,36 +855,45 @@ export function DiibCardsGameView({
                 />
 
                 {/* Live Seen Progress Indicator */}
-                <div className="w-full max-w-sm p-3.5 rounded-2xl bg-jma3a-card/90 border border-jma3a-border flex items-center justify-between text-xs">
+                <div className="w-full max-w-[18.5rem] sm:max-w-sm p-3 rounded-2xl bg-jma3a-card/90 border border-jma3a-border flex items-center justify-between text-xs">
                   <span className="text-jma3a-muted font-semibold">اللاعبين لي قلبو كوارطهم:</span>
-                  <span className="font-black text-amber-300">
-                    {publicData?.cardsSeenCount || 0} / {publicData?.totalPlayableCount || playableCount} ✅
+                  <span className="font-black text-amber-300 flex items-center gap-1.5">
+                    <span dir="ltr" className="font-mono tabular-nums">
+                      {publicData?.cardsSeenCount || 0} /{" "}
+                      {publicData?.totalPlayableCount || playableCount}
+                    </span>
+                    <span>✅</span>
                   </span>
                 </div>
 
                 {isManager ? (
                   <div className="w-full max-w-md space-y-3">
-                    {/* Quick Master Summary right under Manager's Card */}
-                    {Array.isArray(effectivePrivate?.masterRoster) && (
-                      <div className="p-4 rounded-2xl bg-jma3a-card/95 border border-amber-400/40 text-right">
-                        <div className="text-xs font-black text-amber-300 mb-2">
-                          📜 توزيع الكوارط على الطاولة هاد الطرح:
+                    {/* Quick Master Summary — only shown when Manager flips their card or opens roster */}
+                    {Array.isArray(effectivePrivate?.masterRoster) &&
+                      (cardFlipped || masterRosterOpen ? (
+                        <div className="p-4 rounded-2xl bg-jma3a-card/95 border border-amber-400/40 text-right animate-fadeIn">
+                          <div className="text-xs font-black text-amber-300 mb-2">
+                            📜 توزيع الكوارط على الطاولة هاد الطرح:
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {effectivePrivate.masterRoster.map((r: any) => {
+                              const rm = DIIB_CARDS_ROLE_META[r.role as DiibCardRole];
+                              return (
+                                <span
+                                  key={r.playerId}
+                                  className={`px-2.5 py-1 rounded-xl text-xs font-bold border ${rm.badgeBg}`}
+                                >
+                                  {rm.emoji} {getPlayerName(r.playerId)} ({rm.title})
+                                </span>
+                              );
+                            })}
+                          </div>
                         </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {effectivePrivate.masterRoster.map((r: any) => {
-                            const rm = DIIB_CARDS_ROLE_META[r.role as DiibCardRole];
-                            return (
-                              <span
-                                key={r.playerId}
-                                className={`px-2.5 py-1 rounded-xl text-xs font-bold border ${rm.badgeBg}`}
-                              >
-                                {rm.emoji} {getPlayerName(r.playerId)} ({rm.title})
-                              </span>
-                            );
-                          })}
+                      ) : (
+                        <div className="p-3 rounded-2xl bg-jma3a-surface/70 border border-amber-400/25 text-xs text-amber-200/85 font-semibold">
+                          🔒 اقلب كارطة المانيجر (أو اضغط &ldquo;الكوارط&rdquo; الفوق) باش تشوف أدوار الطاولة سرياً
                         </div>
-                      </div>
-                    )}
+                      ))}
 
                     <button
                       onClick={() => {
@@ -1030,7 +1044,13 @@ export function DiibCardsGameView({
                 <div className="text-xs font-black text-rose-300">
                   💀 ضحايا هاد الليلة ({publicData.lastDawnDeaths.length}):
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-md mx-auto">
+                <div
+                  className={
+                    publicData.lastDawnDeaths.length === 1
+                      ? "max-w-[195px] mx-auto"
+                      : "grid grid-cols-2 gap-2.5 max-w-md mx-auto"
+                  }
+                >
                   {publicData.lastDawnDeaths.map((d: any) => (
                     <div key={d.playerId} className="space-y-1.5">
                       {d.revealedRole ? (
@@ -1541,9 +1561,11 @@ export function DiibCardsGameView({
 
         {phase === "RUNOFF_DEFENSE" && (
           <div className="p-6 rounded-3xl bg-jma3a-card border-2 border-amber-400/60 text-center shadow-2xl space-y-4 animate-fadeIn">
-            <span className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-xs font-black">
-              ⚔️ كلمة الدفاع الأخيرة ({publicData.runoffSpeakerIndex + 1} /{" "}
-              {(publicData.tiedCandidates || []).length})
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-xs font-black">
+              <span>⚔️ كلمة الدفاع الأخيرة</span>
+              <span dir="ltr" className="font-mono tabular-nums">
+                ({publicData.runoffSpeakerIndex + 1} / {(publicData.tiedCandidates || []).length})
+              </span>
             </span>
             <h2 className="text-3xl font-black text-jma3a-sand">
               {getPlayerName(publicData?.currentSpeakerId)}
@@ -1578,13 +1600,15 @@ export function DiibCardsGameView({
                   تم إقصاء {getPlayerName(publicData.lastDayElimination.playerId)}!
                 </h2>
                 {publicData.lastDayElimination.revealedRole ? (
-                  <DiibTarotCard
-                    role={publicData.lastDayElimination.revealedRole}
-                    playerName={getPlayerName(publicData.lastDayElimination.playerId)}
-                    isFlipped={true}
-                    compact={true}
-                    isDead={true}
-                  />
+                  <div className="max-w-[195px] mx-auto">
+                    <DiibTarotCard
+                      role={publicData.lastDayElimination.revealedRole}
+                      playerName={getPlayerName(publicData.lastDayElimination.playerId)}
+                      isFlipped={true}
+                      compact={true}
+                      isDead={true}
+                    />
+                  </div>
                 ) : (
                   <p className="text-xs text-jma3a-muted">الكارطة بقات طي الكتمان 🔒</p>
                 )}

@@ -226,7 +226,6 @@ export interface DiibRoleMeta {
   subtitle: string;
   emoji: string;
   team: DiibCardsTeam;
-  image: string;
   ruleBadge: string;
   description: string;
   themeGradient: string;
@@ -241,7 +240,6 @@ export const DIIB_CARDS_ROLE_META: Record<DiibCardRole, DiibRoleMeta> = {
     subtitle: "THE GAME MASTER",
     emoji: "👑",
     team: "MANAGER",
-    image: "/images/diib-cards/role-manager.png",
     ruleBadge: "سيّد الطاولة والقوانين 📜",
     description:
       "نتا هو عين الحومة وحكم القوانين! كتشوف كوارط الجميع، كتفيّق الأدوار بالليل، كتسجّل شكون مات وشكون تسكّت، وكتتحكم فتايمر الهضرة والتصويت!",
@@ -255,7 +253,6 @@ export const DIIB_CARDS_ROLE_META: Record<DiibCardRole, DiibRoleMeta> = {
     subtitle: "THE WEREWOLF",
     emoji: "🐺",
     team: "WOLVES",
-    image: "/images/diib-cards/role-wolf.png",
     ruleBadge: "هجوم ليلي مع العصابة 🩸",
     description:
       "كتفيق بالليل فصمت مع خوتك الذيابة بـ إشارة المانيجر، وكتختارو ضحية تفترسوها... وبالنهار مثّل البراءة وقلب التهمة على القرويين!",
@@ -269,7 +266,6 @@ export const DIIB_CARDS_ROLE_META: Record<DiibCardRole, DiibRoleMeta> = {
     subtitle: "SILENCER WOLF",
     emoji: "🤐",
     team: "WOLVES",
-    image: "/images/diib-cards/role-mute-wolf.png",
     ruleBadge: "افتراس + تسكيت لاعب بالنهار 🤐",
     description:
       "ذيب خطير من العصابة! كتفيق مع الذيابة باش تختارو الضحية، وعندك قوة تسكّت لاعب حي باش يصبح مبوّق وممنوع ينطق بحتى كلمة طيلة النهار!",
@@ -283,7 +279,6 @@ export const DIIB_CARDS_ROLE_META: Record<DiibCardRole, DiibRoleMeta> = {
     subtitle: "THE MYSTIC SEER",
     emoji: "🔮",
     team: "VILLAGE",
-    image: "/images/diib-cards/role-seer.png",
     ruleBadge: "كشف الهوية كل ليلة 👁️",
     description:
       "كل ليلة كيفيّقك المانيجر بوحدك، كتأشّري ليه بيدك على لاعب واحد وكيعطيك الإشارة واش ذيب ولا بريء. وجّهي الحومة بالنهار بلا ما تفرشي راسك!",
@@ -297,7 +292,6 @@ export const DIIB_CARDS_ROLE_META: Record<DiibCardRole, DiibRoleMeta> = {
     subtitle: "THE HERBALIST WITCH",
     emoji: "🧪",
     team: "VILLAGE",
-    image: "/images/diib-cards/role-witch.png",
     ruleBadge: "جرعة حياة ❤️ + جرعة سم 💀",
     description:
       "عندك جوج قراعي سحرية فالماتش كامل: قرعة الحياة كتعتق بيها ضحية الذيابة مرة وحدة، وقرعة السم كتقضي بيها على أي مشتبه فيه بالليل مرة وحدة!",
@@ -311,7 +305,6 @@ export const DIIB_CARDS_ROLE_META: Record<DiibCardRole, DiibRoleMeta> = {
     subtitle: "THE MEDINA GUARDIAN",
     emoji: "🛡️",
     team: "VILLAGE",
-    image: "/images/diib-cards/role-protector.png",
     ruleBadge: "درع ضد الذيابة (بلا تكرار متتالي) 🛡️",
     description:
       "عسّاس الحومة الشجاع! كل ليلة كتختار لاعب تحميه بدرعك من أنياب الذيابة (حتى راسك)، ولكن القانون كيمنع تحمي نفس الشخص جوج ليالي متابعين!",
@@ -325,7 +318,6 @@ export const DIIB_CARDS_ROLE_META: Record<DiibCardRole, DiibRoleMeta> = {
     subtitle: "THE ATLAS HUNTER",
     emoji: "🎯",
     team: "VILLAGE",
-    image: "/images/diib-cards/role-hunter.png",
     ruleBadge: "رصاصة الانتقام عند الموت 💥",
     description:
       "إيلا غدروك الذيابة بالليل ولا ظلموك الحومة بالتصويت، ما كتموتش بوحدك! قبل ما تسلم الروح كتيري رصاصتك الأخيرة على لاعب حي يمشي معاك!",
@@ -339,7 +331,6 @@ export const DIIB_CARDS_ROLE_META: Record<DiibCardRole, DiibRoleMeta> = {
     subtitle: "MEDINA VILLAGER",
     emoji: "👨‍🌾",
     team: "VILLAGE",
-    image: "/images/diib-cards/role-villager.png",
     ruleBadge: "قوة التحليل والتصويت 🏮",
     description:
       "ما عندك لا سحر لا سلاح بالليل، ولكن بالنهار عينك ميزانك! ركّز فملامح صحابك، حاصر المتناقضين فالهضرة، وصوّت بذكاء باش تنقي الحومة!",

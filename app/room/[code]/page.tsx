@@ -452,24 +452,29 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   return (
     <div className="flex flex-col min-h-screen">
       {/* Room Header */}
-      <header className="w-full border-b border-jma3a-border/40 bg-jma3a-dark/80 backdrop-blur-md sticky top-0 z-40">
-        <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+      <header className="w-full border-b border-jma3a-border/40 bg-jma3a-dark/90 backdrop-blur-md sticky top-0 z-40">
+        <div className="max-w-4xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => router.push("/")}
-              className="font-black text-jma3a-gold text-lg tracking-wider px-2.5 py-1 rounded-xl bg-jma3a-surface border border-jma3a-border hover:border-jma3a-gold"
+              className="font-black text-jma3a-gold text-base sm:text-lg tracking-wider px-2.5 py-1 rounded-xl bg-jma3a-surface border border-jma3a-border hover:border-jma3a-gold whitespace-nowrap shrink-0"
             >
               JMA3A
             </button>
 
             {/* Room Code Badge */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-jma3a-card border border-jma3a-border">
-              <span className="text-xs text-jma3a-muted">كود:</span>
-              <span className="font-mono font-black text-jma3a-gold text-sm tracking-wider">{room.code}</span>
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-jma3a-card border border-jma3a-border whitespace-nowrap shrink-0">
+              <span className="text-[11px] text-jma3a-muted">كود:</span>
+              <span
+                dir="ltr"
+                className="font-mono font-black text-jma3a-gold text-xs sm:text-sm tracking-wider whitespace-nowrap"
+              >
+                {room.code}
+              </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={handleCopyLink}
               className="p-2 rounded-xl bg-jma3a-surface hover:bg-jma3a-border text-jma3a-sand text-xs font-semibold flex items-center gap-1.5 border border-jma3a-border"
@@ -510,23 +515,33 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       </header>
 
       {/* Main Content Body */}
-      <main className="flex-1 max-w-4xl mx-auto w-full p-4 flex flex-col justify-between">
+      <main className="flex-1 max-w-4xl mx-auto w-full p-3 sm:p-4 flex flex-col justify-between">
         {/* Device-Local Multi-Player Switcher Header (When 2+ players share this phone) */}
         {myDevicePlayers.length > 1 && (
-          <div className="mb-4 p-3 rounded-2xl bg-gradient-to-r from-jma3a-surface to-jma3a-card border border-jma3a-gold/30 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-lg animate-fade-in">
+          <div className="mb-3 sm:mb-4 p-3 rounded-2xl bg-gradient-to-r from-jma3a-surface to-jma3a-card border border-jma3a-gold/30 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-lg animate-fade-in">
             <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-jma3a-gold" />
+              <Users className="w-4 h-4 text-jma3a-gold shrink-0" />
               <span className="text-xs text-jma3a-sand font-bold">
                 هاد التليفون كيقسموه {myDevicePlayers.length} لاعبين:
               </span>
             </div>
-            <div className="flex items-center gap-1.5 overflow-x-auto max-w-full">
+            <div className="flex items-center gap-1.5 overflow-x-auto max-w-full pb-0.5">
               {myDevicePlayers.map((dp) => {
                 const isActive = dp.id === currentActivePlayerId;
+                const isDiibCards = room.selectedGameId === "diib-cards";
+                const isDiibManager = Boolean(
+                  isDiibCards && diibCardsManagerId && dp.id === diibCardsManagerId
+                );
+                const isPreDealPhase = Boolean(
+                  isDiibCards && room.gameView?.phase === "MANAGER_SELECT"
+                );
                 const pubAlive = (room.gameView?.publicData as any)?.alivePlayerIds as string[] | undefined;
                 const isAlive =
-                  dp.privateView?.privateData?.isAlive !== false &&
-                  (!pubAlive || pubAlive.includes(dp.id));
+                  isLobby ||
+                  isDiibManager ||
+                  isPreDealPhase ||
+                  (dp.privateView?.privateData?.isAlive !== false &&
+                    (!pubAlive || pubAlive.includes(dp.id)));
 
                 return (
                   <button
@@ -540,8 +555,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                         }
                       }
                     }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                      !isAlive
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                      isDiibManager
+                        ? isActive
+                          ? "bg-amber-400 text-jma3a-dark shadow-md"
+                          : "bg-amber-950/55 text-amber-200 hover:bg-amber-900/60 border border-amber-400/50"
+                        : !isAlive
                         ? isActive
                           ? "bg-rose-950/80 text-rose-300 border border-rose-500/50 shadow-md"
                           : "bg-rose-950/30 text-rose-300/60 hover:bg-rose-950/50 border border-rose-900/30 line-through"
@@ -550,11 +569,15 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                         : "bg-jma3a-surface/80 text-jma3a-sand hover:bg-jma3a-border border border-jma3a-border"
                     }`}
                   >
-                    {!isAlive && <span>💀</span>}
+                    {isDiibManager ? <span>👑</span> : !isAlive ? <span>💀</span> : null}
                     <span className={!isAlive ? "line-through" : ""}>{dp.nickname}</span>
                     {isActive && (
                       <span className="text-[10px]">
-                        {isAlive ? "👈 نوبتك دابا" : "(مقصى 💀)"}
+                        {isDiibManager
+                          ? "👈 المانيجر"
+                          : isAlive
+                          ? "👈 نوبتك دابا"
+                          : "(مقصى 💀)"}
                       </span>
                     )}
                   </button>
@@ -825,11 +848,25 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 </button>
 
                 <button
-                  onClick={() => handleSwitchGame(room.selectedGameId)}
+                  onClick={() => {
+                    if (
+                      room.selectedGameId === "diib-cards" &&
+                      room.gameView?.phase === "GAME_OVER"
+                    ) {
+                      handleGameAction({ type: "NEW_GAME_NEW_MANAGER" });
+                    } else {
+                      handleSwitchGame(room.selectedGameId);
+                    }
+                  }}
                   className="py-3 px-5 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold text-xs shadow-md flex items-center gap-2"
                 >
                   <RotateCcw className="w-4 h-4" />
-                  <span>نعاودو نلعبو</span>
+                  <span>
+                    {room.selectedGameId === "diib-cards" &&
+                    room.gameView?.phase !== "GAME_OVER"
+                      ? "رجوع للوبي"
+                      : "نعاودو نلعبو"}
+                  </span>
                 </button>
               </>
             )}
