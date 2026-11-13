@@ -342,6 +342,8 @@ export function Ksida3DArena({
     onLapBanner,
     onPerfectLaunch,
   };
+  const liveParamsRef = useRef({ countdownEndsAt, targetLaps });
+  liveParamsRef.current = { countdownEndsAt, targetLaps };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -1055,7 +1057,7 @@ export function Ksida3DArena({
       const dt = rawDt;
       const nowMs = Date.now();
       const timeSec = perfNow * 0.001;
-      const inCountdown = nowMs < countdownEndsAt;
+      const inCountdown = nowMs < liveParamsRef.current.countdownEndsAt;
 
       skyMat.uniforms.uTime.value = timeSec;
       oceanMat.uniforms.uTime.value = timeSec;
@@ -1228,14 +1230,15 @@ export function Ksida3DArena({
             localProgressRef.current.nextCheckpoint = prog.nextCheckpoint;
             localProgressRef.current.trackProgress = prog.trackProgress;
 
-            if (prog.completedLap && prog.lap <= targetLaps) {
+            const activeTargetLaps = liveParamsRef.current.targetLaps;
+            if (prog.completedLap && prog.lap <= activeTargetLaps) {
               ksidaSfx.playLapFanfare(false);
-              cbsRef.current.onLapBanner?.(prog.lap, targetLaps);
+              cbsRef.current.onLapBanner?.(prog.lap, activeTargetLaps);
               spawnComicPopup(
                 kin.x,
                 kin.y + 1.2,
                 kin.z,
-                `الدورة ${prog.lap}/${targetLaps}! 🏁`,
+                `الدورة ${prog.lap}/${activeTargetLaps}! 🏁`,
                 "#16a34a"
               );
             }
@@ -1759,8 +1762,6 @@ export function Ksida3DArena({
     myId,
     mode,
     phase,
-    countdownEndsAt,
-    targetLaps,
     racersRef,
     cratesRef,
     barrelsRef,

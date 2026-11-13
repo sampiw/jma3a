@@ -100,6 +100,13 @@ const CIRCUIT_SVG_PATH =
 
 const FINISH_PT = TRACK_POLYLINE[FINISH_SAMPLE_INDEX];
 
+/** Non-linear precision curve so small thumb movements steer smoothly while full pull turns sharply */
+function shapeAnalogSteer(rawNorm: number): number {
+  const clamped = Math.max(-1, Math.min(1, rawNorm));
+  const abs = Math.abs(clamped);
+  return Math.sign(clamped) * (0.4 * abs + 0.6 * abs * abs);
+}
+
 export function Ksida3DGameView({
   publicData,
   privateData,
@@ -115,8 +122,10 @@ export function Ksida3DGameView({
   const [isMuted, setIsMuted] = useState(sound.isMuted);
   const [isDesktopFinePointer, setIsDesktopFinePointer] = useState(false);
   const [forceTouchHud, setForceTouchHud] = useState(false);
-  const [autoGas, setAutoGas] = useState(false);
-  const [touchSteerStyle, setTouchSteerStyle] = useState<"PADDLES" | "WHEEL">("PADDLES");
+
+  // Mobile-friendly defaults: Auto-Gas ON + Smooth Analog Wheel!
+  const [autoGas, setAutoGas] = useState(true);
+  const [touchSteerStyle, setTouchSteerStyle] = useState<"WHEEL" | "JOYSTICK" | "PADDLES">("WHEEL");
 
   const [garageOpen, setGarageOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -127,14 +136,22 @@ export function Ksida3DGameView({
   const [centerBanner, setCenterBanner] = useState<{ text: string; sub?: string; color: string } | null>(
     null
   );
-  const [steerKnobUi, setSteerKnobUi] = useState(0); // -1..1 visual indicator
+  const [steerKnobUi, setSteerKnobUi] = useState(0); // -1..1 visual wheel offset
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     setMounted(true);
     setIsFullscreen(isFullscreenActive() || isStandaloneApp());
-    const finePtr = Boolean(window.matchMedia?.("(pointer: fine)").matches);
+    const hasTouch =
+      typeof window !== "undefined" &&
+      ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+    const finePtr = Boolean(window.matchMedia?.("(pointer: fine)").matches) && !hasTouch;
     setIsDesktopFinePointer(finePtr);
+    if (finePtr) {
+      setAutoGas(false); // Desktop keyboard players use W/Up; Mobile defaults to Auto-Gas ON!
+    } else {
+      setAutoGas(true);
+    }
 
     let wakeLock: any = null;
     if (typeof navigator !== "undefined" && "wakeLock" in navigator) {
@@ -369,7 +386,7 @@ export function Ksida3DGameView({
     }
   }, [phase]);
 
-  // 1-Tap / R-Key Track Recovery (unsticks from walls or fixes wrong-way instantly!)
+  // 1-Tap / R-Key Track Recovery
   const handleResetToTrack = useCallback(() => {
     const now = Date.now();
     if (now - lastTrackResetAtRef.current < 1100) return;
@@ -440,12 +457,12 @@ export function Ksida3DGameView({
     let throttle = 0;
     if (keyBrake || touchBrakeRef.current) {
       throttle = -1;
-    } else if (
-      keyGas ||
-      touchGasHoldRef.current ||
-      (!inCountdown && (touchDriftRef.current || autoGas))
-    ) {
-      // Note: On mobile, holding the DRIFT button also maintains forward gas so 1 right thumb can drift seamlessly!
+    } else if (inCountdown) {
+      // During 3..2..1 countdown, holding W / Gas / Drift / Nitro revs the engine for Rocket Start without Auto-Gas over-revving!
+      if (keyGas || touchGasHoldRef.current || touchDriftRef.current || touchNitroRef.current) {
+        throttle = 1;
+      }
+    } else if (keyGas || touchGasHoldRef.current || touchDriftRef.current || autoGas) {
       throttle = 1;
     }
 
@@ -460,9 +477,10 @@ export function Ksida3DGameView({
     driveInputRef.current.lookBackHeld = keyLookBack;
   }, [autoGas]);
 
+  // Keep throttle synced right as countdown ends so Auto-Gas takes off immediately on GO!
   useEffect(() => {
     syncCombinedDriveInput();
-  }, [autoGas, countdownEndsAt, syncCombinedDriveInput]);
+  }, [autoGas, countdownEndsAt, nowMs, syncCombinedDriveInput]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -526,48 +544,100 @@ export function Ksida3DGameView({
     sendMemeTaunt,
   ]);
 
-  // Unified Touch Steering Zone (supports Dual Tactile Paddles with slide-across OR Analog Wheel)
-  const steerPadRef = useRef<{ pointerId: number | null; centerX: number }>({
+  // === MOBILE TOUCH STEERING (Smooth Analog Wheel / Floating Joystick / Progressive Paddles) ===
+  const steerPadRef = useRef<{
+    pointerId: number | null;
+    anchorX: number;
+    halfSpanPx: number;
+  }>({
     pointerId: null,
-    centerX: 0,
+    anchorX: 0,
+    halfSpanPx: 56,
   });
 
-  const applyTouchSteerFromClientX = (clientX: number, rect: DOMRect) => {
-    const cx = rect.left + rect.width * 0.5;
+  const computeAndApplyTouchSteer = (clientX: number) => {
+    const { anchorX, halfSpanPx } = steerPadRef.current;
+    const dx = clientX - anchorX;
+
     if (touchSteerStyle === "PADDLES") {
-      const rel = (clientX - cx) / Math.max(1, rect.width * 0.5);
-      // Crisp digital-progressive paddle response with tiny deadzone right at seam
-      const val = Math.abs(rel) < 0.08 ? 0 : rel < 0 ? -1 : 1;
+      const val = Math.abs(dx) < 6 ? 0 : dx < 0 ? -0.92 : 0.92;
       touchSteerRef.current = val;
       setSteerKnobUi(val);
     } else {
-      const norm = Math.max(-1, Math.min(1, (clientX - cx) / (rect.width * 0.36)));
-      touchSteerRef.current = norm;
-      setSteerKnobUi(norm);
+      // 6px comfort deadzone at center so resting thumb drives dead-straight
+      const deadzone = 6;
+      if (Math.abs(dx) <= deadzone) {
+        touchSteerRef.current = 0;
+        setSteerKnobUi(0);
+      } else {
+        const effDx = dx - Math.sign(dx) * deadzone;
+        const rawNorm = Math.max(-1, Math.min(1, effDx / Math.max(32, halfSpanPx)));
+        const shaped = shapeAnalogSteer(rawNorm);
+        touchSteerRef.current = shaped;
+        setSteerKnobUi(rawNorm);
+      }
     }
     syncCombinedDriveInput();
   };
 
   const onSteerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
     const rect = e.currentTarget.getBoundingClientRect();
-    steerPadRef.current = { pointerId: e.pointerId, centerX: rect.left + rect.width * 0.5 };
-    applyTouchSteerFromClientX(e.clientX, rect);
+    // JOYSTICK anchors at your exact thumb touchdown spot; WHEEL/PADDLES anchor at visual center!
+    const anchorX =
+      touchSteerStyle === "JOYSTICK" ? e.clientX : rect.left + rect.width * 0.5;
+    steerPadRef.current = {
+      pointerId: e.pointerId,
+      anchorX,
+      halfSpanPx: Math.max(42, rect.width * 0.34),
+    };
+    computeAndApplyTouchSteer(e.clientX);
   };
 
   const onSteerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (steerPadRef.current.pointerId !== e.pointerId) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    applyTouchSteerFromClientX(e.clientX, rect);
+    computeAndApplyTouchSteer(e.clientX);
   };
 
-  const onSteerPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+  const onSteerPointerRelease = (e: React.PointerEvent<HTMLDivElement>) => {
     if (steerPadRef.current.pointerId !== e.pointerId) return;
     steerPadRef.current.pointerId = null;
     touchSteerRef.current = 0;
     setSteerKnobUi(0);
     syncCombinedDriveInput();
   };
+
+  /** Pointer-captured button helper so mobile thumb holds NEVER drop when thumb rolls slightly */
+  const makeHoldHandlers = (
+    refFlag: React.MutableRefObject<boolean>,
+    onPressExtra?: () => void
+  ) => ({
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {}
+      refFlag.current = true;
+      onPressExtra?.();
+      syncCombinedDriveInput();
+    },
+    onPointerUp: () => {
+      refFlag.current = false;
+      syncCombinedDriveInput();
+    },
+    onPointerCancel: () => {
+      refFlag.current = false;
+      syncCombinedDriveInput();
+    },
+    onLostPointerCapture: () => {
+      refFlag.current = false;
+      syncCombinedDriveInput();
+    },
+  });
 
   const toggleSound = () => {
     sound.isMuted = !isMuted;
@@ -590,7 +660,7 @@ export function Ksida3DGameView({
     } catch {}
   };
 
-  // Live HUD derived values (refreshed via `hudTick` & 100ms `nowMs`)
+  // Live HUD derived values
   void hudTick;
   const allRacers = Object.values(racersRef.current);
   const activeRacersList = allRacers.length > 0 ? allRacers : Object.values(initialRacers);
@@ -666,9 +736,11 @@ export function Ksida3DGameView({
   const gameContent = (
     <div
       dir="rtl"
+      onContextMenu={(e) => e.preventDefault()}
       className={`${
         isImmersive ? "fixed inset-0 z-50" : "relative w-full h-[82vh] rounded-3xl overflow-hidden"
       } bg-slate-950 text-white select-none overflow-hidden font-sans`}
+      style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
     >
       {/* 60FPS Three.js World Canvas */}
       <Ksida3DArena
@@ -714,32 +786,32 @@ export function Ksida3DGameView({
       {/* Nitro / Turbo Pad / Mint Tea Overdrive Screen Edge Glow */}
       {(kin.isNitroActive || kin.turboPadTimer > 0 || (me && me.atayUntil > nowMs)) && (
         <div
-          className={`pointer-events-none absolute inset-0 border-[6px] ${
+          className={`pointer-events-none absolute inset-0 border-[5px] ${
             me && me.atayUntil > nowMs
-              ? "border-emerald-400/65 shadow-[inset_0_0_55px_rgba(16,185,129,0.5)]"
-              : "border-cyan-400/55 shadow-[inset_0_0_45px_rgba(56,189,248,0.45)]"
+              ? "border-emerald-400/65 shadow-[inset_0_0_50px_rgba(16,185,129,0.5)]"
+              : "border-cyan-400/55 shadow-[inset_0_0_40px_rgba(56,189,248,0.45)]"
           } animate-pulse`}
         />
       )}
 
       {/* Ticking Hot-Bomb Urgent Red Vignette if YOU have the Butagaz! */}
       {isHoldingBomb && phase === "PLAYING" && (
-        <div className="pointer-events-none absolute inset-0 border-[8px] border-red-500/80 shadow-[inset_0_0_70px_rgba(239,68,68,0.65)] animate-pulse" />
+        <div className="pointer-events-none absolute inset-0 border-[7px] border-red-500/80 shadow-[inset_0_0_65px_rgba(239,68,68,0.65)] animate-pulse" />
       )}
 
       {/* === TOP BAR HUD === */}
-      <div className="absolute top-0 inset-x-0 z-20 p-2.5 sm:p-4 flex items-start justify-between gap-2 pointer-events-none">
+      <div className="absolute top-0 inset-x-0 z-20 p-2 sm:p-3.5 flex items-start justify-between gap-1.5 pointer-events-none">
         {/* Right (RTL Start): Rank, Mode/Lap, Grace Timer & Match Clock */}
-        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pointer-events-auto">
-          <div className="px-3 py-1.5 rounded-2xl bg-slate-950/85 backdrop-blur-md border border-amber-400/60 shadow-lg flex items-center gap-2">
-            <span className="text-lg sm:text-2xl font-black text-amber-300">#{myRank}</span>
-            <span className="text-[11px] text-slate-300 font-bold">/ {standings.length}</span>
+        <div className="flex flex-wrap items-center gap-1 sm:gap-2 pointer-events-auto">
+          <div className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-2xl bg-slate-950/85 backdrop-blur-md border border-amber-400/60 shadow-lg flex items-center gap-1.5">
+            <span className="text-base sm:text-2xl font-black text-amber-300">#{myRank}</span>
+            <span className="text-[10px] sm:text-[11px] text-slate-300 font-bold">/{standings.length}</span>
           </div>
 
           {mode === "RACE" && (
-            <div className="px-3 py-1.5 rounded-2xl bg-slate-950/85 backdrop-blur-md border border-emerald-400/50 text-xs sm:text-sm font-black text-emerald-200 flex items-center gap-1.5">
+            <div className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-2xl bg-slate-950/85 backdrop-blur-md border border-emerald-400/50 text-[11px] sm:text-sm font-black text-emerald-200 flex items-center gap-1.5">
               <span>
-                🏁 الدورة {Math.min(settings.targetLaps, localProgressRef.current.lap)}/{settings.targetLaps}
+                🏁 {Math.min(settings.targetLaps, localProgressRef.current.lap)}/{settings.targetLaps}
               </span>
               <span className="hidden md:inline text-[11px] text-slate-400 font-bold">
                 • {nextCpObj?.labelAr}
@@ -749,56 +821,47 @@ export function Ksida3DGameView({
 
           {mode === "DERBY" && (
             <div
-              className={`px-3 py-1.5 rounded-2xl backdrop-blur-md border text-xs sm:text-sm font-black ${
+              className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-2xl backdrop-blur-md border text-[11px] sm:text-sm font-black ${
                 isHoldingCrown
                   ? "bg-amber-500/90 border-yellow-200 text-slate-950 animate-bounce"
                   : "bg-slate-950/85 border-amber-400/50 text-amber-200"
               }`}
             >
               {isHoldingCrown
-                ? "👑 عندك التاج الذهبي! هرب!"
-                : `💥 ${me?.score ?? 0}/${settings.targetDerbyScore} نقطة`}
+                ? "👑 التاج عندك!"
+                : `💥 ${me?.score ?? 0}/${settings.targetDerbyScore}`}
             </div>
           )}
 
           {mode === "HOT_BOMB" && (
             <div
-              className={`px-3 py-1.5 rounded-2xl backdrop-blur-md border text-xs sm:text-sm font-black ${
+              className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-2xl backdrop-blur-md border text-[11px] sm:text-sm font-black ${
                 isHoldingBomb
                   ? "bg-red-600 border-yellow-300 text-white animate-bounce"
                   : "bg-slate-950/85 border-rose-400/50 text-rose-200"
               }`}
             >
-              {isHoldingBomb
-                ? `💣 البوطا فوقك! قيس شي حد (${bombSecsLeft}s)`
-                : `💣 تفرگيعة البوطا: ${bombSecsLeft}s`}
+              {isHoldingBomb ? `💣 قيس شي حد (${bombSecsLeft}s)` : `💣 ${bombSecsLeft}s`}
             </div>
           )}
 
           {graceSecsLeft > 0 && (
-            <div className="px-2.5 py-1.5 rounded-2xl bg-amber-600/90 border border-yellow-200 text-xs font-black text-white animate-pulse">
-              🏁 الأول وصل! باقي {graceSecsLeft}ث
+            <div className="px-2 py-1 rounded-2xl bg-amber-600/90 border border-yellow-200 text-[11px] font-black text-white animate-pulse">
+              🏁 {graceSecsLeft}ث
             </div>
           )}
 
-          <div className="px-2.5 py-1.5 rounded-2xl bg-slate-950/80 border border-slate-700/80 text-xs font-mono font-bold text-slate-200">
-            ⏱ {mins}:{secs}
+          <div className="px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-2xl bg-slate-950/80 border border-slate-700/80 text-[11px] sm:text-xs font-mono font-bold text-slate-200">
+            {mins}:{secs}
           </div>
-
-          {roomCode && (
-            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl bg-slate-950/75 border border-slate-700 text-[11px] font-bold text-slate-300">
-              <span className={`w-2 h-2 rounded-full ${isLive ? "bg-emerald-400" : "bg-amber-400"}`} />
-              <span>كود: {roomCode}</span>
-            </div>
-          )}
         </div>
 
-        {/* Left (RTL End): Track Reset, Garage, Standings, Settings, Sound, Fullscreen, Exit */}
-        <div className="flex items-center gap-1.5 pointer-events-auto">
+        {/* Left (RTL End): Track Reset, Garage, Standings, Settings, Sound, Exit */}
+        <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto">
           <button
             type="button"
             onClick={handleResetToTrack}
-            className="px-2.5 py-2 rounded-xl bg-slate-900/85 hover:bg-cyan-950 border border-cyan-500/40 text-xs font-black text-cyan-200 flex items-center gap-1 active:scale-95"
+            className="p-2 sm:px-2.5 sm:py-2 rounded-xl bg-slate-900/85 hover:bg-cyan-950 border border-cyan-500/40 text-xs font-black text-cyan-200 flex items-center gap-1 active:scale-95"
             title="إرجاع للطريق (R)"
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -808,7 +871,7 @@ export function Ksida3DGameView({
           <button
             type="button"
             onClick={() => setGarageOpen(true)}
-            className="px-2.5 py-2 rounded-xl bg-gradient-to-r from-amber-500/90 to-orange-600/90 hover:brightness-110 border border-amber-300/60 text-xs font-black text-white shadow-lg flex items-center gap-1 active:scale-95"
+            className="px-2 py-1.5 sm:px-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-amber-500/90 to-orange-600/90 border border-amber-300/60 text-xs font-black text-white shadow-lg flex items-center gap-1 active:scale-95"
             title="بدل الطوموبيل (G)"
           >
             <span>{mySpec?.emoji || "🚕"}</span>
@@ -818,7 +881,7 @@ export function Ksida3DGameView({
           <button
             type="button"
             onClick={() => setStandingsOpen((v) => !v)}
-            className="p-2 rounded-xl bg-slate-900/85 hover:bg-slate-800 border border-slate-700 text-amber-300"
+            className="p-2 rounded-xl bg-slate-900/85 border border-slate-700 text-amber-300"
             title="الترتيب"
           >
             <Trophy className="w-4 h-4" />
@@ -827,7 +890,7 @@ export function Ksida3DGameView({
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}
-            className="p-2 rounded-xl bg-slate-900/85 hover:bg-slate-800 border border-slate-700 text-cyan-300"
+            className="p-2 rounded-xl bg-slate-900/85 border border-slate-700 text-cyan-300"
             title="إعدادات الطور والتحكم"
           >
             <Settings2 className="w-4 h-4" />
@@ -836,7 +899,7 @@ export function Ksida3DGameView({
           <button
             type="button"
             onClick={toggleSound}
-            className="p-2 rounded-xl bg-slate-900/85 hover:bg-slate-800 border border-slate-700 text-slate-200"
+            className="p-2 rounded-xl bg-slate-900/85 border border-slate-700 text-slate-200"
           >
             {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-amber-300" />}
           </button>
@@ -844,7 +907,7 @@ export function Ksida3DGameView({
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="hidden sm:flex p-2 rounded-xl bg-slate-900/85 hover:bg-slate-800 border border-slate-700 text-slate-200"
+            className="hidden sm:flex p-2 rounded-xl bg-slate-900/85 border border-slate-700 text-slate-200"
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
@@ -852,7 +915,7 @@ export function Ksida3DGameView({
           <button
             type="button"
             onClick={() => setIsImmersive((v) => !v)}
-            className="p-2 rounded-xl bg-rose-950/85 hover:bg-rose-900 border border-rose-500/50 text-rose-200"
+            className="p-2 rounded-xl bg-rose-950/85 border border-rose-500/50 text-rose-200"
             title={isImmersive ? "رجوع للغرفة" : "ملء الشاشة"}
           >
             <DoorOpen className="w-4 h-4" />
@@ -860,18 +923,17 @@ export function Ksida3DGameView({
         </div>
       </div>
 
-      {/* === LIVE 2D RADAR MINIMAP (Top-Left below controls) === */}
+      {/* === LIVE 2D RADAR MINIMAP (Top-Left) === */}
       {phase === "PLAYING" && (
         <div
           dir="ltr"
-          className="pointer-events-none absolute top-14 left-2.5 sm:top-16 sm:left-4 z-20 rounded-2xl bg-slate-950/80 backdrop-blur-md border border-slate-700/80 p-1.5 shadow-xl"
+          className="pointer-events-none absolute top-12 left-2 sm:top-16 sm:left-4 z-20 rounded-2xl bg-slate-950/75 backdrop-blur-md border border-slate-700/80 p-1 shadow-xl"
         >
           {mode === "RACE" ? (
             <svg
               viewBox="-248 -182 496 368"
-              className="w-28 h-20 sm:w-40 sm:h-28 block"
+              className="w-24 h-18 sm:w-36 sm:h-26 block"
             >
-              {/* Ronda Plaza Ring */}
               <circle
                 cx={RONDA_CENTER.x}
                 cy={RONDA_CENTER.z}
@@ -881,7 +943,6 @@ export function Ksida3DGameView({
                 strokeWidth="4"
                 opacity="0.9"
               />
-              {/* Track Outer Border & Inner Asphalt */}
               <path
                 d={CIRCUIT_SVG_PATH}
                 fill="none"
@@ -896,14 +957,12 @@ export function Ksida3DGameView({
                 strokeWidth="18"
                 strokeLinejoin="round"
               />
-              {/* Ronda Fountain Island */}
               <circle
                 cx={RONDA_CENTER.x}
                 cy={RONDA_CENTER.z}
                 r={RONDA_FOUNTAIN_RADIUS + 2}
                 fill="#38bdf8"
               />
-              {/* Start/Finish Line Marker */}
               <circle
                 cx={FINISH_PT.x}
                 cy={FINISH_PT.z}
@@ -912,7 +971,6 @@ export function Ksida3DGameView({
                 stroke="#ef4444"
                 strokeWidth="3.5"
               />
-              {/* Next Checkpoint Beacon */}
               {nextCpObj && (
                 <circle
                   cx={nextCpObj.x}
@@ -924,7 +982,6 @@ export function Ksida3DGameView({
                   opacity="0.85"
                 />
               )}
-              {/* Rival Racers */}
               {activeRacersList.map((r) => {
                 if (r.id === myId || !r.isAlive) return null;
                 return (
@@ -939,7 +996,6 @@ export function Ksida3DGameView({
                   />
                 );
               })}
-              {/* Local Player Directional Arrow */}
               <g
                 transform={`translate(${kin.x.toFixed(1)}, ${kin.z.toFixed(1)}) rotate(${(
                   (-kin.yaw * 180) /
@@ -955,7 +1011,7 @@ export function Ksida3DGameView({
               </g>
             </svg>
           ) : (
-            <svg viewBox="-74 -74 148 148" className="w-24 h-24 sm:w-32 sm:h-32 block">
+            <svg viewBox="-74 -74 148 148" className="w-20 h-20 sm:w-28 sm:h-28 block">
               <circle
                 cx="0"
                 cy="0"
@@ -1023,13 +1079,58 @@ export function Ksida3DGameView({
         </div>
       )}
 
+      {/* === COMPACT MOBILE TOP-CENTER SPEEDOMETER & ARMOR PILL (Keeps bottom 100% open for thumbs!) === */}
+      {phase === "PLAYING" && showTouchControls && (
+        <div
+          dir="ltr"
+          className="pointer-events-none absolute top-12 inset-x-0 z-20 flex flex-col items-center"
+        >
+          <div className="px-3 py-1 rounded-2xl bg-slate-950/80 backdrop-blur-md border border-slate-700/80 shadow-lg min-w-[104px] text-center">
+            <div className="flex items-baseline justify-center gap-1">
+              <span className="text-base sm:text-xl font-black font-mono text-amber-300 leading-none">
+                {speedKmh}
+              </span>
+              <span className="text-[9px] font-bold text-slate-400">KM/H</span>
+            </div>
+            <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden mt-1">
+              <div
+                style={{ width: `${hpPct}%` }}
+                className={`h-full transition-all ${
+                  hpPct > 50 ? "bg-emerald-400" : hpPct > 25 ? "bg-amber-400" : "bg-rose-500"
+                }`}
+              />
+            </div>
+            <div className="w-full h-1 rounded-full bg-slate-800 overflow-hidden mt-0.5">
+              <div
+                style={{ width: `${nitroPct}%` }}
+                className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all"
+              />
+            </div>
+          </div>
+
+          {kin.isDrifting && kin.driftStage > 0 && (
+            <div
+              className={`mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-black border ${
+                kin.driftStage === 3
+                  ? "bg-purple-600 border-purple-200 text-white"
+                  : kin.driftStage === 2
+                  ? "bg-amber-500 border-yellow-200 text-slate-950"
+                  : "bg-cyan-500 border-cyan-200 text-slate-950"
+              }`}
+            >
+              دريفت x{kin.driftStage} ⚡
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Live Meme Wreck Feed (Top-Right below bar) */}
       {wreckFeed.length > 0 && phase === "PLAYING" && (
-        <div className="absolute top-14 right-3 sm:top-16 sm:right-4 z-20 space-y-1 max-w-[270px] pointer-events-none">
+        <div className="absolute top-12 right-2 sm:top-16 sm:right-4 z-20 space-y-1 max-w-[145px] sm:max-w-[260px] pointer-events-none">
           {wreckFeed.slice(0, 2).map((w) => (
             <div
               key={w.id}
-              className="px-2.5 py-1 rounded-xl bg-slate-950/80 backdrop-blur-md border border-rose-500/40 text-[11px] font-bold text-amber-100 shadow-md"
+              className="px-2 py-1 rounded-xl bg-slate-950/80 backdrop-blur-md border border-rose-500/40 text-[10px] sm:text-[11px] font-bold text-amber-100 shadow-md truncate"
             >
               <span className="text-emerald-300">{w.attackerName}</span> 💥{" "}
               <span className="text-rose-300">{w.victimName}</span>
@@ -1040,28 +1141,25 @@ export function Ksida3DGameView({
 
       {/* === 3.. 2.. 1.. ديماري! TRAFFIC-LIGHT COUNTDOWN & LAUNCH REV-METER === */}
       {showCountdownOverlay && (
-        <div className="pointer-events-none absolute inset-x-0 top-20 sm:top-24 z-30 flex flex-col items-center px-4">
-          <div className="px-6 py-4 rounded-3xl bg-slate-950/90 backdrop-blur-md border-2 border-amber-400/70 shadow-2xl flex flex-col items-center gap-2.5">
-            {/* Traffic Lights Row */}
+        <div className="pointer-events-none absolute inset-x-0 top-24 sm:top-28 z-30 flex flex-col items-center px-4">
+          <div className="px-5 py-3.5 rounded-3xl bg-slate-950/90 backdrop-blur-md border-2 border-amber-400/70 shadow-2xl flex flex-col items-center gap-2">
             <div dir="ltr" className="flex items-center gap-3">
               <span
-                className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full border border-white/40 transition-all ${
-                  countdownMsLeft > 0
-                    ? "bg-red-500 shadow-[0_0_18px_#ef4444]"
-                    : "bg-slate-800"
+                className={`w-5 h-5 rounded-full border border-white/40 transition-all ${
+                  countdownMsLeft > 0 ? "bg-red-500 shadow-[0_0_16px_#ef4444]" : "bg-slate-800"
                 }`}
               />
               <span
-                className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full border border-white/40 transition-all ${
+                className={`w-5 h-5 rounded-full border border-white/40 transition-all ${
                   countdownMsLeft <= 2000 && countdownMsLeft > 0
-                    ? "bg-amber-400 shadow-[0_0_18px_#fbbf24]"
+                    ? "bg-amber-400 shadow-[0_0_16px_#fbbf24]"
                     : "bg-slate-800"
                 }`}
               />
               <span
-                className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full border border-white/40 transition-all ${
+                className={`w-5 h-5 rounded-full border border-white/40 transition-all ${
                   countdownMsLeft <= 0
-                    ? "bg-emerald-400 shadow-[0_0_24px_#10b981] scale-125"
+                    ? "bg-emerald-400 shadow-[0_0_22px_#10b981] scale-125"
                     : "bg-slate-800"
                 }`}
               />
@@ -1075,14 +1173,12 @@ export function Ksida3DGameView({
               {countdownNumber}
             </div>
 
-            {/* Mario-Kart Style Launch RPM Sweet-Spot Bar */}
             {countdownMsLeft > 0 && (
-              <div className="w-52 sm:w-64">
+              <div className="w-48 sm:w-64">
                 <div
                   dir="ltr"
-                  className="relative w-full h-3 rounded-full bg-slate-800 border border-slate-600 overflow-hidden"
+                  className="relative w-full h-2.5 rounded-full bg-slate-800 border border-slate-600 overflow-hidden"
                 >
-                  {/* Emerald Sweet Spot Target Zone (48% .. 95%) */}
                   <div
                     style={{ left: "48%", width: "47%" }}
                     className="absolute inset-y-0 bg-emerald-500/30 border-x border-emerald-400/80"
@@ -1099,7 +1195,9 @@ export function Ksida3DGameView({
                   />
                 </div>
                 <div className="text-[10px] font-bold text-slate-300 text-center mt-1">
-                  ضغط على <span className="text-emerald-300">كسيري</span> فالمنطقة الخضراء لانطلاقة صاروخية! 🚀
+                  {showTouchControls
+                    ? "ابقى ضاغط على دريفت 💨 فالمنطقة الخضراء لانطلاقة صاروخية!"
+                    : "ضغط على W فالمنطقة الخضراء لانطلاقة صاروخية! 🚀"}
                 </div>
               </div>
             )}
@@ -1109,23 +1207,18 @@ export function Ksida3DGameView({
 
       {/* === WRONG-WAY FLASHING ALERT + 1-TAP TRACK RESET === */}
       {isWrongWay && !respawnLeftSec && (
-        <div className="absolute top-24 inset-x-0 z-30 flex justify-center px-4 pointer-events-none">
-          <div className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-red-950/95 border-2 border-amber-400 shadow-2xl flex items-center gap-3 animate-pulse">
-            <AlertTriangle className="w-6 h-6 text-amber-300 shrink-0" />
-            <div>
-              <div className="text-sm sm:text-base font-black text-white">
-                ⚠️ اتجاه معاكس! غادي ضد السباق!
-              </div>
-              <div className="text-[11px] text-amber-200 font-bold">
-                دور نص دورة ولا ضغط لإرجاع الطوموبيل للطريق
-              </div>
+        <div className="absolute top-28 inset-x-0 z-30 flex justify-center px-4 pointer-events-none">
+          <div className="pointer-events-auto px-3.5 py-2 rounded-2xl bg-red-950/95 border-2 border-amber-400 shadow-2xl flex items-center gap-2.5 animate-pulse">
+            <AlertTriangle className="w-5 h-5 text-amber-300 shrink-0" />
+            <div className="text-xs sm:text-sm font-black text-white">
+              ⚠️ اتجاه معاكس!
             </div>
             <button
               type="button"
               onClick={handleResetToTrack}
-              className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black shrink-0 shadow-md active:scale-95"
+              className="px-3 py-1 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black shrink-0 shadow-md active:scale-95"
             >
-              🔄 رجوع (R)
+              🔄 رجوع للطريق
             </button>
           </div>
         </div>
@@ -1133,15 +1226,15 @@ export function Ksida3DGameView({
 
       {/* Center Meme Callout Banner */}
       {centerBanner && phase === "PLAYING" && !showCountdownOverlay && !isWrongWay && (
-        <div className="pointer-events-none absolute top-20 inset-x-0 z-30 flex justify-center px-4">
+        <div className="pointer-events-none absolute top-24 inset-x-0 z-30 flex justify-center px-4">
           <div
-            className={`px-5 py-2.5 rounded-2xl bg-gradient-to-r ${centerBanner.color} border-2 border-white/50 shadow-2xl text-center animate-bounce`}
+            className={`px-4 py-2 rounded-2xl bg-gradient-to-r ${centerBanner.color} border-2 border-white/50 shadow-2xl text-center animate-bounce`}
           >
-            <div className="text-base sm:text-xl font-black text-white drop-shadow">
+            <div className="text-sm sm:text-xl font-black text-white drop-shadow">
               {centerBanner.text}
             </div>
             {centerBanner.sub && (
-              <div className="text-xs font-bold text-yellow-100 mt-0.5">{centerBanner.sub}</div>
+              <div className="text-[11px] font-bold text-yellow-100 mt-0.5">{centerBanner.sub}</div>
             )}
           </div>
         </div>
@@ -1162,144 +1255,21 @@ export function Ksida3DGameView({
         </div>
       )}
 
-      {/* === BOTTOM DRIVING CONTROLS & TELEMETRY DASHBOARD === */}
+      {/* === DRIVING CONTROLS & HUD === */}
       {phase === "PLAYING" && (
         <>
           {showTouchControls ? (
-            /* ========= MOBILE / TOUCH PRO ARCADE LAYOUT ========= */
-            <div
-              dir="ltr"
-              className="absolute bottom-0 inset-x-0 z-20 p-2.5 sm:p-4 flex items-end justify-between gap-2 pointer-events-none"
-            >
-              {/* LEFT THUMB: Dual Tactile Steering Paddles (or Analog Wheel) + Auto-Gas Toggle */}
-              <div className="flex flex-col items-start gap-2 pointer-events-auto">
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setAutoGas((v) => !v)}
-                    className={`px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all ${
-                      autoGas
-                        ? "bg-emerald-600/90 border-emerald-300 text-white"
-                        : "bg-slate-900/85 border-slate-600 text-slate-300"
-                    }`}
-                  >
-                    {autoGas ? "⚡ أوطو-كسيري ON" : "كسيري يدوي"}
-                  </button>
-
-                  {isDesktopFinePointer && (
-                    <button
-                      type="button"
-                      onClick={() => setForceTouchHud(false)}
-                      className="px-2 py-1 rounded-xl bg-slate-900/85 border border-slate-700 text-[10px] font-bold text-slate-300"
-                    >
-                      إخفاء اللمس
-                    </button>
-                  )}
-                </div>
-
-                {touchSteerStyle === "PADDLES" ? (
-                  /* Seamless Multi-Touch Dual Steering Paddles (Slide thumb left <-> right!) */
-                  <div
-                    onPointerDown={onSteerPointerDown}
-                    onPointerMove={onSteerPointerMove}
-                    onPointerUp={onSteerPointerUp}
-                    onPointerCancel={onSteerPointerUp}
-                    className="w-40 h-24 sm:w-48 sm:h-28 rounded-3xl bg-slate-950/80 backdrop-blur-md border-2 border-slate-600/90 p-1.5 grid grid-cols-2 gap-1.5 shadow-2xl touch-none"
-                  >
-                    <div
-                      className={`rounded-2xl flex flex-col items-center justify-center border transition-all ${
-                        steerKnobUi < -0.2
-                          ? "bg-amber-500 border-yellow-200 text-slate-950 scale-95 shadow-inner"
-                          : "bg-slate-900/90 border-slate-700 text-slate-200"
-                      }`}
-                    >
-                      <span className="text-2xl sm:text-3xl font-black leading-none">◀</span>
-                      <span className="text-[10px] font-black mt-1">يسار</span>
-                    </div>
-                    <div
-                      className={`rounded-2xl flex flex-col items-center justify-center border transition-all ${
-                        steerKnobUi > 0.2
-                          ? "bg-amber-500 border-yellow-200 text-slate-950 scale-95 shadow-inner"
-                          : "bg-slate-900/90 border-slate-700 text-slate-200"
-                      }`}
-                    >
-                      <span className="text-2xl sm:text-3xl font-black leading-none">▶</span>
-                      <span className="text-[10px] font-black mt-1">يمين</span>
-                    </div>
-                  </div>
-                ) : (
-                  /* Optional Smooth Analog Wheel Slider */
-                  <div
-                    onPointerDown={onSteerPointerDown}
-                    onPointerMove={onSteerPointerMove}
-                    onPointerUp={onSteerPointerUp}
-                    onPointerCancel={onSteerPointerUp}
-                    className="relative w-40 h-24 sm:w-48 sm:h-28 rounded-3xl bg-slate-950/80 backdrop-blur-md border-2 border-slate-600/90 shadow-2xl flex items-center justify-center touch-none"
-                  >
-                    <div className="absolute inset-x-4 h-2 rounded-full bg-slate-800 border border-slate-700" />
-                    <div className="absolute left-3 text-xs font-black text-slate-400">◀</div>
-                    <div className="absolute right-3 text-xs font-black text-slate-400">▶</div>
-                    <div
-                      style={{
-                        transform: `translateX(${steerKnobUi * 44}px) rotate(${steerKnobUi * 36}deg)`,
-                      }}
-                      className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-b from-amber-400 to-orange-600 border-2 border-white shadow-xl flex items-center justify-center text-xl font-black text-slate-950 transition-transform duration-75"
-                    >
-                      🛞
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* CENTER: Compact Telemetry Speedometer + HP + Nitro */}
-              <div className="flex flex-col items-center gap-1 pointer-events-none mb-0.5">
-                {kin.isDrifting && kin.driftStage > 0 && (
-                  <div
-                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border ${
-                      kin.driftStage === 3
-                        ? "bg-purple-600 border-purple-200 text-white"
-                        : kin.driftStage === 2
-                        ? "bg-amber-500 border-yellow-200 text-slate-950"
-                        : "bg-cyan-500 border-cyan-200 text-slate-950"
-                    }`}
-                  >
-                    دريفت x{kin.driftStage} ⚡
-                  </div>
-                )}
-                <div className="px-3 py-1.5 rounded-2xl bg-slate-950/85 backdrop-blur-md border border-slate-700/90 text-center min-w-[98px] sm:min-w-[132px] shadow-xl">
-                  <div className="flex items-baseline justify-center gap-1">
-                    <span className="text-lg sm:text-2xl font-black font-mono text-amber-300">
-                      {speedKmh}
-                    </span>
-                    <span className="text-[9px] font-bold text-slate-400">KM/H</span>
-                    <span className="px-1 rounded bg-slate-800 text-[9px] font-mono font-black text-cyan-300">
-                      {gearLabel}
-                    </span>
-                  </div>
-                  <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden mt-1">
-                    <div
-                      style={{ width: `${hpPct}%` }}
-                      className={`h-full transition-all ${
-                        hpPct > 50 ? "bg-emerald-400" : hpPct > 25 ? "bg-amber-400" : "bg-rose-500"
-                      }`}
-                    />
-                  </div>
-                  <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden mt-1">
-                    <div
-                      style={{ width: `${nitroPct}%` }}
-                      className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* RIGHT THUMB: Meme Item, Nitro, Brake/Reverse, Drift & Tall Gas Pedal! */}
-              <div className="flex flex-col items-end gap-1.5 pointer-events-auto">
-                {/* Taunt Drawer Popup */}
+            /* ========= MOBILE-FIRST ERGONOMIC CONTROLS (Portrait & Landscape Safe!) ========= */
+            <>
+              {/* Floating Side Horn & Meme Taunts (Well above pedals so thumbs NEVER mis-tap!) */}
+              <div
+                dir="ltr"
+                className="absolute right-2.5 bottom-44 sm:bottom-48 z-20 flex flex-col items-end gap-1.5 pointer-events-auto"
+              >
                 {tauntDrawerOpen && (
                   <div
                     dir="rtl"
-                    className="grid grid-cols-2 gap-1.5 p-2 rounded-2xl bg-slate-950/95 border border-amber-400/60 shadow-2xl mb-1 max-w-[250px]"
+                    className="grid grid-cols-2 gap-1.5 p-2 rounded-2xl bg-slate-950/95 border border-amber-400/60 shadow-2xl mb-1 max-w-[235px]"
                   >
                     {KSIDA_TAUNT_ORDER.map((tid) => {
                       const t = KSIDA_TAUNTS[tid];
@@ -1311,7 +1281,7 @@ export function Ksida3DGameView({
                             sendMemeTaunt(tid);
                             setTauntDrawerOpen(false);
                           }}
-                          className="px-2 py-1.5 rounded-xl bg-slate-900 hover:bg-amber-500/20 border border-slate-700 text-[11px] font-bold text-amber-200 text-right truncate"
+                          className="px-2 py-1.5 rounded-xl bg-slate-900 active:bg-amber-500/30 border border-slate-700 text-[11px] font-bold text-amber-200 text-right truncate"
                         >
                           {t.emoji} {t.textAr}
                         </button>
@@ -1320,140 +1290,195 @@ export function Ksida3DGameView({
                   </div>
                 )}
 
-                {/* Upper Action Row: Horn, Taunts, Item & Nitro */}
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={handleQuickHorn}
-                    className="px-2.5 py-1.5 rounded-xl bg-amber-500/90 active:scale-90 border border-yellow-200 text-[11px] font-black text-slate-950 shadow-lg"
+                    className="w-10 h-10 rounded-full bg-amber-500/90 active:scale-90 border border-yellow-200 text-base shadow-lg flex items-center justify-center"
+                    title="كلاكسون"
                   >
-                    📢 كلاكسون
+                    📢
                   </button>
                   <button
                     type="button"
                     onClick={() => setTauntDrawerOpen((v) => !v)}
-                    className="px-2 py-1.5 rounded-xl bg-slate-900/90 border border-amber-400/50 text-xs font-black text-amber-300"
+                    className="w-10 h-10 rounded-full bg-slate-900/85 active:scale-90 border border-amber-400/50 text-base shadow-lg flex items-center justify-center"
+                    title="ميمز"
                   >
                     😂
                   </button>
-
-                  {/* Meme Weapon Button */}
-                  <button
-                    type="button"
-                    disabled={!heldItemSpec}
-                    onClick={handleUseItem}
-                    className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl border-2 shadow-xl flex flex-col items-center justify-center transition-all ${
-                      heldItemSpec
-                        ? "bg-gradient-to-br from-fuchsia-600 to-amber-500 border-yellow-200 animate-pulse active:scale-90"
-                        : "bg-slate-900/70 border-slate-700/70 opacity-60"
-                    }`}
-                  >
-                    <span className="text-xl sm:text-2xl leading-none">
-                      {heldItemSpec ? heldItemSpec.emoji : "🎲"}
-                    </span>
-                    <span className="text-[8px] font-black text-white truncate max-w-[46px]">
-                      {heldItemSpec ? heldItemSpec.shortAr : "سلاح"}
-                    </span>
-                  </button>
-
-                  {/* Nitro Boost Button */}
-                  <button
-                    type="button"
-                    onPointerDown={() => {
-                      touchNitroRef.current = true;
-                      syncCombinedDriveInput();
-                    }}
-                    onPointerUp={() => {
-                      touchNitroRef.current = false;
-                      syncCombinedDriveInput();
-                    }}
-                    onPointerCancel={() => {
-                      touchNitroRef.current = false;
-                      syncCombinedDriveInput();
-                    }}
-                    className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl border-2 shadow-xl flex flex-col items-center justify-center active:scale-90 touch-none transition-all ${
-                      nitroPct > 15
-                        ? "bg-gradient-to-b from-cyan-500 to-blue-700 border-cyan-200 text-white"
-                        : "bg-slate-900/80 border-slate-700 text-slate-400"
-                    }`}
-                  >
-                    <Flame className="w-4 h-4" />
-                    <span className="text-[9px] font-black">{nitroPct}%</span>
-                  </button>
-                </div>
-
-                {/* Lower Pedals Row: Brake/Reverse + Power-Drift + Tall Gas Pedal */}
-                <div className="flex items-end gap-1.5">
-                  {/* Brake / Reverse Pedal */}
-                  <button
-                    type="button"
-                    onPointerDown={() => {
-                      touchBrakeRef.current = true;
-                      syncCombinedDriveInput();
-                    }}
-                    onPointerUp={() => {
-                      touchBrakeRef.current = false;
-                      syncCombinedDriveInput();
-                    }}
-                    onPointerCancel={() => {
-                      touchBrakeRef.current = false;
-                      syncCombinedDriveInput();
-                    }}
-                    className="w-13 h-16 sm:w-15 sm:h-20 px-2 rounded-2xl bg-rose-950/90 active:bg-rose-600 border-2 border-rose-400/60 flex flex-col items-center justify-center text-rose-100 shadow-lg touch-none"
-                  >
-                    <span className="text-base leading-none">⏪</span>
-                    <span className="text-[10px] font-black mt-1">فراني</span>
-                  </button>
-
-                  {/* Power-Drift Pedal (Maintains Forward Gas + Drift Hop!) */}
-                  <button
-                    type="button"
-                    onPointerDown={() => {
-                      touchDriftRef.current = true;
-                      driveInputRef.current.hopRequested = true;
-                      syncCombinedDriveInput();
-                    }}
-                    onPointerUp={() => {
-                      touchDriftRef.current = false;
-                      syncCombinedDriveInput();
-                    }}
-                    onPointerCancel={() => {
-                      touchDriftRef.current = false;
-                      syncCombinedDriveInput();
-                    }}
-                    className="w-16 h-20 sm:w-20 sm:h-24 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 active:scale-95 border-2 border-amber-200 shadow-2xl flex flex-col items-center justify-center text-slate-950 touch-none"
-                  >
-                    <span className="text-xl sm:text-2xl leading-none">💨</span>
-                    <span className="text-xs font-black mt-1">دريفت</span>
-                  </button>
-
-                  {/* Primary Tall Accelerator GAS Pedal */}
-                  <button
-                    type="button"
-                    onPointerDown={() => {
-                      touchGasHoldRef.current = true;
-                      syncCombinedDriveInput();
-                    }}
-                    onPointerUp={() => {
-                      touchGasHoldRef.current = false;
-                      syncCombinedDriveInput();
-                    }}
-                    onPointerCancel={() => {
-                      touchGasHoldRef.current = false;
-                      syncCombinedDriveInput();
-                    }}
-                    className={`w-16 h-24 sm:w-20 sm:h-28 rounded-3xl border-2 shadow-2xl flex flex-col items-center justify-center active:scale-95 touch-none transition-all ${
-                      autoGas
-                        ? "bg-emerald-500 border-white text-slate-950"
-                        : "bg-gradient-to-b from-emerald-400 to-emerald-700 border-emerald-200 text-slate-950"
-                    }`}
-                  >
-                    <Gauge className="w-6 h-6 sm:w-7 sm:h-7" />
-                    <span className="text-xs sm:text-sm font-black mt-1">كسيري</span>
-                  </button>
                 </div>
               </div>
-            </div>
+
+              {/* Bottom Left + Bottom Right Thumb Zones (Clean 2-Column Layout — Fits 360px Portrait!) */}
+              <div
+                dir="ltr"
+                className="absolute bottom-0 inset-x-0 z-20 px-3 pb-3 sm:px-5 sm:pb-5 flex items-end justify-between pointer-events-none"
+              >
+                {/* LEFT THUMB: Smooth Analog Steering Wheel / Joystick */}
+                <div className="flex flex-col items-start gap-1.5 pointer-events-auto">
+                  <div className="flex items-center gap-1.5 pl-1">
+                    <button
+                      type="button"
+                      onClick={() => setAutoGas((v) => !v)}
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-black border transition-all ${
+                        autoGas
+                          ? "bg-emerald-600/85 border-emerald-300/80 text-white"
+                          : "bg-slate-900/85 border-slate-600 text-slate-300"
+                      }`}
+                    >
+                      {autoGas ? "⚡ أوطو-كسيري" : "كسيري يدوي"}
+                    </button>
+
+                    {isDesktopFinePointer && (
+                      <button
+                        type="button"
+                        onClick={() => setForceTouchHud(false)}
+                        className="px-2 py-1 rounded-full bg-slate-900/85 border border-slate-700 text-[10px] font-bold text-slate-300"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Generous Pointer-Captured Steering Zone (Never drops even if thumb slides outside!) */}
+                  <div
+                    onPointerDown={onSteerPointerDown}
+                    onPointerMove={onSteerPointerMove}
+                    onPointerUp={onSteerPointerRelease}
+                    onPointerCancel={onSteerPointerRelease}
+                    onLostPointerCapture={onSteerPointerRelease}
+                    className="relative w-40 h-28 sm:w-48 sm:h-32 rounded-3xl bg-slate-950/65 backdrop-blur-md border-2 border-slate-500/70 shadow-2xl flex items-center justify-center touch-none select-none"
+                  >
+                    {touchSteerStyle === "PADDLES" ? (
+                      <div className="w-full h-full p-1.5 grid grid-cols-2 gap-1.5 pointer-events-none">
+                        <div
+                          className={`rounded-2xl flex items-center justify-center text-2xl font-black border transition-all ${
+                            steerKnobUi < -0.2
+                              ? "bg-amber-500 border-yellow-200 text-slate-950 scale-95"
+                              : "bg-slate-900/85 border-slate-700 text-slate-300"
+                          }`}
+                        >
+                          ◀
+                        </div>
+                        <div
+                          className={`rounded-2xl flex items-center justify-center text-2xl font-black border transition-all ${
+                            steerKnobUi > 0.2
+                              ? "bg-amber-500 border-yellow-200 text-slate-950 scale-95"
+                              : "bg-slate-900/85 border-slate-700 text-slate-300"
+                          }`}
+                        >
+                          ▶
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Sleek Guide Rail */}
+                        <div className="pointer-events-none absolute inset-x-4 h-2.5 rounded-full bg-slate-800/90 border border-slate-600/80" />
+                        <div className="pointer-events-none absolute left-3 text-sm font-black text-amber-300/80">
+                          ◀
+                        </div>
+                        <div className="pointer-events-none absolute right-3 text-sm font-black text-amber-300/80">
+                          ▶
+                        </div>
+                        {/* Smooth Gliding Steering Wheel Puck */}
+                        <div
+                          style={{
+                            transform: `translateX(${steerKnobUi * 44}px) rotate(${
+                              steerKnobUi * 42
+                            }deg)`,
+                          }}
+                          className="pointer-events-none w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-b from-amber-400 to-orange-600 border-2 border-white shadow-[0_6px_20px_rgba(245,158,11,0.5)] flex items-center justify-center text-2xl text-slate-950"
+                        >
+                          🛞
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* RIGHT THUMB: Classic Brawl-Stars / Mario-Kart Ergonomic Action Arc! */}
+                <div className="flex flex-col items-end gap-2 pointer-events-auto">
+                  {/* Upper Arc: Meme Weapon + Nitro Boost */}
+                  <div className="flex items-center gap-2.5 pr-1">
+                    {/* Meme Power-Up Button */}
+                    <button
+                      type="button"
+                      disabled={!heldItemSpec}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        handleUseItem();
+                      }}
+                      className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 shadow-2xl flex flex-col items-center justify-center touch-none select-none transition-all ${
+                        heldItemSpec
+                          ? "bg-gradient-to-br from-fuchsia-600 to-amber-500 border-yellow-200 animate-pulse active:scale-90"
+                          : "bg-slate-900/60 border-slate-700/70 opacity-55"
+                      }`}
+                    >
+                      <span className="text-2xl leading-none">
+                        {heldItemSpec ? heldItemSpec.emoji : "🎲"}
+                      </span>
+                      {heldItemSpec && (
+                        <span className="text-[8px] font-black text-white truncate max-w-[46px] mt-0.5">
+                          {heldItemSpec.shortAr}
+                        </span>
+                      )}
+                    </button>
+
+                    {/* Pointer-Captured NITRO Boost Button */}
+                    <button
+                      type="button"
+                      {...makeHoldHandlers(touchNitroRef)}
+                      className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 shadow-2xl flex flex-col items-center justify-center active:scale-90 touch-none select-none transition-all ${
+                        nitroPct > 12
+                          ? "bg-gradient-to-b from-cyan-400 to-blue-700 border-cyan-100 text-white shadow-[0_0_18px_rgba(34,211,238,0.45)]"
+                          : "bg-slate-900/75 border-slate-700 text-slate-400"
+                      }`}
+                    >
+                      <Flame className="w-5 h-5" />
+                      <span className="text-[9px] font-black">{nitroPct}%</span>
+                    </button>
+                  </div>
+
+                  {/* Lower Row: Brake/Reverse + Giant Primary DRIFT Button (+ Manual Gas only if Auto-Gas OFF) */}
+                  <div className="flex items-end gap-2">
+                    {/* Brake / Reverse Button */}
+                    <button
+                      type="button"
+                      {...makeHoldHandlers(touchBrakeRef)}
+                      className="w-13 h-13 sm:w-14 sm:h-14 px-2.5 py-2 rounded-2xl bg-rose-950/85 active:bg-rose-600 border-2 border-rose-400/60 flex flex-col items-center justify-center text-rose-100 shadow-lg touch-none select-none"
+                    >
+                      <span className="text-sm leading-none">⏪</span>
+                      <span className="text-[9px] font-black mt-0.5">رجع</span>
+                    </button>
+
+                    {/* Manual Gas Pedal (ONLY shown if user explicitly turned Auto-Gas OFF) */}
+                    {!autoGas && (
+                      <button
+                        type="button"
+                        {...makeHoldHandlers(touchGasHoldRef)}
+                        className="w-15 h-20 px-3 rounded-2xl bg-gradient-to-b from-emerald-400 to-emerald-700 active:scale-95 border-2 border-emerald-200 flex flex-col items-center justify-center text-slate-950 shadow-xl touch-none select-none"
+                      >
+                        <Gauge className="w-5 h-5" />
+                        <span className="text-[10px] font-black mt-0.5">كسيري</span>
+                      </button>
+                    )}
+
+                    {/* GIANT PRIMARY CORNER BUTTON: DRIFT / HOP! */}
+                    <button
+                      type="button"
+                      {...makeHoldHandlers(touchDriftRef, () => {
+                        driveInputRef.current.hopRequested = true;
+                      })}
+                      className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-br from-amber-400 via-orange-500 to-rose-600 active:scale-90 border-[3px] border-amber-100 shadow-[0_6px_26px_rgba(249,115,22,0.55)] flex flex-col items-center justify-center text-white touch-none select-none"
+                    >
+                      <span className="text-2xl sm:text-3xl leading-none">💨</span>
+                      <span className="text-xs sm:text-sm font-black mt-0.5">دريفت</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
           ) : (
             /* ========= DESKTOP PRO RACING TELEMETRY DOCK ========= */
             <div className="absolute bottom-0 inset-x-0 z-20 p-4 flex flex-col items-center gap-2 pointer-events-none">
@@ -1486,7 +1511,6 @@ export function Ksida3DGameView({
                 dir="ltr"
                 className="pointer-events-auto px-4 py-2.5 rounded-3xl bg-slate-950/85 backdrop-blur-md border border-slate-700/90 shadow-2xl flex items-center gap-4"
               >
-                {/* Speed + Gear */}
                 <div className="flex items-baseline gap-1.5 min-w-[115px]">
                   <span className="text-3xl font-black font-mono text-amber-300">
                     {speedKmh}
@@ -1497,7 +1521,6 @@ export function Ksida3DGameView({
                   </span>
                 </div>
 
-                {/* Armor HP & Nitro Bars */}
                 <div className="w-44 space-y-1.5">
                   <div>
                     <div className="flex justify-between text-[10px] font-bold text-slate-300 mb-0.5">
@@ -1531,7 +1554,6 @@ export function Ksida3DGameView({
                   </div>
                 </div>
 
-                {/* Drift Stage Indicator */}
                 {kin.isDrifting && kin.driftStage > 0 && (
                   <div
                     className={`px-3 py-1 rounded-xl text-xs font-black border ${
@@ -1546,7 +1568,6 @@ export function Ksida3DGameView({
                   </div>
                 )}
 
-                {/* Meme Item Slot [E] */}
                 <button
                   type="button"
                   disabled={!heldItemSpec}
@@ -1566,7 +1587,6 @@ export function Ksida3DGameView({
                   </span>
                 </button>
 
-                {/* Quick Horn & Meme Taunts */}
                 <div className="flex flex-col gap-1">
                   <button
                     type="button"
@@ -1586,7 +1606,6 @@ export function Ksida3DGameView({
                   </button>
                 </div>
 
-                {/* Optional Touch Controls Toggle for Touchscreen Laptops */}
                 <button
                   type="button"
                   onClick={() => setForceTouchHud(true)}
@@ -1686,6 +1705,33 @@ export function Ksida3DGameView({
               </button>
             </div>
 
+            {/* Mobile Steering Preference */}
+            <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 mb-3">
+              <div className="text-xs font-black text-white mb-2">نوع المقود فالهاتف 📱</div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    { id: "WHEEL", label: "🛞 مقود سلس" },
+                    { id: "JOYSTICK", label: "🕹️ جويستيك حر" },
+                    { id: "PADDLES", label: "◀ ▶ أزرار" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setTouchSteerStyle(opt.id)}
+                    className={`py-2 px-2 rounded-xl text-[11px] font-black border transition-all ${
+                      touchSteerStyle === opt.id
+                        ? "bg-amber-400 border-yellow-200 text-slate-950"
+                        : "bg-slate-900 border-slate-700 text-slate-300"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="space-y-2.5 mb-4">
               {(["RACE", "DERBY", "HOT_BOMB"] as KsidaMode[]).map((m) => {
                 const info = MODE_LABELS_AR[m];
@@ -1716,40 +1762,6 @@ export function Ksida3DGameView({
                   </button>
                 );
               })}
-            </div>
-
-            {/* Mobile Steering Preference */}
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950/80 border border-slate-800 mb-3">
-              <div>
-                <div className="text-xs font-black text-white">نوع السياقة فالهاتف 📱</div>
-                <div className="text-[10px] text-slate-400">
-                  أزرار يسار/يمين احترافية أو مقود سحب
-                </div>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setTouchSteerStyle("PADDLES")}
-                  className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black ${
-                    touchSteerStyle === "PADDLES"
-                      ? "bg-amber-400 text-slate-950"
-                      : "bg-slate-800 text-slate-300"
-                  }`}
-                >
-                  ◀ ▶ أزرار
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTouchSteerStyle("WHEEL")}
-                  className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black ${
-                    touchSteerStyle === "WHEEL"
-                      ? "bg-amber-400 text-slate-950"
-                      : "bg-slate-800 text-slate-300"
-                  }`}
-                >
-                  🛞 مقود
-                </button>
-              </div>
             </div>
 
             <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950/80 border border-slate-800 mb-4">
@@ -1847,7 +1859,6 @@ export function Ksida3DGameView({
               </h2>
             </div>
 
-            {/* Hilarious Meme Superlative Badges */}
             {finalAwards.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-5">
                 {finalAwards.map((aw) => (
@@ -1869,7 +1880,6 @@ export function Ksida3DGameView({
               </div>
             )}
 
-            {/* Final Scoreboard */}
             <div className="space-y-1.5 mb-5 max-h-44 overflow-y-auto">
               {standings.map((r, idx) => (
                 <div
@@ -1893,7 +1903,6 @@ export function Ksida3DGameView({
               ))}
             </div>
 
-            {/* Replay & Mode Switch Actions */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <button
                 type="button"

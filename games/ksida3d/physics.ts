@@ -138,7 +138,7 @@ export function stepCarKinematics(
 
     // Responsive steering with crisp snap-to-center when neutral so straightaways never feel floaty!
     const steerTarget = Math.max(-1, Math.min(1, input.steer));
-    const steerRate = Math.abs(steerTarget) < 0.08 ? 18.5 : 11.8;
+    const steerRate = Math.abs(steerTarget) < 0.06 ? 20.0 : 14.5;
     car.steerAngle += (steerTarget - car.steerAngle) * Math.min(1, steerRate * clampedDt);
     if (Math.abs(steerTarget) < 0.04 && Math.abs(car.steerAngle) < 0.02) {
       car.steerAngle = 0;
@@ -249,19 +249,19 @@ export function stepCarKinematics(
       if (Math.abs(car.forwardSpeed) < 0.15) car.forwardSpeed = 0;
     }
 
-    // Speed-Sensitive Progressive Yaw Turning
+    // Speed-Sensitive Progressive Yaw Turning (crisp cornering at speed, smooth micro-adjustments!)
     const speedAbs = Math.abs(car.forwardSpeed);
-    const lowSpeedRamp = Math.min(1, speedAbs / 6.2);
+    const lowSpeedRamp = Math.min(1, speedAbs / 5.2);
     const highSpeedStability =
-      1.0 - 0.3 * Math.min(1, Math.max(0, (speedAbs - 18.0) / 22.0));
+      1.0 - 0.12 * Math.min(1, Math.max(0, (speedAbs - 22.0) / 20.0));
     const reverseSign = car.forwardSpeed >= -0.3 ? 1 : -1;
 
     let yawDelta = 0;
     if (car.isDrifting) {
-      // Natural drift arc: steer into turn = tight hairpin (1.04), neutral = smooth sweep (0.56), counter-steer = wide exit (0.08)
+      // Natural drift arc: steer into turn = tight hairpin (1.12), neutral = smooth sweep (0.60), counter-steer = wide exit (0.10)
       const steerInDrift = car.steerAngle * car.driftDir;
-      const driftTurnFactor = Math.max(0.08, 0.56 + steerInDrift * 0.48);
-      yawDelta = -car.driftDir * driftTurnFactor * spec.turnRate * 1.06 * clampedDt;
+      const driftTurnFactor = Math.max(0.1, 0.6 + steerInDrift * 0.52);
+      yawDelta = -car.driftDir * driftTurnFactor * spec.turnRate * 1.1 * clampedDt;
     } else {
       yawDelta =
         -car.steerAngle *
@@ -280,10 +280,10 @@ export function stepCarKinematics(
     const targetVz = fz * car.forwardSpeed;
 
     const gripRate = car.isAirborne
-      ? 2.0
+      ? 2.2
       : car.isDrifting
-      ? 4.6 * spec.driftGrip
-      : 15.5;
+      ? 5.2 * spec.driftGrip
+      : 18.5;
     const blend = Math.min(1, gripRate * clampedDt);
     car.vx += (targetVx - car.vx) * blend;
     car.vz += (targetVz - car.vz) * blend;
@@ -354,13 +354,13 @@ export function stepCarKinematics(
     const vn = car.vx * bound.nx + car.vz * bound.nz;
     if (vn > 0) {
       events.wallHitIntensity = vn;
-      car.vx -= bound.nx * vn * 1.28;
-      car.vz -= bound.nz * vn * 1.28;
-      car.vx *= 0.92;
-      car.vz *= 0.92;
-      car.forwardSpeed *= 0.89;
+      car.vx -= bound.nx * vn * 1.18;
+      car.vz -= bound.nz * vn * 1.18;
+      car.vx *= 0.96;
+      car.vz *= 0.96;
+      car.forwardSpeed *= 0.96;
 
-      // Gently align car tangent to guardrail on glancing scrapes so nobody ever gets wedged!
+      // Arcade Wall-Glide Assist: smoothly rotate car nose parallel to the guardrail so Auto-Gas never pins you!
       const tangentX = -bound.nz;
       const tangentZ = bound.nx;
       const fx = Math.sin(car.yaw);
@@ -368,7 +368,7 @@ export function stepCarKinematics(
       const signT = fx * tangentX + fz * tangentZ >= 0 ? 1 : -1;
       const wallYaw = Math.atan2(tangentX * signT, tangentZ * signT);
       const yawDiff = normalizeAngle(wallYaw - car.yaw);
-      car.yaw = normalizeAngle(car.yaw + yawDiff * Math.min(0.45, clampedDt * 8.5));
+      car.yaw = normalizeAngle(car.yaw + yawDiff * Math.min(0.65, clampedDt * 15.0));
     }
   }
 
