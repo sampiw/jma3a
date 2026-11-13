@@ -1,14 +1,12 @@
 import { sound } from "@/lib/sound";
 
 /**
- * Procedural Web Audio Arcade Racing, Engine RPM, Tire Screech, Crash & Moroccan Meme Horn Synth
- * Zero external audio downloads — instant sub-millisecond playback on iOS, Android & Desktop.
+ * Procedural Web Audio Arcade Racing, Engine RPM, Tire Screech, Countdown Lights, Turbo Pad & Moroccan Meme Horn Synth
  */
 class KsidaSoundSynth {
   private ctx: AudioContext | null = null;
   private noiseBuffer: AudioBuffer | null = null;
 
-  // Continuous engine + drift tire audio nodes
   private engineOsc1: OscillatorNode | null = null;
   private engineOsc2: OscillatorNode | null = null;
   private engineGain: GainNode | null = null;
@@ -72,7 +70,7 @@ class KsidaSoundSynth {
         osc2.frequency.value = 116;
 
         engFilter.type = "lowpass";
-        engFilter.frequency.value = 420;
+        engFilter.frequency.value = 440;
 
         engGain.gain.value = 0.001;
 
@@ -84,7 +82,6 @@ class KsidaSoundSynth {
         osc1.start();
         osc2.start();
 
-        // Looping tire screech buffer
         const nSrc = ctx.createBufferSource();
         nSrc.buffer = this.noiseBuffer;
         nSrc.loop = true;
@@ -115,12 +112,12 @@ class KsidaSoundSynth {
     }
 
     const now = ctx.currentTime;
-    const normSpeed = Math.min(1.35, speedAbs / 30);
-    const baseFreq = 52 + normSpeed * 128 + (isNitro ? 36 : 0);
+    const normSpeed = Math.min(1.4, speedAbs / 33);
+    const baseFreq = 50 + normSpeed * 132 + (isNitro ? 38 : 0);
 
     this.engineOsc1?.frequency.setTargetAtTime(baseFreq, now, 0.06);
     this.engineOsc2?.frequency.setTargetAtTime(baseFreq * 1.98, now, 0.06);
-    const targetEngVol = 0.032 + Math.min(0.055, normSpeed * 0.048) + (isNitro ? 0.025 : 0);
+    const targetEngVol = 0.03 + Math.min(0.055, normSpeed * 0.048) + (isNitro ? 0.025 : 0);
     this.engineGain?.gain.setTargetAtTime(targetEngVol, now, 0.08);
 
     const shouldScreech = isDrifting && speedAbs > 10;
@@ -129,7 +126,7 @@ class KsidaSoundSynth {
       now,
       0.05
     );
-    this.screechGain?.gain.setTargetAtTime(shouldScreech ? 0.065 : 0.0001, now, 0.06);
+    this.screechGain?.gain.setTargetAtTime(shouldScreech ? 0.062 : 0.0001, now, 0.06);
   }
 
   public stopEngineLoop() {
@@ -222,19 +219,51 @@ class KsidaSoundSynth {
   }
 
   /**
-   * Plays 6 iconic Moroccan & Meme car horns!
+   * 3.. 2.. 1.. ديماري! Race Start Traffic-Light Tone
    */
+  public playCountdownBeep(isGo = false) {
+    const ctx = this.ensureCtx();
+    if (!ctx) return;
+    this.haptic(isGo ? [25, 20, 45] : 15);
+    if (isGo) {
+      this.playHornNote(0, 0.42, 880, 1108.73, 0.26, "triangle");
+      this.playFilteredNoise(0.22, "bandpass", 1200, 3600, 0.18);
+    } else {
+      this.playHornNote(0, 0.16, 440, 0, 0.22, "sine");
+    }
+  }
+
+  /**
+   * Asphalt Turbo Chevron Pad Jet-Whoosh!
+   */
+  public playTurboPad() {
+    const ctx = this.ensureCtx();
+    if (!ctx) return;
+    this.haptic([18, 15, 28]);
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(220, now);
+    osc.frequency.exponentialRampToValueAtTime(980, now + 0.28);
+    g.gain.setValueAtTime(0.24, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc.connect(g);
+    g.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.32);
+    this.playFilteredNoise(0.26, "bandpass", 900, 4200, 0.26);
+  }
+
   public playMemeHorn(styleIndex = 0, isLocal = true) {
     const mult = isLocal ? 1.0 : 0.45;
     if (isLocal) this.haptic([18, 30, 18]);
 
     const s = ((styleIndex % 6) + 6) % 6;
     if (s === 0) {
-      // Petit Taxi Casablanca snappy dual-tone "BEEP-BEEP!"
       this.playHornNote(0, 0.11, 440, 554, 0.2 * mult);
       this.playHornNote(0.14, 0.16, 440, 554, 0.22 * mult);
     } else if (s === 1) {
-      // Iconic Moroccan Wedding Convoy Rhythm: "TAT - TAT - TA-TA-TAT!"
       const beats = [
         [0.0, 0.13],
         [0.18, 0.13],
@@ -246,11 +275,9 @@ class KsidaSoundSynth {
         this.playHornNote(off, dur, 466, 587, 0.22 * mult);
       }
     } else if (s === 2) {
-      // Auto-École squeaky clown roast horn!
       this.playHornNote(0, 0.12, 620, 780, 0.2 * mult, "square");
       this.playHornNote(0.15, 0.24, 510, 640, 0.2 * mult, "square");
     } else if (s === 3) {
-      // La Chancla / Walida siren whistle!
       const ctx = this.ensureCtx();
       if (!ctx) return;
       const now = ctx.currentTime;
@@ -267,10 +294,8 @@ class KsidaSoundSynth {
       osc.start(now);
       osc.stop(now + 0.39);
     } else if (s === 4) {
-      // C15 / Mercedes 240 Heavy Diesel Truck Foghorn!
       this.playHornNote(0, 0.42, 165, 208, 0.28 * mult, "sawtooth");
     } else {
-      // MLG DJ Airhorn triple hype blast!
       this.playHornNote(0.0, 0.1, 740, 932, 0.22 * mult);
       this.playHornNote(0.12, 0.1, 740, 932, 0.22 * mult);
       this.playHornNote(0.24, 0.38, 740, 932, 0.26 * mult);
@@ -285,7 +310,6 @@ class KsidaSoundSynth {
 
     this.haptic(isWreck ? [45, 30, 80] : Math.round(22 * clampInt));
 
-    // Metallic crunch sub-punch
     const sub = ctx.createOscillator();
     const g = ctx.createGain();
     sub.type = "triangle";
@@ -298,7 +322,6 @@ class KsidaSoundSynth {
     sub.start(now);
     sub.stop(now + (isWreck ? 0.46 : 0.25));
 
-    // Metal + glass noise burst
     this.playFilteredNoise(
       isWreck ? 0.38 : 0.18,
       "bandpass",
@@ -308,7 +331,6 @@ class KsidaSoundSynth {
     );
 
     if (isWreck) {
-      // Dramatic takedown power chord sting!
       this.playHornNote(0.06, 0.32, 523.25, 659.25, 0.22, "triangle");
     }
   }
@@ -317,7 +339,6 @@ class KsidaSoundSynth {
     const ctx = this.ensureCtx();
     if (!ctx) return;
     this.haptic([25, 20, 35]);
-    // Sharp high-frequency comic SLAP crack!
     this.playFilteredNoise(0.11, "highpass", 1900, 900, 0.48);
     const now = ctx.currentTime;
     const pop = ctx.createOscillator();

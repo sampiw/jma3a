@@ -6,11 +6,17 @@ import { getSupabaseBrowser } from "@/lib/realtime/supabaseBrowser";
 import { BotDriverMemory, stepKsidaBots } from "@/games/ksida3d/ai";
 import { sortRacersStandings } from "@/games/ksida3d/engine";
 import { CarKinematicsState } from "@/games/ksida3d/physics";
-import { getSpawnSlots, TRACK_CHECKPOINTS, TRACK_POLYLINE } from "@/games/ksida3d/trackLayout";
+import {
+  createInitialBarrels,
+  getSpawnSlots,
+  TRACK_CHECKPOINTS,
+  TRACK_POLYLINE,
+} from "@/games/ksida3d/trackLayout";
 import {
   KSIDA_TAUNTS,
   KSIDA_VEHICLES,
   KsidaAction,
+  KsidaBarrelProp,
   KsidaCratePad,
   KsidaHazardDrop,
   KsidaItemFirePacket,
@@ -29,7 +35,7 @@ import {
 } from "@/games/ksida3d/types";
 import { ksidaSfx } from "./soundFx";
 
-const POS_BROADCAST_MS = 58; // ~17Hz sampling coalesced into 11Hz Live Relay
+const POS_BROADCAST_MS = 58;
 const POS_HEARTBEAT_MS = 650;
 const WORLD_SYNC_MS = 180;
 const CHECKPOINT_API_MS = 10_000;
@@ -56,11 +62,11 @@ const MEME_BANNERS_BY_CAUSE: Record<KsidaWreckEventPacket["cause"], string[]> = 
     "طار بكلاكسون العرس برا الطريق! 📢💨",
     "طاط-طاط-طاطاطا! الصوت طيّرو! 🔊💥",
   ],
-  WATERMELON: [
-    "تفرشخ فـ دلاحة عملاقة وسط الطريق! 🍉💀",
-  ],
-  HOT_BOMB: [
-    "نسى قنبلة البوطا فوق السقف وتفرگع! 💣🔥",
+  WATERMELON: ["تفرشخ فـ دلاحة عملاقة وسط الطريق! 🍉💀"],
+  HOT_BOMB: ["نسى قنبلة البوطا فوق السقف وتفرگع! 💣🔥"],
+  BARREL: [
+    "دخل فبرميل البوطا المتفجر وسط الدورة! 🛢️💥",
+    "بوووم! البرميل صيفطو للسحاب! 🔥🚀",
   ],
 };
 
@@ -91,6 +97,7 @@ export interface UseKsidaNetOptions {
   round: number;
   phase: "PLAYING" | "GAME_OVER";
   mode: KsidaMode;
+  countdownEndsAt: number;
   endsAt: number;
   settings: KsidaSettings;
   initialRacers: Record<string, KsidaRacer>;
@@ -122,6 +129,7 @@ export function useKsidaNet({
   round,
   phase,
   mode,
+  countdownEndsAt,
   endsAt,
   settings,
   initialRacers,
@@ -144,6 +152,7 @@ export function useKsidaNet({
 
   const racersRef = useRef<Record<string, KsidaRacer>>({});
   const cratesRef = useRef<KsidaCratePad[]>([]);
+  const barrelsRef = useRef<KsidaBarrelProp[]>([]);
   const hazardsRef = useRef<KsidaHazardDrop[]>([]);
   const peersRef = useRef<Map<string, KsidaLivePeerPacket>>(new Map());
   const botMemRef = useRef<Map<string, BotDriverMemory>>(new Map());
@@ -192,6 +201,7 @@ export function useKsidaNet({
     }
     racersRef.current = cloned;
     cratesRef.current = (initialCrates || []).map((c) => ({ ...c }));
+    barrelsRef.current = createInitialBarrels(mode);
     hazardsRef.current = [];
     botMemRef.current.clear();
 
@@ -201,7 +211,7 @@ export function useKsidaNet({
 
     hotBombHolderRef.current = initialHotBombHolderId || null;
     hotBombExplodesAtRef.current =
-      initialHotBombExplodesAt || (mode === "HOT_BOMB" ? Date.now() + 15_000 : 0);
+      initialHotBombExplodesAt || (mode === "HOT_BOMB" ? Date.now() + 19_000 : 0);
     lastBombTransferAtRef.current = 0;
     raceFinishDeadlineRef.current = 0;
     finishedSentRef.current = false;
@@ -235,13 +245,12 @@ export function useKsidaNet({
         changed = true;
       } else if (existing.vehicle !== r.vehicle) {
         existing.vehicle = r.vehicle;
-        existing.maxHp = KSIDA_VEHICLES[r.vehicle]?.maxHp || 100;
+        existing.maxHp = KSIDA_VEHICLES[r.vehicle]?.maxHp || 105;
         existing.hp = Math.min(existing.maxHp, existing.hp);
         changed = true;
       }
     }
 
-    // Smart Bot Policy: if 2+ humans are now present and botFill is OFF, prune solo bots!
     const humanCount = Object.values(racersRef.current).filter((u) => !u.isBot).length;
     if (humanCount >= 2 && !settings.botFill) {
       for (const [id, unit] of Object.entries(racersRef.current)) {
@@ -257,7 +266,6 @@ export function useKsidaNet({
     if (changed) setHudTick((t) => t + 1);
   }, [initialRacers, settings.botFill, myId]);
 
-  // Authoritative Damage / Takedown / Bomb-Pass / Crown-Steal resolver
   const applyArbiterDamage = useCallback(
     (opts: {
       attackerId: string;
@@ -276,6 +284,7 @@ export function useKsidaNet({
       if (!victim || !victim.isAlive) return;
 
       const now = Date.now();
+      if (now < countdownEndsAt) return;
       if (victim.shieldUntil > now && opts.cause !== "HOT_BOMB") return;
 
       // Hot-Bomb Transfer on Ram!
@@ -288,11 +297,11 @@ export function useKsidaNet({
       ) {
         if (hotBombHolderRef.current === attacker.id) {
           hotBombHolderRef.current = victim.id;
-          hotBombExplodesAtRef.current = Math.max(hotBombExplodesAtRef.current, now + 4500);
+          hotBombExplodesAtRef.current = Math.max(hotBombExplodesAtRef.current, now + 5000);
           lastBombTransferAtRef.current = now;
         } else if (hotBombHolderRef.current === victim.id) {
           hotBombHolderRef.current = attacker.id;
-          hotBombExplodesAtRef.current = Math.max(hotBombExplodesAtRef.current, now + 4500);
+          hotBombExplodesAtRef.current = Math.max(hotBombExplodesAtRef.current, now + 5000);
           lastBombTransferAtRef.current = now;
         }
       }
@@ -310,12 +319,13 @@ export function useKsidaNet({
 
       const actualDmg = Math.max(4, Math.round(opts.damage));
       victim.hp = Math.max(0, victim.hp - actualDmg);
-      victim.lastDamagedBy = attacker?.id || null;
+      if (attacker && attacker.id !== victim.id) {
+        victim.lastDamagedBy = attacker.id;
+      }
       if (opts.spinMs > 0) {
         victim.spinUntil = Math.max(victim.spinUntil, now + opts.spinMs);
       }
 
-      // Dispatch knockback & camera shake to victim
       if (victim.id === myId) {
         callbacksRef.current.onLocalKnockback(
           opts.impulseX,
@@ -336,7 +346,6 @@ export function useKsidaNet({
           },
         });
       } else {
-        // Apply impulse directly to bot kinematics memory
         const bm = botMemRef.current.get(victim.id);
         if (bm) {
           bm.kin.vx += opts.impulseX;
@@ -345,7 +354,6 @@ export function useKsidaNet({
         }
       }
 
-      // Check WRECK / TAKEDOWN!
       if (victim.hp <= 0) {
         victim.isAlive = false;
         victim.wrecksTaken += 1;
@@ -362,26 +370,33 @@ export function useKsidaNet({
           }
         }
 
-        if (attacker && attacker.id !== victim.id) {
-          attacker.takedowns += 1;
-          attacker.streak += 1;
-          attacker.score += 20 + attacker.streak * 5;
-          attacker.nitro = Math.min(100, attacker.nitro + 50);
+        const creditedAttacker =
+          attacker && attacker.id !== victim.id
+            ? attacker
+            : victim.lastDamagedBy
+            ? racersRef.current[victim.lastDamagedBy]
+            : null;
+
+        if (creditedAttacker && creditedAttacker.id !== victim.id) {
+          creditedAttacker.takedowns += 1;
+          creditedAttacker.streak += 1;
+          creditedAttacker.score += 25 + creditedAttacker.streak * 6;
+          creditedAttacker.nitro = Math.min(100, creditedAttacker.nitro + 50);
         }
 
         const wreckPkt: KsidaWreckEventPacket = {
           id: `wrk_${now}_${Math.random().toString(36).slice(2, 6)}`,
-          attackerId: attacker?.id || victim.id,
-          attackerName: attacker?.nickname || "قنبلة البوطا",
+          attackerId: creditedAttacker?.id || victim.id,
+          attackerName: creditedAttacker?.nickname || "برميل البوطا",
           victimId: victim.id,
           victimName: victim.nickname,
           cause: opts.cause,
-          streak: attacker?.streak || 1,
+          streak: creditedAttacker?.streak || 1,
           memeBannerAr: pickBanner(opts.cause),
           x: victim.x,
           y: victim.y,
           z: victim.z,
-          colorHex: attacker?.accentHex || 0xef4444,
+          colorHex: creditedAttacker?.accentHex || 0xef4444,
         };
 
         callbacksRef.current.onWreckEvent(wreckPkt);
@@ -392,71 +407,72 @@ export function useKsidaNet({
         });
       }
     },
-    [mode, myId, phase]
+    [mode, myId, phase, countdownEndsAt]
   );
 
-  // Spawn static/rolling hazards (Beldi Soap Slick or Watermelon Boulders) on Arbiter
-  const registerFiredItemHazard = useCallback((pkt: KsidaItemFirePacket) => {
-    const now = Date.now();
-    if (pkt.item === "SOAP_OIL") {
-      const bx = pkt.x - Math.sin(pkt.yaw) * 2.8;
-      const bz = pkt.z - Math.cos(pkt.yaw) * 2.8;
-      hazardsRef.current.push({
-        id: pkt.id,
-        ownerId: pkt.ownerId,
-        kind: "SOAP_OIL",
-        x: Math.round(bx * 100) / 100,
-        y: 0.05,
-        z: Math.round(bz * 100) / 100,
-        vx: 0,
-        vz: 0,
-        spawnedAt: now,
-      });
-      if (hazardsRef.current.length > 14) hazardsRef.current.shift();
-    } else if (pkt.item === "WATERMELON") {
-      for (const angOff of [-0.35, 0, 0.35]) {
-        const a = pkt.yaw + Math.PI + angOff;
+  const registerFiredItemHazard = useCallback(
+    (pkt: KsidaItemFirePacket) => {
+      const now = Date.now();
+      if (pkt.item === "SOAP_OIL") {
+        const bx = pkt.x - Math.sin(pkt.yaw) * 2.9;
+        const bz = pkt.z - Math.cos(pkt.yaw) * 2.9;
         hazardsRef.current.push({
-          id: `${pkt.id}_${angOff}`,
+          id: pkt.id,
           ownerId: pkt.ownerId,
-          kind: "WATERMELON",
-          x: Math.round((pkt.x + Math.sin(a) * 2.6) * 100) / 100,
-          y: 0.5,
-          z: Math.round((pkt.z + Math.cos(a) * 2.6) * 100) / 100,
-          vx: Math.round(Math.sin(a) * 9.5 * 10) / 10,
-          vz: Math.round(Math.cos(a) * 9.5 * 10) / 10,
+          kind: "SOAP_OIL",
+          x: Math.round(bx * 100) / 100,
+          y: 0.05,
+          z: Math.round(bz * 100) / 100,
+          vx: 0,
+          vz: 0,
           spawnedAt: now,
         });
-      }
-      while (hazardsRef.current.length > 16) hazardsRef.current.shift();
-    } else if (pkt.item === "WEDDING_HORN") {
-      // Instant AoE sonic bass blast around owner!
-      ksidaSfx.playMemeHorn(1, pkt.ownerId === myId);
-      callbacksRef.current.onExplosionVisual(pkt.x, pkt.y, pkt.z, 0xf59e0b, "بوق العرس! 📢");
-      const BLAST_R = 9.8;
-      for (const u of Object.values(racersRef.current)) {
-        if (u.id === pkt.ownerId || !u.isAlive) continue;
-        const dx = u.x - pkt.x;
-        const dz = u.z - pkt.z;
-        const d = Math.hypot(dx, dz);
-        if (d <= BLAST_R) {
-          const nx = d > 0.01 ? dx / d : 1;
-          const nz = d > 0.01 ? dz / d : 0;
-          applyArbiterDamage({
-            attackerId: pkt.ownerId,
-            victimId: u.id,
-            damage: 28,
-            cause: "WEDDING_HORN",
-            impulseX: nx * 24,
-            impulseZ: nz * 24,
-            spinMs: 680,
-            hitX: u.x,
-            hitZ: u.z,
+        if (hazardsRef.current.length > 16) hazardsRef.current.shift();
+      } else if (pkt.item === "WATERMELON") {
+        for (const angOff of [-0.35, 0, 0.35]) {
+          const a = pkt.yaw + Math.PI + angOff;
+          hazardsRef.current.push({
+            id: `${pkt.id}_${angOff}`,
+            ownerId: pkt.ownerId,
+            kind: "WATERMELON",
+            x: Math.round((pkt.x + Math.sin(a) * 2.7) * 100) / 100,
+            y: 0.5,
+            z: Math.round((pkt.z + Math.cos(a) * 2.7) * 100) / 100,
+            vx: Math.round(Math.sin(a) * 10.5 * 10) / 10,
+            vz: Math.round(Math.cos(a) * 10.5 * 10) / 10,
+            spawnedAt: now,
           });
         }
+        while (hazardsRef.current.length > 18) hazardsRef.current.shift();
+      } else if (pkt.item === "WEDDING_HORN") {
+        ksidaSfx.playMemeHorn(1, pkt.ownerId === myId);
+        callbacksRef.current.onExplosionVisual(pkt.x, pkt.y, pkt.z, 0xf59e0b, "بوق العرس! 📢");
+        const BLAST_R = 10.5;
+        for (const u of Object.values(racersRef.current)) {
+          if (u.id === pkt.ownerId || !u.isAlive) continue;
+          const dx = u.x - pkt.x;
+          const dz = u.z - pkt.z;
+          const d = Math.hypot(dx, dz);
+          if (d <= BLAST_R) {
+            const nx = d > 0.01 ? dx / d : 1;
+            const nz = d > 0.01 ? dz / d : 0;
+            applyArbiterDamage({
+              attackerId: pkt.ownerId,
+              victimId: u.id,
+              damage: 28,
+              cause: "WEDDING_HORN",
+              impulseX: nx * 24,
+              impulseZ: nz * 24,
+              spinMs: 680,
+              hitX: u.x,
+              hitZ: u.z,
+            });
+          }
+        }
       }
-    }
-  }, [applyArbiterDamage, myId]);
+    },
+    [applyArbiterDamage, myId]
+  );
 
   // Subscribe to Upstash 11Hz Live Relay Channel (`ksida3d:<ROOM_CODE>`)
   useEffect(() => {
@@ -524,12 +540,15 @@ export function useKsidaNet({
         const hit = payload as KsidaItemHitPacket;
         if (!hit) return;
         if (isHost || performance.now() - lastArbiterHeardRef.current > 3200) {
-          const causeMap: Partial<Record<KsidaItemId, KsidaWreckEventPacket["cause"]>> = {
+          const causeMap: Partial<
+            Record<KsidaItemHitPacket["item"], KsidaWreckEventPacket["cause"]>
+          > = {
             SANDALA: "SANDALA",
             BUTAGAZ: "BUTAGAZ",
             SOAP_OIL: "SOAP_OIL",
             WEDDING_HORN: "WEDDING_HORN",
             WATERMELON: "WATERMELON",
+            BARREL: "BARREL",
           };
           applyArbiterDamage({
             attackerId: hit.attackerId,
@@ -586,6 +605,23 @@ export function useKsidaNet({
           for (const cs of w.crates) {
             const c = cratesRef.current.find((item) => item.id === cs.i);
             if (c) c.available = cs.a === 1;
+          }
+        }
+        if (Array.isArray(w.barrels)) {
+          for (const bs of w.barrels) {
+            const b = barrelsRef.current.find((item) => item.id === bs.i);
+            if (b) {
+              if (b.available && bs.a === 0) {
+                callbacksRef.current.onExplosionVisual(
+                  b.x,
+                  0.8,
+                  b.z,
+                  0xef4444,
+                  "بوووم! 🛢️💥"
+                );
+              }
+              b.available = bs.a === 1;
+            }
           }
         }
 
@@ -678,7 +714,6 @@ export function useKsidaNet({
             callbacksRef.current.onRespawnLocal(u.x, u.y, u.z, u.yw);
           }
 
-          // Feed bots & fallback remote cars into peersRef for silky 60fps Hermite interpolation!
           if (!isMe && u.al === 1 && (u.b === 1 || !hasFreshPos)) {
             peersRef.current.set(u.i, {
               i: u.i,
@@ -741,8 +776,8 @@ export function useKsidaNet({
       const dt = Math.min(0.1, (perfNow - lastSimTime) / 1000);
       lastSimTime = perfNow;
       const now = Date.now();
+      const inCountdown = now < countdownEndsAt;
 
-      // Sync local human racer state from 60fps kinematics
       const me = racersRef.current[myId];
       if (me && me.isAlive) {
         me.x = localKinRef.current.x;
@@ -756,18 +791,18 @@ export function useKsidaNet({
         me.wallHits = localProgressRef.current.wallHits;
         me.driftScore = localProgressRef.current.driftScore;
 
-        if (mode === "RACE" && me.finishedAt === 0) {
+        if (mode === "RACE" && me.finishedAt === 0 && !inCountdown) {
           const prevLap = me.lap;
           me.lap = localProgressRef.current.lap;
           me.nextCheckpoint = localProgressRef.current.nextCheckpoint;
           me.trackProgress = localProgressRef.current.trackProgress;
           if (me.lap > prevLap) {
-            me.score += 35;
+            me.score += 45;
           }
           if (me.lap > settings.targetLaps) {
             me.lap = settings.targetLaps;
             me.finishedAt = now;
-            me.score += 110;
+            me.score += 130;
             ksidaSfx.playLapFanfare(true);
           }
         }
@@ -782,7 +817,7 @@ export function useKsidaNet({
       const units = Object.values(racersRef.current);
       const sortedStandings = sortRacersStandings(units, mode);
 
-      // 1. Respawns & Mystery Crate Pickups
+      // 1. Respawns, Mystery Crates & Destructible Explosive Barrels!
       for (const u of units) {
         if (!u.isAlive) {
           if (u.respawnAt > 0 && now >= u.respawnAt) {
@@ -791,14 +826,13 @@ export function useKsidaNet({
             let ryaw = 0;
 
             if (mode === "RACE") {
-              // Respawn right near their active checkpoint corridor so they stay right in the race!
               const prevCpIdx =
                 ((u.nextCheckpoint - 1) % TRACK_CHECKPOINTS.length +
                   TRACK_CHECKPOINTS.length) %
                 TRACK_CHECKPOINTS.length;
               const sampleIdx = TRACK_CHECKPOINTS[prevCpIdx].sampleIndex;
               const pt = TRACK_POLYLINE[sampleIdx];
-              const lateral = (Math.random() - 0.5) * 6;
+              const lateral = (Math.random() - 0.5) * 6.5;
               rx = pt.x + pt.nx * lateral;
               rz = pt.z + pt.nz * lateral;
               ryaw = pt.yaw;
@@ -812,7 +846,7 @@ export function useKsidaNet({
 
             u.isAlive = true;
             u.hp = u.maxHp;
-            u.nitro = Math.max(u.nitro, 70);
+            u.nitro = Math.max(u.nitro, 75);
             u.x = rx;
             u.y = 0;
             u.z = rz;
@@ -840,13 +874,13 @@ export function useKsidaNet({
           continue;
         }
 
-        // Mystery Crate collision
+        // Mystery Crate Pickup
         for (const pad of cratesRef.current) {
           if (!pad.available) continue;
-          if (Math.hypot(u.x - pad.x, u.z - pad.z) < 2.35) {
+          if (Math.hypot(u.x - pad.x, u.z - pad.z) < 2.55) {
             pad.available = false;
-            pad.respawnAt = now + 9500;
-            u.nitro = Math.min(100, u.nitro + 25);
+            pad.respawnAt = now + 9000;
+            u.nitro = Math.min(100, u.nitro + 28);
             if (!u.heldItem) {
               const rankIdx = Math.max(
                 0,
@@ -855,20 +889,64 @@ export function useKsidaNet({
               u.heldItem = pickWeightedItem(rankIdx, sortedStandings.length);
             }
             if (u.id === myId) {
-              localKinRef.current.nitro = Math.min(100, localKinRef.current.nitro + 25);
+              localKinRef.current.nitro = Math.min(100, localKinRef.current.nitro + 28);
               ksidaSfx.playCratePickup();
+            }
+          }
+        }
+
+        // Explosive Red Fuel Barrel Detonation on Contact!
+        if (!inCountdown) {
+          for (const brl of barrelsRef.current) {
+            if (!brl.available) continue;
+            if (Math.hypot(u.x - brl.x, u.z - brl.z) < 2.25) {
+              brl.available = false;
+              brl.respawnAt = now + 14_000;
+              ksidaSfx.playButagazExplosion();
+              callbacksRef.current.onExplosionVisual(
+                brl.x,
+                0.8,
+                brl.z,
+                0xef4444,
+                "برميل متفجر! 🛢️💥"
+              );
+
+              // Blast all cars within 7.5m of the exploding barrel!
+              for (const vic of units) {
+                if (!vic.isAlive) continue;
+                const dx = vic.x - brl.x;
+                const dz = vic.z - brl.z;
+                const d = Math.hypot(dx, dz);
+                if (d <= 7.5) {
+                  const nx = d > 0.01 ? dx / d : Math.sin(vic.yaw + Math.PI);
+                  const nz = d > 0.01 ? dz / d : Math.cos(vic.yaw + Math.PI);
+                  const falloff = 1 - (d / 7.5) * 0.5;
+                  applyArbiterDamage({
+                    attackerId: vic.lastDamagedBy || u.id,
+                    victimId: vic.id,
+                    damage: Math.round(38 * falloff),
+                    cause: "BARREL",
+                    impulseX: nx * 22 * falloff,
+                    impulseZ: nz * 22 * falloff,
+                    spinMs: 780,
+                    hitX: brl.x,
+                    hitZ: brl.z,
+                  });
+                }
+              }
             }
           }
         }
       }
 
       for (const pad of cratesRef.current) {
-        if (!pad.available && now >= pad.respawnAt) {
-          pad.available = true;
-        }
+        if (!pad.available && now >= pad.respawnAt) pad.available = true;
+      }
+      for (const brl of barrelsRef.current) {
+        if (!brl.available && now >= brl.respawnAt) brl.available = true;
       }
 
-      // 2. Step Rolling Watermelon & Beldi Soap Slick Hazards!
+      // 2. Step Rolling Watermelon & Beldi Soap Slick Hazards
       for (let i = hazardsRef.current.length - 1; i >= 0; i--) {
         const h = hazardsRef.current[i];
         if (h.spawnedAt > 0 && now - h.spawnedAt > 18_000) {
@@ -882,17 +960,16 @@ export function useKsidaNet({
           h.vz *= Math.pow(0.88, dt);
         }
 
-        // Check collision with alive racers (ignore owner for first 1.2s)
         for (const u of units) {
           if (!u.isAlive) continue;
           if (u.id === h.ownerId && h.spawnedAt > 0 && now - h.spawnedAt < 1200) continue;
-          const hitR = h.kind === "SOAP_OIL" ? 2.45 : 1.95;
+          const hitR = h.kind === "SOAP_OIL" ? 2.55 : 2.05;
           if (Math.hypot(u.x - h.x, u.z - h.z) <= hitR) {
             hazardsRef.current.splice(i, 1);
             applyArbiterDamage({
               attackerId: h.ownerId,
               victimId: u.id,
-              damage: h.kind === "WATERMELON" ? 30 : 12,
+              damage: h.kind === "WATERMELON" ? 32 : 12,
               cause: h.kind,
               impulseX: h.vx * 0.8,
               impulseZ: h.vz * 0.8,
@@ -906,14 +983,13 @@ export function useKsidaNet({
       }
 
       // 3. DERBY Golden Tagine Crown Logic
-      if (mode === "DERBY") {
+      if (mode === "DERBY" && !inCountdown) {
         const holder = crownHolderRef.current ? racersRef.current[crownHolderRef.current] : null;
         if (!holder || !holder.isAlive) {
           crownHolderRef.current = null;
-          // Anyone driving near (crownX, crownZ) claims the Golden Tagine Crown!
           for (const u of units) {
             if (!u.isAlive) continue;
-            if (Math.hypot(u.x - crownPosRef.current.x, u.z - crownPosRef.current.z) < 2.9) {
+            if (Math.hypot(u.x - crownPosRef.current.x, u.z - crownPosRef.current.z) < 3.1) {
               crownHolderRef.current = u.id;
               if (u.id === myId) ksidaSfx.playCratePickup();
               break;
@@ -930,7 +1006,7 @@ export function useKsidaNet({
       }
 
       // 4. HOT_BOMB Ticking Roof Butagaz Logic
-      if (mode === "HOT_BOMB") {
+      if (mode === "HOT_BOMB" && !inCountdown) {
         const aliveList = units.filter((u) => u.isAlive);
         const holder = hotBombHolderRef.current
           ? racersRef.current[hotBombHolderRef.current]
@@ -940,10 +1016,9 @@ export function useKsidaNet({
           if (aliveList.length > 0) {
             const nextVictim = aliveList[Math.floor(Math.random() * aliveList.length)];
             hotBombHolderRef.current = nextVictim.id;
-            hotBombExplodesAtRef.current = now + 14_500;
+            hotBombExplodesAtRef.current = now + 15_500;
           }
         } else if (now >= hotBombExplodesAtRef.current) {
-          // BOOM!! Roof Butagaz Detonates!
           callbacksRef.current.onExplosionVisual(
             holder.x,
             holder.y + 1,
@@ -953,7 +1028,6 @@ export function useKsidaNet({
           );
           ksidaSfx.playButagazExplosion();
 
-          // Survivors earn +18 points!
           for (const surv of aliveList) {
             if (surv.id !== holder.id) {
               surv.score += 18;
@@ -976,10 +1050,10 @@ export function useKsidaNet({
           if (remainingAlive.length > 0) {
             const pick = remainingAlive[Math.floor(Math.random() * remainingAlive.length)];
             hotBombHolderRef.current = pick.id;
-            hotBombExplodesAtRef.current = now + 15_000;
+            hotBombExplodesAtRef.current = now + 15_500;
           } else {
             hotBombHolderRef.current = null;
-            hotBombExplodesAtRef.current = now + 15_000;
+            hotBombExplodesAtRef.current = now + 15_500;
           }
         }
       }
@@ -1029,10 +1103,10 @@ export function useKsidaNet({
               payload: { racerId: botId, nickname, tauntId } satisfies KsidaTauntPacket,
             });
           },
-        }
+        },
+        countdownEndsAt
       );
 
-      // Update local peersRef for bots on Arbiter so Three.js renders them at 60fps
       for (const b of units) {
         if (!b.isBot || !b.isAlive) continue;
         const bm = botMemRef.current.get(b.id);
@@ -1058,18 +1132,21 @@ export function useKsidaNet({
         });
       }
 
-      // 6. Evaluate Win & Match End Conditions
+      // 6. Fair & Full-Length Win Evaluation!
       let shouldEnd = now >= endsAt;
 
       if (mode === "RACE") {
         const humans = units.filter((u) => !u.isBot);
-        const anyFinished = units.some((u) => u.finishedAt > 0);
+        const anyHumanFinished = humans.some((h) => h.finishedAt > 0);
         const allHumansFinished =
           humans.length > 0 && humans.every((h) => h.finishedAt > 0);
 
-        if (anyFinished && raceFinishDeadlineRef.current === 0) {
-          raceFinishDeadlineRef.current = now + 18_000; // 18s grace countdown after 1st crosses line!
+        // In Multiplayer (2+ humans), start a 30s grace timer once the FIRST HUMAN finishes!
+        // In Solo (1 human), NEVER cut the race short before the human crosses Lap 3!
+        if (humans.length >= 2 && anyHumanFinished && raceFinishDeadlineRef.current === 0) {
+          raceFinishDeadlineRef.current = now + 30_000;
         }
+
         if (
           allHumansFinished ||
           (raceFinishDeadlineRef.current > 0 && now >= raceFinishDeadlineRef.current)
@@ -1115,6 +1192,7 @@ export function useKsidaNet({
           bombId: hotBombHolderRef.current,
           bombAt: hotBombExplodesAtRef.current,
           crates: cratesRef.current.map((c) => ({ i: c.id, a: c.available ? 1 : 0 })),
+          barrels: barrelsRef.current.map((b) => ({ i: b.id, a: b.available ? 1 : 0 })),
           hazards: hazardsRef.current.map((h) => ({
             i: h.id,
             o: h.ownerId,
@@ -1164,7 +1242,6 @@ export function useKsidaNet({
         });
       }
 
-      // 8. Periodic Redis Checkpoint every 10s
       if (now - lastCheckpointAtRef.current >= CHECKPOINT_API_MS) {
         lastCheckpointAtRef.current = now;
         void callbacksRef.current.onAction({
@@ -1186,6 +1263,7 @@ export function useKsidaNet({
     isHost,
     myId,
     mode,
+    countdownEndsAt,
     endsAt,
     settings.targetLaps,
     settings.targetDerbyScore,
@@ -1195,7 +1273,6 @@ export function useKsidaNet({
     localProgressRef,
   ]);
 
-  // Outbound Local Car Position Stream (~17Hz coalesced)
   const broadcastLocalPosTick = useCallback(() => {
     const ch = channelRef.current;
     const me = racersRef.current[myId];
@@ -1261,7 +1338,15 @@ export function useKsidaNet({
 
   const fireHeldMemeItem = useCallback((): KsidaItemFirePacket | null => {
     const me = racersRef.current[myId];
-    if (!me || !me.isAlive || !me.heldItem || phase === "GAME_OVER") return null;
+    if (
+      !me ||
+      !me.isAlive ||
+      !me.heldItem ||
+      phase === "GAME_OVER" ||
+      Date.now() < countdownEndsAt
+    ) {
+      return null;
+    }
 
     const item = me.heldItem;
     me.heldItem = null;
@@ -1272,7 +1357,6 @@ export function useKsidaNet({
       localKinRef.current.nitro = 100;
     }
 
-    // Pick best homing target ahead for SANDALA
     let targetId: string | null = null;
     if (item === "SANDALA") {
       let bestScore = Infinity;
@@ -1283,7 +1367,7 @@ export function useKsidaNet({
         const dx = u.x - localKinRef.current.x;
         const dz = u.z - localKinRef.current.z;
         const d = Math.hypot(dx, dz);
-        if (d > 55) continue;
+        if (d > 68) continue;
         const fwdDot = (dx / (d || 1)) * fx + (dz / (d || 1)) * fz;
         const weight = d * (fwdDot > 0.2 ? 0.65 : 1.5);
         if (weight < bestScore) {
@@ -1316,17 +1400,20 @@ export function useKsidaNet({
     });
     setHudTick((t) => t + 1);
     return pkt;
-  }, [myId, phase, isHost, localKinRef, registerFiredItemHazard]);
+  }, [myId, phase, countdownEndsAt, isHost, localKinRef, registerFiredItemHazard]);
 
   const claimProjectileHit = useCallback(
     (hit: KsidaItemHitPacket) => {
       if (isHost || performance.now() - lastArbiterHeardRef.current > 3200) {
-        const causeMap: Partial<Record<KsidaItemId, KsidaWreckEventPacket["cause"]>> = {
+        const causeMap: Partial<
+          Record<KsidaItemHitPacket["item"], KsidaWreckEventPacket["cause"]>
+        > = {
           SANDALA: "SANDALA",
           BUTAGAZ: "BUTAGAZ",
           SOAP_OIL: "SOAP_OIL",
           WEDDING_HORN: "WEDDING_HORN",
           WATERMELON: "WATERMELON",
+          BARREL: "BARREL",
         };
         applyArbiterDamage({
           attackerId: hit.attackerId,
@@ -1408,12 +1495,14 @@ export function useKsidaNet({
     hudTick,
     racersRef,
     cratesRef,
+    barrelsRef,
     hazardsRef,
     peersRef,
     crownHolderRef,
     crownPosRef,
     hotBombHolderRef,
     hotBombExplodesAtRef,
+    raceFinishDeadlineRef,
     broadcastLocalPosTick,
     claimRamHit,
     fireHeldMemeItem,

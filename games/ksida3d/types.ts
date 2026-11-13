@@ -5,7 +5,8 @@ export type KsidaVehicleId =
   | "MERCEDES_240"
   | "C15_KHATTAF"
   | "TRIPORTEUR"
-  | "LOGAN_ECOLE";
+  | "LOGAN_ECOLE"
+  | "JADARMIYA";
 
 export type KsidaItemId =
   | "SANDALA"
@@ -28,6 +29,7 @@ export interface VehicleSpec {
   nameAr: string;
   taglineAr: string;
   emoji: string;
+  glbPath: string;
   bodyHex: number;
   secondaryHex: number;
   accentHex: string;
@@ -43,77 +45,98 @@ export const KSIDA_VEHICLES: Record<KsidaVehicleId, VehicleSpec> = {
   TAXI_HMER: {
     id: "TAXI_HMER",
     nameAr: "طاكسي صغير حمر",
-    taglineAr: "ملك الزناقي والدريفت السريع — العين حق 🧿",
+    taglineAr: "ملك الزناقي والدريفت السريع — طاكسي كازا الأصلي 🧿",
     emoji: "🚕",
+    glbPath: "/models/cars/taxi.glb",
     bodyHex: 0xdc2626,
     secondaryHex: 0x18181b,
     accentHex: "#ef4444",
-    topSpeed: 30.5,
-    accel: 24.5,
-    turnRate: 2.55,
+    topSpeed: 34.5,
+    accel: 27.5,
+    turnRate: 2.38,
     driftGrip: 0.92,
-    mass: 0.95,
-    maxHp: 100,
+    mass: 0.98,
+    maxHp: 105,
   },
   MERCEDES_240: {
     id: "MERCEDES_240",
     nameAr: "مرسيدس 240 الكبيرة",
-    taglineAr: "6 بلايص + الشيفور + الباكاج فوق السقف! دبابة الروندا",
+    taglineAr: "6 بلايص + الشيفور + الباكاج فوق السقف! دبابة الطريق",
     emoji: "🚘",
+    glbPath: "/models/cars/sedan.glb",
     bodyHex: 0xfef3c7,
     secondaryHex: 0x0f172a,
     accentHex: "#f59e0b",
-    topSpeed: 29.2,
-    accel: 20.5,
-    turnRate: 2.15,
-    driftGrip: 0.86,
-    mass: 1.38,
-    maxHp: 125,
+    topSpeed: 33.2,
+    accel: 23.5,
+    turnRate: 2.05,
+    driftGrip: 0.87,
+    mass: 1.42,
+    maxHp: 130,
   },
   C15_KHATTAF: {
     id: "C15_KHATTAF",
     nameAr: "C15 الخطّاف الأسطورية",
     taglineAr: "C15 ما كتموتش! محملة بالبوطات ومقطوعة ليها الفران",
     emoji: "🚐",
+    glbPath: "/models/cars/van.glb",
     bodyHex: 0xe2e8f0,
     secondaryHex: 0x334155,
     accentHex: "#38bdf8",
-    topSpeed: 28.8,
-    accel: 22.0,
-    turnRate: 2.25,
+    topSpeed: 32.8,
+    accel: 24.5,
+    turnRate: 2.14,
     driftGrip: 0.89,
-    mass: 1.32,
-    maxHp: 130,
+    mass: 1.36,
+    maxHp: 135,
   },
   TRIPORTEUR: {
     id: "TRIPORTEUR",
-    nameAr: "تريبورتور الصاروخ",
-    taglineAr: "شارجي بالدلاح والطواجن وكيهز الرويضة القدامية فالنيترو!",
+    nameAr: "هوندا الدلاح الصاروخية",
+    taglineAr: "بيكاب شارجي بالدلاح والطواجن وكيهز الرويضة فالنيترو!",
     emoji: "🛺",
+    glbPath: "/models/cars/delivery-flat.glb",
     bodyHex: 0x0284c7,
     secondaryHex: 0xf97316,
     accentHex: "#fb923c",
-    topSpeed: 31.2,
-    accel: 27.0,
-    turnRate: 2.75,
-    driftGrip: 0.84,
-    mass: 0.84,
-    maxHp: 92,
+    topSpeed: 35.2,
+    accel: 29.5,
+    turnRate: 2.52,
+    driftGrip: 0.85,
+    mass: 0.88,
+    maxHp: 96,
   },
   LOGAN_ECOLE: {
     id: "LOGAN_ECOLE",
     nameAr: "لوطو إيكول الدرب",
     taglineAr: "بلاكة AUTO-ÉCOLE فوق السقف — قمة الإهانة ملي تفرشخ صاحبك!",
     emoji: "🚗",
+    glbPath: "/models/cars/hatchback-sports.glb",
     bodyHex: 0xfacc15,
     secondaryHex: 0x1e293b,
     accentHex: "#fde047",
-    topSpeed: 29.8,
-    accel: 23.5,
-    turnRate: 2.42,
-    driftGrip: 0.9,
+    topSpeed: 33.8,
+    accel: 26.5,
+    turnRate: 2.3,
+    driftGrip: 0.91,
     mass: 1.08,
-    maxHp: 108,
+    maxHp: 110,
+  },
+  JADARMIYA: {
+    id: "JADARMIYA",
+    nameAr: "سطافيط الرادار 🚨",
+    taglineAr: "الجدارمية والرادار المتنقل — الصافرة شاعلة و400 درهم واجدة!",
+    emoji: "🚓",
+    glbPath: "/models/cars/police.glb",
+    bodyHex: 0x1e3a8a,
+    secondaryHex: 0xf8fafc,
+    accentHex: "#3b82f6",
+    topSpeed: 35.0,
+    accel: 27.0,
+    turnRate: 2.28,
+    driftGrip: 0.9,
+    mass: 1.28,
+    maxHp: 122,
   },
 };
 
@@ -123,6 +146,7 @@ export const KSIDA_VEHICLE_ORDER: KsidaVehicleId[] = [
   "C15_KHATTAF",
   "TRIPORTEUR",
   "LOGAN_ECOLE",
+  "JADARMIYA",
 ];
 
 export interface MemeItemSpec {
@@ -234,7 +258,7 @@ export interface KsidaRacer {
   shieldUntil: number; // spawn/respawn protection
   // Race & Derby progression
   lap: number; // 1..targetLaps
-  nextCheckpoint: number; // 0..3
+  nextCheckpoint: number; // 0..7
   trackProgress: number; // monotonic total progress for live race standings
   finishedAt: number; // >0 when race completed
   // Stats & Meme Roast Metrics
@@ -253,6 +277,14 @@ export interface KsidaCratePad {
   id: string;
   x: number;
   y: number;
+  z: number;
+  available: boolean;
+  respawnAt: number;
+}
+
+export interface KsidaBarrelProp {
+  id: string;
+  x: number;
   z: number;
   available: boolean;
   respawnAt: number;
@@ -283,9 +315,9 @@ export interface KsidaAwardBadge {
 export interface KsidaSettings {
   mode: KsidaMode;
   botFill: boolean; // Solo (1 human) auto-fills 5 hilarious Moroccan bots; 2+ humans = optional toggle!
-  targetLaps: number; // default 3 laps in RACE
-  targetDerbyScore: number; // default 120 pts in DERBY
-  matchDurationSec: number; // default 210s
+  targetLaps: number; // default 3 laps in RACE (~2.5-3 mins on the 1.58km Grand Circuit!)
+  targetDerbyScore: number; // default 250 pts in DERBY
+  matchDurationSec: number; // default 300s (5 minutes)
 }
 
 export interface KsidaWreckEventPacket {
@@ -294,7 +326,15 @@ export interface KsidaWreckEventPacket {
   attackerName: string;
   victimId: string;
   victimName: string;
-  cause: "RAM" | "SANDALA" | "BUTAGAZ" | "SOAP_OIL" | "WEDDING_HORN" | "WATERMELON" | "HOT_BOMB";
+  cause:
+    | "RAM"
+    | "SANDALA"
+    | "BUTAGAZ"
+    | "SOAP_OIL"
+    | "WEDDING_HORN"
+    | "WATERMELON"
+    | "HOT_BOMB"
+    | "BARREL";
   streak: number;
   memeBannerAr: string;
   x: number;
@@ -308,6 +348,7 @@ export interface KsidaState {
   mode: KsidaMode;
   round: number;
   startedAt: number;
+  countdownEndsAt: number;
   endsAt: number;
   crownHolderId: string | null;
   crownX: number;
@@ -374,7 +415,7 @@ export interface KsidaItemFirePacket {
 export interface KsidaItemHitPacket {
   attackerId: string;
   victimId: string;
-  item: KsidaItemId;
+  item: KsidaItemId | "BARREL";
   damage: number;
   spinMs: number;
   impulseX: number;
@@ -399,6 +440,7 @@ export interface KsidaWorldSyncPacket {
   bombId: string | null;
   bombAt: number;
   crates: Array<{ i: string; a: 0 | 1 }>;
+  barrels?: Array<{ i: string; a: 0 | 1 }>;
   hazards: Array<{
     i: string;
     o: string;

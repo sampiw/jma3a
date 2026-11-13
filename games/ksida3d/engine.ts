@@ -20,12 +20,14 @@ import {
   RACER_ACCENT_PALETTE,
 } from "./types";
 
+export const COUNTDOWN_DURATION_MS = 4000; // 3.. 2.. 1.. ديماري!
+
 export const DEFAULT_KSIDA_SETTINGS: KsidaSettings = {
   mode: "RACE",
   botFill: false, // Solo = 5 hilarious Moroccan bots automatically; 2+ humans = pure PvP unless toggled ON!
   targetLaps: 3,
-  targetDerbyScore: 120,
-  matchDurationSec: 210,
+  targetDerbyScore: 250,
+  matchDurationSec: 300,
 };
 
 export function buildHumanRacer(
@@ -60,7 +62,7 @@ export function buildHumanRacer(
     heldItem: null,
     atayUntil: 0,
     spinUntil: 0,
-    shieldUntil: Date.now() + 2500,
+    shieldUntil: Date.now() + COUNTDOWN_DURATION_MS + 2500,
     lap: 1,
     nextCheckpoint: 1,
     trackProgress: 0,
@@ -80,14 +82,13 @@ export function buildHumanRacer(
 export function sortRacersStandings(racers: KsidaRacer[], mode: KsidaMode): KsidaRacer[] {
   return [...racers].sort((a, b) => {
     if (mode === "RACE") {
-      // Finished racers rank first by earliest finish time, then trackProgress + bonus crash score
       if (a.finishedAt > 0 && b.finishedAt > 0) {
         return a.finishedAt - b.finishedAt;
       }
       if (a.finishedAt > 0) return -1;
       if (b.finishedAt > 0) return 1;
       const progDiff = b.trackProgress - a.trackProgress;
-      if (Math.abs(progDiff) > 0.02) return progDiff;
+      if (Math.abs(progDiff) > 0.015) return progDiff;
     }
     return b.score - a.score || b.takedowns - a.takedowns || a.wrecksTaken - b.wrecksTaken;
   });
@@ -103,7 +104,6 @@ export function computeKsidaAwards(
   const sorted = sortRacersStandings(list, mode);
   const awards: KsidaAwardBadge[] = [];
 
-  // 1. Grand Champion
   const champ = sorted[0];
   awards.push({
     id: "award_champion",
@@ -115,7 +115,6 @@ export function computeKsidaAwards(
     statLabel: `${champ.score} نقطة • ${champ.takedowns} تفركيعة`,
   });
 
-  // 2. Most Takedowns ("مول الفران مقطوع")
   const topSmasher = [...list].sort(
     (a, b) => b.takedowns - a.takedowns || b.score - a.score
   )[0];
@@ -131,7 +130,6 @@ export function computeKsidaAwards(
     });
   }
 
-  // 3. Funniest Roast Badge ("خصو يعاود البيرمي")
   const needsPermis = [...list].sort(
     (a, b) =>
       b.wallHits + b.wrecksTaken * 3 - (a.wallHits + a.wrecksTaken * 3) ||
@@ -149,7 +147,6 @@ export function computeKsidaAwards(
     });
   }
 
-  // 4. Drift Legend ("ملك الدريفت المشحر")
   const driftKing = [...list].sort((a, b) => b.driftScore - a.driftScore)[0];
   if (driftKing && driftKing.driftScore > 0) {
     awards.push({
@@ -195,6 +192,7 @@ function createMatchState(
     ...rawSettings,
   };
   const now = Date.now();
+  const countdownEndsAt = now + COUNTDOWN_DURATION_MS;
   const racers = buildInitialRacers(players, settings);
   const allIds = Object.keys(racers);
   const initialBombHolder =
@@ -207,12 +205,13 @@ function createMatchState(
     mode: settings.mode,
     round,
     startedAt: now,
-    endsAt: now + settings.matchDurationSec * 1000,
+    countdownEndsAt,
+    endsAt: countdownEndsAt + settings.matchDurationSec * 1000,
     crownHolderId: null,
     crownX: 0,
     crownZ: 0,
     hotBombHolderId: initialBombHolder,
-    hotBombExplodesAt: initialBombHolder ? now + 15_000 : 0,
+    hotBombExplodesAt: initialBombHolder ? countdownEndsAt + 16_000 : 0,
     racers,
     crates: createInitialCratePads(settings.mode),
     hazards: [],
@@ -227,10 +226,10 @@ function createMatchState(
 export const Ksida3DEngine: GameDefinition<KsidaState, KsidaAction, KsidaSettings> = {
   id: "ksida3d",
   slug: "ksida-royal-3d",
-  version: 1,
+  version: 2,
   displayNameKey: "كسيدة رويال 3D: حرب الطاكسيات 🚕💥🩴",
   shortDescriptionKey:
-    "سباق وتفركيع الطوموبيلات المغربية 3D! دريفت بالطاكسي الحمر وC15 والتريبورتور، صندالة الواليدة الموجهة، والكونسطا مضمونة!",
+    "سباق وتفركيع الطوموبيلات المغربية 3D على مدار الكورنيش والقصبة الكبير! دريفت بالطاكسي الحمر وC15 وسطافيط الرادار، صندالة الواليدة الموجهة، والكونسطا مضمونة!",
   minPlayers: 1,
   maxPlayers: 8,
   capabilities: ["MULTI_PHONE", "REALTIME", "SCORES", "TIMERS"],
@@ -290,7 +289,7 @@ export const Ksida3DEngine: GameDefinition<KsidaState, KsidaAction, KsidaSetting
             ? { targetLaps: Math.max(2, Math.min(5, action.targetLaps)) }
             : {}),
           ...(typeof action.matchDurationSec === "number"
-            ? { matchDurationSec: Math.max(120, Math.min(480, action.matchDurationSec)) }
+            ? { matchDurationSec: Math.max(150, Math.min(600, action.matchDurationSec)) }
             : {}),
         };
         const resetState = createMatchState(ctx.players, nextSettings, state.round + 1);
@@ -331,7 +330,6 @@ export const Ksida3DEngine: GameDefinition<KsidaState, KsidaAction, KsidaSetting
         const merged: Record<string, KsidaRacer> = {
           ...(action.racers || state.racers),
         };
-        // Preserve any hot-joined human drivers
         for (const [id, r] of Object.entries(state.racers || {})) {
           if (!r.isBot && !merged[id]) {
             merged[id] = r;
@@ -430,6 +428,7 @@ export const Ksida3DEngine: GameDefinition<KsidaState, KsidaAction, KsidaSetting
         mode: s.mode,
         round: s.round,
         startedAt: s.startedAt,
+        countdownEndsAt: s.countdownEndsAt,
         endsAt: s.endsAt,
         crownHolderId: s.crownHolderId,
         crownX: s.crownX,
