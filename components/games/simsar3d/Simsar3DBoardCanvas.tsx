@@ -2,8 +2,14 @@
 
 import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { GLTF, GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import {
   BOARD_TILE_COUNT,
   getTileWorldTransform,
@@ -19,6 +25,13 @@ import {
   SimsarTokenId,
 } from "@/games/simsar3d/types";
 import { simsarSfx } from "./soundFx";
+import {
+  buildAlBoraqTrainSystem,
+  buildRoyalHotAirBalloon,
+  createSimsarOceanMaterial,
+  createSimsarSkyMaterial,
+  getCarLiveryMaterial,
+} from "./worldEnvironment";
 
 export interface Simsar3DBoardCanvasProps {
   players: Record<string, SimsarPlayer>;
@@ -32,25 +45,40 @@ export interface Simsar3DBoardCanvasProps {
 }
 
 const gltfLoader = new GLTFLoader();
-const glbCache = new Map<string, Promise<THREE.Group>>();
+const gltfAssetCache = new Map<string, Promise<GLTF>>();
 
-function loadCachedGlb(url: string): Promise<THREE.Group> {
-  let existing = glbCache.get(url);
+function loadCachedGltf(url: string): Promise<GLTF> {
+  let existing = gltfAssetCache.get(url);
   if (!existing) {
     existing = new Promise((resolve, reject) => {
       gltfLoader.load(
         url,
-        (gltf) => resolve(gltf.scene),
+        (gltf) => {
+          gltf.scene.updateMatrixWorld(true);
+          resolve(gltf);
+        },
         undefined,
         (err) => reject(err)
       );
     });
-    glbCache.set(url, existing);
+    gltfAssetCache.set(url, existing);
   }
-  return existing.then((scene) => scene.clone(true));
+  return existing;
 }
 
-function fitModelToFootprint(model: THREE.Group, targetSpan: number): THREE.Group {
+function loadClonedModel(url: string, isSkinned = false): Promise<{
+  scene: THREE.Group;
+  animations: THREE.AnimationClip[];
+}> {
+  return loadCachedGltf(url).then((gltf) => {
+    const cloned = (
+      isSkinned ? SkeletonUtils.clone(gltf.scene) : gltf.scene.clone(true)
+    ) as THREE.Group;
+    return { scene: cloned, animations: gltf.animations || [] };
+  });
+}
+
+function fitModelToFootprint(model: THREE.Object3D, targetSpan: number): THREE.Group {
   const wrapper = new THREE.Group();
   model.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(model);
@@ -73,65 +101,103 @@ function fitModelToFootprint(model: THREE.Group, targetSpan: number): THREE.Grou
   return wrapper;
 }
 
-/** High-DPI 512x512 crisp Arabic & Emoji 3D Tile Top Texture */
+function shortestAngleDiff(from: number, to: number): number {
+  let diff = ((to - from + Math.PI) % (Math.PI * 2)) - Math.PI;
+  if (diff < -Math.PI) diff += Math.PI * 2;
+  return diff;
+}
+
+/** Elastic overshoot spring curve (0..1 -> 0..1.24..1.0) for juicy 3D building & coin pops! */
+function easeOutBackOvershoot(x: number): number {
+  const c1 = 2.45;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+}
+
+/** High-DPI 512x512 Luxury Marble & Gold Zellige 3D Tile Top Texture */
 function createTileTopTexture(tile: SimsarTileSpec, isCorner: boolean): THREE.CanvasTexture {
   const c = document.createElement("canvas");
   c.width = 512;
   c.height = 512;
   const ctx = c.getContext("2d")!;
 
-  // Warm cream marble card background
-  const bgGrad = ctx.createLinearGradient(0, 0, 0, 512);
-  bgGrad.addColorStop(0, isCorner ? "#fefce8" : "#f8fafc");
+  const bgGrad = ctx.createLinearGradient(0, 0, 512, 512);
+  bgGrad.addColorStop(0, isCorner ? "#fffbeb" : "#ffffff");
+  bgGrad.addColorStop(0.6, isCorner ? "#fef3c7" : "#f8fafc");
   bgGrad.addColorStop(1, isCorner ? "#fde68a" : "#e2e8f0");
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, 512, 512);
 
-  // Outer gold/slate frame
+  // Subtle marble veining
+  ctx.strokeStyle = "rgba(148,163,184,0.16)";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(40, 180);
+  ctx.bezierCurveTo(180, 210, 290, 140, 470, 240);
+  ctx.moveTo(70, 340);
+  ctx.bezierCurveTo(220, 300, 340, 380, 480, 320);
+  ctx.stroke();
+
+  // Outer metallic gold / royal slate frame
   ctx.strokeStyle = isCorner ? "#d97706" : "#334155";
-  ctx.lineWidth = 18;
-  ctx.strokeRect(9, 9, 494, 494);
+  ctx.lineWidth = 20;
+  ctx.strokeRect(10, 10, 492, 492);
+
+  ctx.strokeStyle = "#fbbf24";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(22, 22, 468, 468);
 
   // Top Color Monopoly Header Band
-  const bandH = isCorner ? 118 : 132;
-  ctx.fillStyle = tile.colorHex;
-  ctx.fillRect(18, 18, 476, bandH);
+  const bandH = isCorner ? 118 : 134;
+  const hdrGrad = ctx.createLinearGradient(0, 22, 0, 22 + bandH);
+  hdrGrad.addColorStop(0, tile.colorHex);
+  hdrGrad.addColorStop(1, tile.colorHex);
+  ctx.fillStyle = hdrGrad;
+  ctx.fillRect(22, 22, 468, bandH);
 
-  // Subtle Moroccan Zellige geometric diamond stripe inside color band
-  ctx.fillStyle = "rgba(255,255,255,0.18)";
-  for (let x = 36; x < 480; x += 56) {
+  // Glossy highlight & Zellige diamonds on header band
+  ctx.fillStyle = "rgba(255,255,255,0.22)";
+  ctx.fillRect(22, 22, 468, 26);
+  for (let x = 44; x < 474; x += 56) {
     ctx.beginPath();
-    ctx.moveTo(x, 34);
-    ctx.lineTo(x + 18, 52);
-    ctx.lineTo(x, 70);
-    ctx.lineTo(x - 18, 52);
+    ctx.moveTo(x, 48);
+    ctx.lineTo(x + 16, 66);
+    ctx.lineTo(x, 84);
+    ctx.lineTo(x - 16, 66);
     ctx.closePath();
     ctx.fill();
   }
 
-  // Tile Index Badge in header corner
-  ctx.fillStyle = "rgba(15,23,42,0.72)";
+  // Tile Index Pill
+  ctx.fillStyle = "rgba(15,23,42,0.82)";
   ctx.beginPath();
-  ctx.roundRect(30, 30, 82, 52, 16);
+  ctx.roundRect(32, 34, 84, 52, 16);
   ctx.fill();
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "900 32px system-ui, sans-serif";
+  ctx.fillStyle = "#fde047";
+  ctx.font = "900 31px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(`#${tile.index}`, 71, 57);
+  ctx.fillText(`#${tile.index}`, 74, 61);
 
-  // Giant Crisp Emoji Centerpiece
+  // Giant Crisp Centerpiece Emoji with subtle drop shadow
+  ctx.save();
+  ctx.shadowColor = "rgba(15,23,42,0.25)";
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetY = 6;
   ctx.font = isCorner ? "148px system-ui, sans-serif" : "132px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(tile.emoji, 256, isCorner ? 248 : 238);
+  ctx.fillText(tile.emoji, 256, isCorner ? 246 : 238);
+  ctx.restore();
 
-  // Bold Arabic Short Name (Huge & Readable on Portrait Phone!)
+  // Bold Arabic Short Name
   ctx.fillStyle = "#0f172a";
   ctx.font = "900 58px system-ui, sans-serif";
-  ctx.fillText(tile.shortAr, 256, 368);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(tile.shortAr, 256, 366);
 
-  // Bottom Price or Action Pill
+  // Bottom Price / Bonus Pill
   const footerText = tile.price
     ? `${tile.price} DH`
     : tile.kind === "START"
@@ -148,12 +214,16 @@ function createTileTopTexture(tile: SimsarTileSpec, isCorner: boolean): THREE.Ca
 
   ctx.fillStyle = tile.price ? "#0f172a" : tile.colorHex;
   ctx.beginPath();
-  ctx.roundRect(66, 412, 380, 72, 24);
+  ctx.roundRect(58, 408, 396, 74, 26);
   ctx.fill();
 
-  ctx.fillStyle = tile.price ? "#fbbf24" : "#ffffff";
+  ctx.strokeStyle = "#fbbf24";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  ctx.fillStyle = tile.price ? "#fde047" : "#ffffff";
   ctx.font = "900 44px system-ui, sans-serif";
-  ctx.fillText(footerText, 256, 450);
+  ctx.fillText(footerText, 256, 447);
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -161,7 +231,7 @@ function createTileTopTexture(tile: SimsarTileSpec, isCorner: boolean): THREE.Ca
   return tex;
 }
 
-/** Creates 6 ivory & gold die face materials in Three.js BoxGeometry order: [+X:3, -X:4, +Y:1, -Y:6, +Z:2, -Z:5] */
+/** Creates 6 glossy ivory & gold die face materials: [+X:3, -X:4, +Y:1, -Y:6, +Z:2, -Z:5] */
 function createDieMaterials(): THREE.MeshStandardMaterial[] {
   const faceOrder = [3, 4, 1, 6, 2, 5];
   const pipCoords: Record<number, Array<[number, number]>> = {
@@ -204,23 +274,34 @@ function createDieMaterials(): THREE.MeshStandardMaterial[] {
     c.height = 256;
     const ctx = c.getContext("2d")!;
 
-    const g = ctx.createRadialGradient(128, 128, 20, 128, 128, 175);
+    const g = ctx.createRadialGradient(128, 128, 16, 128, 128, 180);
     g.addColorStop(0, "#ffffff");
-    g.addColorStop(1, "#fef3c7");
+    g.addColorStop(0.75, "#fefce8");
+    g.addColorStop(1, "#fde68a");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, 256, 256);
 
     ctx.strokeStyle = "#f59e0b";
     ctx.lineWidth = 14;
-    ctx.strokeRect(7, 7, 242, 242);
+    ctx.beginPath();
+    ctx.roundRect(10, 10, 236, 236, 36);
+    ctx.stroke();
 
     const isRed = val === 1 || val === 4;
-    ctx.fillStyle = isRed ? "#dc2626" : "#0f172a";
-    const radius = val === 1 ? 34 : 22;
-
     for (const [nx, ny] of pipCoords[val]) {
+      const px = nx * 256;
+      const py = ny * 256;
+      const radius = val === 1 ? 36 : 23;
+
+      // Recessed gold rim around pip
+      ctx.fillStyle = "#fbbf24";
       ctx.beginPath();
-      ctx.arc(nx * 256, ny * 256, radius, 0, Math.PI * 2);
+      ctx.arc(px, py, radius + 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = isRed ? "#dc2626" : "#0f172a";
+      ctx.beginPath();
+      ctx.arc(px, py, radius, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -228,30 +309,44 @@ function createDieMaterials(): THREE.MeshStandardMaterial[] {
     tex.colorSpace = THREE.SRGBColorSpace;
     return new THREE.MeshStandardMaterial({
       map: tex,
-      roughness: 0.22,
-      metalness: 0.08,
+      roughness: 0.16,
+      metalness: 0.12,
     });
   });
 }
 
-/** Exact Euler target so `val` (1..6) lands face-up (+Y) */
-function getDieTopEuler(val: number): { rx: number; rz: number } {
+function getDieTopQuaternion(val: number, yaw = 0): THREE.Quaternion {
+  let rx = 0;
+  let rz = 0;
   switch (val) {
     case 1:
-      return { rx: 0, rz: 0 };
+      rx = 0;
+      rz = 0;
+      break;
     case 6:
-      return { rx: Math.PI, rz: 0 };
+      rx = Math.PI;
+      rz = 0;
+      break;
     case 2:
-      return { rx: -Math.PI / 2, rz: 0 };
+      rx = -Math.PI / 2;
+      rz = 0;
+      break;
     case 5:
-      return { rx: Math.PI / 2, rz: 0 };
+      rx = Math.PI / 2;
+      rz = 0;
+      break;
     case 3:
-      return { rx: 0, rz: Math.PI / 2 };
+      rx = 0;
+      rz = Math.PI / 2;
+      break;
     case 4:
-      return { rx: 0, rz: -Math.PI / 2 };
-    default:
-      return { rx: 0, rz: 0 };
+      rx = 0;
+      rz = -Math.PI / 2;
+      break;
   }
+  const qFace = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, 0, rz, "XYZ"));
+  const qYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+  return qYaw.multiply(qFace);
 }
 
 function createFloatingBadgeSprite(
@@ -259,27 +354,27 @@ function createFloatingBadgeSprite(
   accentColor: string
 ): { sprite: THREE.Sprite; updateText: (txt: string, bg: string) => void } {
   const c = document.createElement("canvas");
-  c.width = 320;
-  c.height = 96;
+  c.width = 384;
+  c.height = 104;
   const ctx = c.getContext("2d")!;
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
 
   const draw = (txt: string, borderHex: string) => {
-    ctx.clearRect(0, 0, 320, 96);
-    ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
+    ctx.clearRect(0, 0, 384, 104);
+    ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
     ctx.strokeStyle = borderHex;
-    ctx.lineWidth = 6;
+    ctx.lineWidth = 7;
     ctx.beginPath();
-    ctx.roundRect(10, 14, 300, 68, 34);
+    ctx.roundRect(12, 14, 360, 74, 37);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = "#ffffff";
-    ctx.font = "900 30px system-ui, sans-serif";
+    ctx.font = "900 32px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(txt.slice(0, 16), 160, 49);
+    ctx.fillText(txt.slice(0, 18), 192, 52);
     tex.needsUpdate = true;
   };
 
@@ -287,9 +382,78 @@ function createFloatingBadgeSprite(
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false })
   );
-  sprite.scale.set(3.2, 0.96, 1);
-  sprite.renderOrder = 25;
+  sprite.scale.set(3.45, 0.94, 1);
+  sprite.renderOrder = 30;
   return { sprite, updateText: draw };
+}
+
+function createPopupTextSprite(text: string, bgHex: string, textHex = "#ffffff"): THREE.Sprite {
+  const c = document.createElement("canvas");
+  c.width = 320;
+  c.height = 112;
+  const ctx = c.getContext("2d")!;
+
+  ctx.fillStyle = bgHex;
+  ctx.strokeStyle = "#fef08a";
+  ctx.lineWidth = 7;
+  ctx.beginPath();
+  ctx.roundRect(16, 16, 288, 80, 40);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = textHex;
+  ctx.font = "900 40px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, 160, 57);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false })
+  );
+  sp.scale.set(3.4, 1.2, 1);
+  sp.renderOrder = 40;
+  return sp;
+}
+
+function build3DCrownGroup(scale = 1): THREE.Group {
+  const g = new THREE.Group();
+  const goldMat = new THREE.MeshStandardMaterial({
+    color: 0xfef08a,
+    emissive: 0xf59e0b,
+    emissiveIntensity: 0.55,
+    roughness: 0.16,
+    metalness: 0.88,
+  });
+  const rubyMat = new THREE.MeshBasicMaterial({ color: 0xf43f5e });
+
+  const baseRing = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.46, 0.38, 0.24, 12),
+    goldMat
+  );
+  g.add(baseRing);
+
+  for (let i = 0; i < 5; i++) {
+    const ang = (i / 5) * Math.PI * 2;
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.36, 6), goldMat);
+    spike.position.set(Math.cos(ang) * 0.38, 0.26, Math.sin(ang) * 0.38);
+    g.add(spike);
+
+    const gem = new THREE.Mesh(new THREE.SphereGeometry(0.065, 8, 8), rubyMat);
+    gem.position.set(Math.cos(ang) * 0.42, 0.02, Math.sin(ang) * 0.42);
+    g.add(gem);
+  }
+
+  g.scale.setScalar(scale);
+  return g;
+}
+
+interface TileAnimRig {
+  group: THREE.Group;
+  baseY: number;
+  pressY: number;
+  pressVel: number;
 }
 
 interface TokenVisualRig {
@@ -297,14 +461,23 @@ interface TokenVisualRig {
   tokenType: SimsarTokenId;
   root: THREE.Group;
   bodyHolder: THREE.Group;
+  wheelNodes: THREE.Object3D[];
+  sirenRed: THREE.Mesh | null;
+  sirenBlue: THREE.Mesh | null;
+  leaderCrown: THREE.Group;
+  shieldDome: THREE.Mesh;
+  jailCage: THREE.Group;
   badge: { sprite: THREE.Sprite; updateText: (txt: string, bg: string) => void };
   renderedTile: number;
   targetTile: number;
   lastMoveSeq: number;
-  hopProgress: number; // 0..1 when hopping to next tile
+  hopProgress: number; // -0.18..0 = crouch anticipation, 0..1 = airborne arc
   hopFromTile: number;
   hopToTile: number;
+  isFinalStep: boolean;
   stepCounter: number;
+  joyBounce: number; // 0..1 when receiving coins!
+  smoothYaw: number;
   lastLabelKey: string;
 }
 
@@ -312,10 +485,47 @@ interface BuildingSlotRig {
   holder: THREE.Group;
   ownerRing: THREE.Mesh;
   mortgageBadge: THREE.Mesh;
-  crownMesh: THREE.Mesh;
+  crownGroup: THREE.Group;
+  skybeam: THREE.Mesh;
+  beamLife: number;
   currentLevel: number;
   currentOwnerId: string | null;
-  popAnim: number; // 0..1 spring scale animation
+  popAnim: number; // 0..1 elastic drop/scale
+}
+
+interface RigidDieBody {
+  mesh: THREE.Mesh;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  wx: number;
+  wy: number;
+  wz: number;
+  targetQuat: THREE.Quaternion;
+  bounces: number;
+  settled: boolean;
+}
+
+interface FlyingCoin {
+  mesh: THREE.Object3D;
+  delay: number;
+  t: number; // 0..1
+  speed: number;
+  startPos: THREE.Vector3;
+  targetPlayerId: string | null; // if null, targets fallbackTargetPos
+  fallbackTargetPos: THREE.Vector3;
+  peakHeight: number;
+  swirlSign: number;
+}
+
+interface ShockwaveRing {
+  mesh: THREE.Mesh;
+  mat: THREE.MeshBasicMaterial;
+  life: number;
+  maxScale: number;
 }
 
 interface BurstParticle {
@@ -323,8 +533,43 @@ interface BurstParticle {
   vx: number;
   vy: number;
   vz: number;
+  rotSpd: number;
   life: number;
+  maxLife: number;
+  gravity: number;
 }
+
+interface FloatingWorldPopup {
+  sprite: THREE.Sprite;
+  life: number;
+  maxLife: number;
+}
+
+interface SailingShipRig {
+  root: THREE.Group;
+  sails: THREE.Object3D[];
+  orbitRadius: number;
+  orbitSpeed: number;
+  phase: number;
+}
+
+const VILLA_GLBS = [
+  "/models/simsar/suburban/villa-d.glb",
+  "/models/simsar/suburban/villa-g.glb",
+  "/models/simsar/suburban/villa-k.glb",
+  "/models/simsar/suburban/villa-n.glb",
+  "/models/simsar/suburban/villa-r.glb",
+  "/models/simsar/suburban/villa-t.glb",
+];
+
+const SKYSCRAPER_GLBS = [
+  "/models/simsar/commercial/skyscraper-a.glb",
+  "/models/simsar/commercial/skyscraper-b.glb",
+  "/models/simsar/commercial/skyscraper-c.glb",
+  "/models/simsar/commercial/skyscraper-d.glb",
+  "/models/ksida/city/building-f.glb",
+  "/models/ksida/city/building-j.glb",
+];
 
 export function Simsar3DBoardCanvas({
   players,
@@ -365,41 +610,57 @@ export function Simsar3DBoardCanvas({
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0c4a6e);
-    scene.fog = new THREE.FogExp2(0x0ea5e9, 0.0068);
+    scene.fog = new THREE.FogExp2(0x1e3a8a, 0.0042);
 
     const initW = Math.max(300, container.clientWidth);
     const initH = Math.max(300, container.clientHeight);
 
-    const camera = new THREE.PerspectiveCamera(44, initW / initH, 0.5, 260);
+    const camera = new THREE.PerspectiveCamera(43, initW / initH, 0.5, 320);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.85);
+
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(dpr);
     renderer.setSize(initW, initH);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.12;
+    renderer.toneMappingExposure = 1.14;
 
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
+
+    // Post-Processing HDR Bloom Pipeline (Half-res internal bloom for silky 60 FPS on phones!)
+    const composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(Math.floor(initW * 0.5), Math.floor(initH * 0.5)),
+      0.3,
+      0.48,
+      0.86
+    );
+    composer.addPass(bloomPass);
+    composer.addPass(new OutputPass());
 
     const pmrem = new THREE.PMREMGenerator(renderer);
     const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     scene.environment = envTex;
 
-    // Warm Moroccan Golden-Hour Lighting
-    const hemi = new THREE.HemisphereLight(0xfff7ed, 0x0369a1, 0.95);
+    // Golden-Hour Moroccan Lighting Rig
+    const hemi = new THREE.HemisphereLight(0xfffbeb, 0x0284c7, 1.05);
     scene.add(hemi);
 
-    const sun = new THREE.DirectionalLight(0xfffbeb, 2.05);
-    sun.position.set(22, 38, 26);
+    const sun = new THREE.DirectionalLight(0xfff7ed, 2.25);
+    sun.position.set(24, 42, -28);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.near = 5;
-    sun.shadow.camera.far = 110;
-    const shBounds = 22;
+    sun.shadow.camera.near = 6;
+    sun.shadow.camera.far = 115;
+    const shBounds = 24;
     sun.shadow.camera.left = -shBounds;
     sun.shadow.camera.right = shBounds;
     sun.shadow.camera.top = shBounds;
@@ -407,158 +668,398 @@ export function Simsar3DBoardCanvas({
     sun.shadow.bias = -0.0005;
     scene.add(sun);
 
+    // Warm Rim Fill Light from South-Front so front-row cars & tiles gleam!
+    const frontFill = new THREE.DirectionalLight(0xfde68a, 0.65);
+    frontFill.position.set(-12, 16, 26);
+    scene.add(frontFill);
+
     const texLoader = new THREE.TextureLoader();
 
-    // 1. Animated Normal-Mapped Atlantic Ocean Surrounding the Island
-    const waterNormalTex = texLoader.load("/textures/shooter/waternormals.jpg");
-    waterNormalTex.wrapS = THREE.RepeatWrapping;
-    waterNormalTex.wrapT = THREE.RepeatWrapping;
-    waterNormalTex.repeat.set(14, 14);
-
-    const oceanMat = new THREE.MeshStandardMaterial({
-      color: 0x0284c7,
-      roughness: 0.16,
-      metalness: 0.32,
-      normalMap: waterNormalTex,
-      normalScale: new THREE.Vector2(0.55, 0.55),
-    });
-    const oceanMesh = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), oceanMat);
-    oceanMesh.rotation.x = -Math.PI / 2;
-    oceanMesh.position.y = -0.85;
-    scene.add(oceanMesh);
-
-    // Warm Sunset Sky Dome
-    const skyGeo = new THREE.SphereGeometry(125, 24, 16);
-    const skyCanvas = document.createElement("canvas");
-    skyCanvas.width = 64;
-    skyCanvas.height = 256;
-    const sCtx = skyCanvas.getContext("2d")!;
-    const sGrad = sCtx.createLinearGradient(0, 0, 0, 256);
-    sGrad.addColorStop(0, "#0f172a");
-    sGrad.addColorStop(0.42, "#0284c7");
-    sGrad.addColorStop(0.74, "#f59e0b");
-    sGrad.addColorStop(1, "#fde68a");
-    sCtx.fillStyle = sGrad;
-    sCtx.fillRect(0, 0, 64, 256);
-    const skyTex = new THREE.CanvasTexture(skyCanvas);
-    skyTex.colorSpace = THREE.SRGBColorSpace;
-    const skyDome = new THREE.Mesh(
-      skyGeo,
-      new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false })
-    );
+    // =========================================================================
+    // 1. CUSTOM GLSL SKY DOME + SPARKLING TURQUOISE SURF OCEAN + DRIFTING CLOUDS
+    // =========================================================================
+    const skyMat = createSimsarSkyMaterial();
+    const skyDome = new THREE.Mesh(new THREE.SphereGeometry(165, 28, 18), skyMat);
     scene.add(skyDome);
 
-    // 2. Sculpted Moroccan Sandstone & Terracotta Island Pedestal
+    const waterNormals = texLoader.load("/textures/shooter/waternormals.jpg");
+    const oceanMat = createSimsarOceanMaterial(waterNormals);
+    const oceanGeo = new THREE.PlaneGeometry(280, 280, 48, 48);
+    const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
+    oceanMesh.rotation.x = -Math.PI / 2;
+    oceanMesh.position.y = -0.82;
+    scene.add(oceanMesh);
+
+    // Royal Marrakech Hot-Air Balloon + 6 Fluffy 3D Clouds
+    const balloon = buildRoyalHotAirBalloon();
+    balloon.group.position.set(-19, 13.5, -18);
+    balloon.group.scale.setScalar(1.25);
+    scene.add(balloon.group);
+
+    const cloudRigs: Array<{ mesh: THREE.Group; radius: number; speed: number; angle: number; y: number }> = [];
+    loadClonedModel("/models/simsar/props/cloud.glb")
+      .then(({ scene: cloudProto }) => {
+        for (let i = 0; i < 6; i++) {
+          const clone = fitModelToFootprint(cloudProto.clone(true), 4.8 + (i % 3) * 1.4);
+          const ang = (i / 6) * Math.PI * 2;
+          const rad = 34 + (i % 2) * 8;
+          const y = 14 + (i % 3) * 2.8;
+          clone.position.set(Math.cos(ang) * rad, y, Math.sin(ang) * rad);
+          scene.add(clone);
+          cloudRigs.push({
+            mesh: clone,
+            radius: rad,
+            speed: 0.035 + (i % 3) * 0.012,
+            angle: ang,
+            y,
+          });
+        }
+      })
+      .catch(() => {});
+
+    // Two 3D Ships Sailing & Bobbing Around the Island Lagoon!
+    const shipRigs: SailingShipRig[] = [];
+    const shipSpecs: Array<[string, number, number, number, number]> = [
+      ["/models/simsar/maritime/ship-large.glb", 5.2, 23.8, 0.16, 0.2],
+      ["/models/simsar/maritime/ship-medium.glb", 4.4, 25.8, -0.13, 3.3],
+    ];
+    shipSpecs.forEach(([url, span, rad, spd, ph]) => {
+      loadClonedModel(url)
+        .then(({ scene: raw }) => {
+          const sails: THREE.Object3D[] = [];
+          raw.traverse((n) => {
+            if (n.name.includes("sail") || n.name.includes("flag")) sails.push(n);
+          });
+          const ship = fitModelToFootprint(raw, span);
+          // Add white foam wake V-ring behind ship
+          const wake = new THREE.Mesh(
+            new THREE.RingGeometry(0.6, 1.9, 18),
+            new THREE.MeshBasicMaterial({
+              color: 0xf8fafc,
+              transparent: true,
+              opacity: 0.42,
+              side: THREE.DoubleSide,
+            })
+          );
+          wake.rotation.x = -Math.PI / 2;
+          wake.scale.set(0.85, 2.2, 1);
+          wake.position.set(0, 0.08, -1.8);
+          ship.add(wake);
+
+          scene.add(ship);
+          shipRigs.push({
+            root: ship,
+            sails,
+            orbitRadius: rad,
+            orbitSpeed: spd,
+            phase: ph,
+          });
+        })
+        .catch(() => {});
+    });
+
+    // =========================================================================
+    // 2. MULTI-TIERED MOROCCAN KASBAH ISLAND, MARINA PIER & ZELLIGE PLAZA
+    // =========================================================================
     const brickDiff = texLoader.load("/textures/shooter/brick_diffuse.jpg");
     const brickBump = texLoader.load("/textures/shooter/brick_bump.jpg");
-    [brickDiff, brickBump].forEach((t) => {
+    const brickRough = texLoader.load("/textures/shooter/brick_roughness.jpg");
+    [brickDiff, brickBump, brickRough].forEach((t) => {
       t.wrapS = THREE.RepeatWrapping;
       t.wrapT = THREE.RepeatWrapping;
-      t.repeat.set(6, 6);
+      t.repeat.set(7, 7);
     });
     brickDiff.colorSpace = THREE.SRGBColorSpace;
 
-    // Sandy beach ring
-    const sandBase = new THREE.Mesh(
-      new THREE.CylinderGeometry(20.5, 22.8, 0.9, 48),
-      new THREE.MeshStandardMaterial({ color: 0xfde68a, roughness: 0.85 })
-    );
-    sandBase.position.y = -0.55;
-    sandBase.receiveShadow = true;
-    scene.add(sandBase);
+    const woodDiff = texLoader.load("/textures/shooter/hardwood2_diffuse.jpg");
+    woodDiff.wrapS = THREE.RepeatWrapping;
+    woodDiff.wrapT = THREE.RepeatWrapping;
+    woodDiff.repeat.set(4, 2);
+    woodDiff.colorSpace = THREE.SRGBColorSpace;
 
-    // Main squareKasbah stone deck
-    const islandDeck = new THREE.Mesh(
-      new THREE.BoxGeometry(29.8, 0.9, 29.8),
+    // Golden Sandy Cove Ring
+    const sandCove = new THREE.Mesh(
+      new THREE.CylinderGeometry(21.2, 24.4, 0.95, 56),
+      new THREE.MeshStandardMaterial({ color: 0xfde68a, roughness: 0.86 })
+    );
+    sandCove.position.y = -0.62;
+    sandCove.receiveShadow = true;
+    scene.add(sandCove);
+
+    // Lower Beveled Sandstone Cliff Base
+    const lowerCliff = new THREE.Mesh(
+      new RoundedBoxGeometry(31.8, 1.1, 31.8, 4, 0.45),
       new THREE.MeshStandardMaterial({
         map: brickDiff,
         bumpMap: brickBump,
-        bumpScale: 0.08,
-        color: 0xfed7aa,
+        bumpScale: 0.1,
+        roughnessMap: brickRough,
+        color: 0xfdba74,
         roughness: 0.72,
       })
     );
-    islandDeck.position.y = -0.38;
-    islandDeck.receiveShadow = true;
-    islandDeck.castShadow = true;
-    scene.add(islandDeck);
+    lowerCliff.position.y = -0.52;
+    lowerCliff.receiveShadow = true;
+    lowerCliff.castShadow = true;
+    scene.add(lowerCliff);
 
-    // Inner Zellige Courtyard Floor
-    const zelligeCanvas = document.createElement("canvas");
-    zelligeCanvas.width = 512;
-    zelligeCanvas.height = 512;
-    const zCtx = zelligeCanvas.getContext("2d")!;
+    // Upper Polished Kasbah Boulevard Deck
+    const upperDeck = new THREE.Mesh(
+      new RoundedBoxGeometry(29.8, 0.62, 29.8, 4, 0.28),
+      new THREE.MeshStandardMaterial({
+        map: brickDiff,
+        bumpMap: brickBump,
+        bumpScale: 0.05,
+        color: 0xffedd5,
+        roughness: 0.58,
+      })
+    );
+    upperDeck.position.y = -0.24;
+    upperDeck.receiveShadow = true;
+    upperDeck.castShadow = true;
+    scene.add(upperDeck);
+
+    // Wooden Marina Dock Pier extending East into the Turquoise Lagoon!
+    const marinaPier = new THREE.Mesh(
+      new THREE.BoxGeometry(5.2, 0.26, 2.8),
+      new THREE.MeshStandardMaterial({ map: woodDiff, roughness: 0.65 })
+    );
+    marinaPier.position.set(17.2, -0.18, 0);
+    marinaPier.castShadow = true;
+    marinaPier.receiveShadow = true;
+    scene.add(marinaPier);
+
+    // Intricate 1024x1024 Royal Emerald, Turquoise & Gold Zellige Mosaic Courtyard
+    const zCanvas = document.createElement("canvas");
+    zCanvas.width = 1024;
+    zCanvas.height = 1024;
+    const zCtx = zCanvas.getContext("2d")!;
     zCtx.fillStyle = "#064e3b";
-    zCtx.fillRect(0, 0, 512, 512);
-    for (let y = 0; y < 512; y += 64) {
-      for (let x = 0; x < 512; x += 64) {
-        zCtx.fillStyle = (x / 64 + y / 64) % 2 === 0 ? "#0f766e" : "#047857";
-        zCtx.fillRect(x + 3, y + 3, 58, 58);
+    zCtx.fillRect(0, 0, 1024, 1024);
+    for (let y = 0; y < 1024; y += 128) {
+      for (let x = 0; x < 1024; x += 128) {
+        const cx = x + 64;
+        const cy = y + 64;
+        zCtx.fillStyle = (x / 128 + y / 128) % 2 === 0 ? "#0f766e" : "#047857";
+        zCtx.fillRect(x + 4, y + 4, 120, 120);
+
+        // 8-point Moroccan star rosette
         zCtx.fillStyle = "#fbbf24";
+        for (const rot of [0, Math.PI / 4]) {
+          zCtx.save();
+          zCtx.translate(cx, cy);
+          zCtx.rotate(rot);
+          zCtx.fillRect(-26, -26, 52, 52);
+          zCtx.restore();
+        }
+        zCtx.fillStyle = "#ecfdf5";
         zCtx.beginPath();
-        zCtx.moveTo(x + 32, y + 14);
-        zCtx.lineTo(x + 48, y + 32);
-        zCtx.lineTo(x + 32, y + 50);
-        zCtx.lineTo(x + 16, y + 32);
-        zCtx.closePath();
+        zCtx.arc(cx, cy, 16, 0, Math.PI * 2);
         zCtx.fill();
       }
     }
-    const zelligeTex = new THREE.CanvasTexture(zelligeCanvas);
+    const zelligeTex = new THREE.CanvasTexture(zCanvas);
     zelligeTex.colorSpace = THREE.SRGBColorSpace;
     zelligeTex.wrapS = THREE.RepeatWrapping;
     zelligeTex.wrapT = THREE.RepeatWrapping;
-    zelligeTex.repeat.set(4, 4);
+    zelligeTex.repeat.set(3, 3);
 
     const courtyardMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(17.6, 0.16, 17.6),
+      new RoundedBoxGeometry(17.8, 0.2, 17.8, 3, 0.08),
       new THREE.MeshStandardMaterial({
         map: zelligeTex,
-        roughness: 0.35,
-        metalness: 0.12,
+        roughness: 0.24,
+        metalness: 0.16,
       })
     );
-    courtyardMesh.position.y = 0.05;
+    courtyardMesh.position.y = 0.04;
     courtyardMesh.receiveShadow = true;
     scene.add(courtyardMesh);
 
-    // Golden Center Branding Frame around Fountain
+    // Animated ONCF "Al Boraq" High-Speed Train circling the inner courtyard!
+    const boraqTrain = buildAlBoraqTrainSystem(scene, 7.35);
+
+    // =========================================================================
+    // 3. LIVING CENTER PLAZA, ANIMATED SKINNED CHARACTERS & CORNER LANDMARKS!
+    // =========================================================================
+    const mixers: THREE.AnimationMixer[] = [];
+    let showmanActions: Record<string, THREE.AnimationAction> = {};
+    let activeShowmanClip = "";
+    let showmanCelebrationTimer = 0;
+
+    const triggerShowmanCelebration = (clipPref: "Dance" | "Jump" | "ThumbsUp" = "Dance") => {
+      const nextAct =
+        showmanActions[clipPref] || showmanActions.Dance || showmanActions.Jump;
+      if (!nextAct) return;
+      if (activeShowmanClip !== clipPref) {
+        const prev = showmanActions[activeShowmanClip];
+        nextAct.reset().fadeIn(0.2).play();
+        if (prev && prev !== nextAct) prev.fadeOut(0.2);
+        activeShowmanClip = clipPref;
+      }
+      showmanCelebrationTimer = 2.8;
+    };
+
+    // Center Royal Fountain + Sparkling Parabolic Water Jets!
     const centerRing = new THREE.Mesh(
-      new THREE.RingGeometry(2.7, 3.25, 36),
+      new THREE.RingGeometry(2.65, 3.18, 40),
       new THREE.MeshStandardMaterial({
-        color: 0xfbbf24,
-        roughness: 0.28,
-        metalness: 0.65,
+        color: 0xfacc15,
+        emissive: 0xb45309,
+        emissiveIntensity: 0.25,
+        roughness: 0.22,
+        metalness: 0.78,
         side: THREE.DoubleSide,
       })
     );
     centerRing.rotation.x = -Math.PI / 2;
-    centerRing.position.y = 0.15;
+    centerRing.position.y = 0.16;
     scene.add(centerRing);
 
-    // 3. Load Real .glb Moroccan Courtyard Landmarks!
-    const swayPalms: THREE.Group[] = [];
-
-    loadCachedGlb("/models/ksida/fantasy/fountain.glb")
-      .then((raw) => {
-        const ftn = fitModelToFootprint(raw, 4.4);
-        ftn.position.set(0, 0.12, 0);
+    loadClonedModel("/models/ksida/fantasy/fountain.glb")
+      .then(({ scene: raw }) => {
+        const ftn = fitModelToFootprint(raw, 4.5);
+        ftn.position.set(0, 0.13, 0);
         scene.add(ftn);
       })
       .catch(() => {});
 
-    const palmSpots: Array<[number, number, string, number]> = [
-      [-6.5, -6.5, "/models/ksida/palm-bend.glb", 0.5],
-      [6.5, -6.5, "/models/ksida/palm-straight.glb", 2.1],
-      [-6.5, 6.5, "/models/ksida/palm-straight.glb", -1.2],
-      [6.5, 6.5, "/models/ksida/palm-bend.glb", 3.0],
-      [-14.2, 13.8, "/models/ksida/palm-bend.glb", 0.8],
-      [14.2, -13.8, "/models/ksida/palm-straight.glb", -2.2],
+    // 16 Sparkling Fountain Water Droplets arcing continuously!
+    const dropletGeo = new THREE.SphereGeometry(0.11, 8, 8);
+    const dropletMat = new THREE.MeshBasicMaterial({
+      color: 0xe0f2fe,
+      transparent: true,
+      opacity: 0.88,
+    });
+    const waterDroplets: Array<{ mesh: THREE.Mesh; angle: number; phase: number }> = [];
+    for (let i = 0; i < 16; i++) {
+      const dm = new THREE.Mesh(dropletGeo, dropletMat);
+      scene.add(dm);
+      waterDroplets.push({
+        mesh: dm,
+        angle: (i % 8) * ((Math.PI * 2) / 8),
+        phase: i / 16,
+      });
+    }
+
+    // Animated Skinned Moroccan Showman Host (`hunter.glb`) on Golden Stage!
+    const stagePedestal = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.95, 1.12, 0.26, 20),
+      new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.25, metalness: 0.72 })
+    );
+    stagePedestal.position.set(3.6, 0.22, -3.2);
+    stagePedestal.castShadow = true;
+    scene.add(stagePedestal);
+
+    loadClonedModel("/models/hunter.glb", true)
+      .then(({ scene: raw, animations }) => {
+        const char = fitModelToFootprint(raw, 1.55);
+        char.position.set(3.6, 0.34, -3.2);
+        char.rotation.y = -0.55;
+        scene.add(char);
+
+        if (animations.length > 0) {
+          const mixer = new THREE.AnimationMixer(raw);
+          mixers.push(mixer);
+          for (const clip of animations) {
+            showmanActions[clip.name] = mixer.clipAction(clip);
+          }
+          const idle = showmanActions.Wave || showmanActions.Idle;
+          if (idle) {
+            idle.play();
+            activeShowmanClip = showmanActions.Wave ? "Wave" : "Idle";
+          }
+        }
+      })
+      .catch(() => {});
+
+    // 2 Animated Mascots (`character.glb`) cheering at START & JACKPOT!
+    const mascotSpots: Array<[number, number, number]> = [
+      [5.2, 5.2, -0.7],
+      [-5.2, -2.6, 0.8],
     ];
-    palmSpots.forEach(([px, pz, url, rot]) => {
-      loadCachedGlb(url)
-        .then((raw) => {
-          const p = fitModelToFootprint(raw, 2.8);
+    mascotSpots.forEach(([mx, mz, mrot], idx) => {
+      loadClonedModel("/models/simsar/props/character.glb", true)
+        .then(({ scene: raw, animations }) => {
+          const mFit = fitModelToFootprint(raw, 1.25);
+          mFit.position.set(mx, 0.14, mz);
+          mFit.rotation.y = mrot;
+          scene.add(mFit);
+          if (animations.length > 0) {
+            const mixer = new THREE.AnimationMixer(raw);
+            mixers.push(mixer);
+            const clip =
+              animations.find((a) => a.name === (idx === 0 ? "jump" : "idle")) ||
+              animations[0];
+            if (clip) mixer.clipAction(clip).play();
+          }
+        })
+        .catch(() => {});
+    });
+
+    // Animated Treasure Chest (`chest.glb`) + 3D `coin.glb` Jackpot Mountain!
+    const jackpotOrigin = new THREE.Vector3(-4.1, 0.15, -4.1);
+    const jackpotGroup = new THREE.Group();
+    jackpotGroup.position.copy(jackpotOrigin);
+    scene.add(jackpotGroup);
+
+    loadClonedModel("/models/simsar/maritime/chest.glb", true)
+      .then(({ scene: raw, animations }) => {
+        const chestFit = fitModelToFootprint(raw, 1.85);
+        chestFit.rotation.y = Math.PI / 4;
+        jackpotGroup.add(chestFit);
+        if (animations.length > 0) {
+          const mixer = new THREE.AnimationMixer(raw);
+          mixers.push(mixer);
+          const openLoop =
+            animations.find((a) => a.name === "open-close") || animations[0];
+          if (openLoop) {
+            const act = mixer.clipAction(openLoop);
+            act.timeScale = 0.45;
+            act.play();
+          }
+        }
+      })
+      .catch(() => {});
+
+    // Preload 3D Coin Prototype (`coin.glb`) for Jackpot Pile & Flying Coin Streams!
+    let coinProto: THREE.Group | null = null;
+    const jackpotCoins: THREE.Object3D[] = [];
+    loadClonedModel("/models/simsar/props/coin.glb")
+      .then(({ scene: raw }) => {
+        coinProto = fitModelToFootprint(raw, 0.72);
+        for (let i = 0; i < 24; i++) {
+          const cMesh = coinProto.clone(true);
+          const ringAng = (i % 8) * ((Math.PI * 2) / 8) + Math.floor(i / 8) * 0.35;
+          const ringRad = 1.05 + (i % 2) * 0.32;
+          cMesh.position.set(
+            Math.cos(ringAng) * ringRad,
+            0.05 + Math.floor(i / 8) * 0.24,
+            Math.sin(ringAng) * ringRad
+          );
+          cMesh.rotation.y = ringAng;
+          jackpotGroup.add(cMesh);
+          jackpotCoins.push(cMesh);
+        }
+      })
+      .catch(() => {});
+
+    // Swaying Oasis Palms + Essaouira Spinning Windmill + Corner Fortresses!
+    const swayPalms: THREE.Group[] = [];
+    const palmSpots: Array<[number, number, string, number, number]> = [
+      [-5.6, -5.6, "/models/ksida/palm-bend.glb", 0.5, 3.1],
+      [5.6, -5.6, "/models/ksida/palm-straight.glb", 2.1, 3.0],
+      [-5.6, 5.6, "/models/ksida/palm-straight.glb", -1.2, 3.1],
+      [5.6, 5.6, "/models/ksida/palm-bend.glb", 3.0, 2.9],
+      [-14.6, 14.2, "/models/ksida/palm-bend.glb", 0.8, 3.4],
+      [14.6, -14.2, "/models/ksida/palm-straight.glb", -2.2, 3.3],
+      [15.8, 2.2, "/models/ksida/palm-bend.glb", 1.4, 2.9],
+      [-15.8, -2.2, "/models/ksida/palm-straight.glb", -0.6, 2.9],
+    ];
+    palmSpots.forEach(([px, pz, url, rot, span]) => {
+      loadClonedModel(url)
+        .then(({ scene: raw }) => {
+          const p = fitModelToFootprint(raw, span);
           p.position.set(px, 0.08, pz);
           p.rotation.y = rot;
           scene.add(p);
@@ -567,134 +1068,272 @@ export function Simsar3DBoardCanvas({
         .catch(() => {});
     });
 
-    // Bab Mansour Arch at START (Tile 0: +10.8, +10.8)
-    loadCachedGlb("/models/ksida/fantasy/arch-top.glb")
-      .then((raw) => {
-        const arch = fitModelToFootprint(raw, 3.8);
-        arch.position.set(13.5, 0.06, 13.5);
+    // START Corner (Tile 0: +10.8, +10.8): Bab Mansour Gate + Kasbah Tower + Royal Banners!
+    loadClonedModel("/models/ksida/fantasy/arch-top.glb")
+      .then(({ scene: raw }) => {
+        const arch = fitModelToFootprint(raw, 4.1);
+        arch.position.set(13.6, 0.06, 13.6);
         arch.rotation.y = Math.PI / 4;
         scene.add(arch);
       })
       .catch(() => {});
 
-    // Watchtower at JAIL / الفوريان (Tile 6: -10.8, +10.8)
-    loadCachedGlb("/models/ksida/watch-tower.glb")
-      .then((raw) => {
-        const twr = fitModelToFootprint(raw, 2.9);
-        twr.position.set(-13.6, 0.06, 13.6);
+    loadClonedModel("/models/ksida/kasbah-tower.glb")
+      .then(({ scene: raw }) => {
+        const kt = fitModelToFootprint(raw, 2.8);
+        kt.position.set(14.8, 0.06, 11.4);
+        scene.add(kt);
+      })
+      .catch(() => {});
+
+    loadClonedModel("/models/simsar/medina/banner-red.glb")
+      .then(({ scene: raw }) => {
+        const bn = fitModelToFootprint(raw, 1.1);
+        bn.position.set(12.2, 0.08, 14.4);
+        bn.rotation.y = Math.PI / 4;
+        scene.add(bn);
+      })
+      .catch(() => {});
+
+    // Essaouira Spinning Windmill on South-West Breeze Edge!
+    let windmillBladePivot: THREE.Group | null = null;
+    loadClonedModel("/models/simsar/medina/windmill.glb")
+      .then(({ scene: raw }) => {
+        const wm = fitModelToFootprint(raw, 2.9);
+        wm.position.set(3.6, 0.06, 14.3);
+        wm.rotation.y = Math.PI;
+        scene.add(wm);
+
+        loadClonedModel("/models/simsar/medina/blade.glb")
+          .then(({ scene: bRaw }) => {
+            const pivot = new THREE.Group();
+            pivot.position.set(3.6, 2.35, 13.35);
+            const bFit = fitModelToFootprint(bRaw, 2.45);
+            // Center blade on rotation axis
+            bFit.position.y = -1.22;
+            pivot.add(bFit);
+            scene.add(pivot);
+            windmillBladePivot = pivot;
+          })
+          .catch(() => {});
+      })
+      .catch(() => {});
+
+    // JAIL Corner (Tile 6: -10.8, +10.8): Watchtower + Cannon!
+    loadClonedModel("/models/ksida/watch-tower.glb")
+      .then(({ scene: raw }) => {
+        const twr = fitModelToFootprint(raw, 3.1);
+        twr.position.set(-13.8, 0.06, 13.8);
         scene.add(twr);
       })
       .catch(() => {});
 
-    // Giant Golden Tajine Monument near Heist Tile (Tile 14)
-    loadCachedGlb("/models/food/tajine.glb")
-      .then((raw) => {
-        const tj = fitModelToFootprint(raw, 2.5);
-        tj.position.set(-3.6, 0.1, -13.8);
+    loadClonedModel("/models/simsar/maritime/cannon.glb")
+      .then(({ scene: raw }) => {
+        const cn = fitModelToFootprint(raw, 1.65);
+        cn.position.set(-14.5, 0.08, 11.6);
+        cn.rotation.y = -Math.PI / 3;
+        scene.add(cn);
+      })
+      .catch(() => {});
+
+    // HEIST Monument (Tile 14): Giant Steaming Golden Tajine!
+    loadClonedModel("/models/food/tajine.glb")
+      .then(({ scene: raw }) => {
+        const tj = fitModelToFootprint(raw, 2.75);
+        tj.position.set(-3.6, 0.08, -14.1);
         scene.add(tj);
       })
       .catch(() => {});
 
-    // Atlas Rocks Accent near North-East Radar Corner (Tile 18)
-    loadCachedGlb("/models/ksida/rocks-a.glb")
-      .then((raw) => {
-        const rk = fitModelToFootprint(raw, 3.4);
-        rk.position.set(13.9, 0.02, -13.9);
-        scene.add(rk);
+    // RADAR Corner (Tile 18: +10.8, -10.8): Fortress + Sweeping Police Radar Cones + Rocks!
+    loadClonedModel("/models/simsar/maritime/tower-small.glb")
+      .then(({ scene: raw }) => {
+        const rt = fitModelToFootprint(raw, 2.9);
+        rt.position.set(13.7, 0.06, -13.7);
+        scene.add(rt);
       })
       .catch(() => {});
 
-    // 4. Gardiennage 3D Golden Coin Pile (grows dynamically with `gardiennagePot`!)
-    const jackpotGroup = new THREE.Group();
-    jackpotGroup.position.set(-4.2, 0.14, -4.2);
-    scene.add(jackpotGroup);
+    const radarSweepPivot = new THREE.Group();
+    radarSweepPivot.position.set(13.7, 2.6, -13.7);
+    const beamGeo = new THREE.ConeGeometry(1.35, 5.5, 16, 1, true);
+    beamGeo.translate(0, -2.75, 0);
+    beamGeo.rotateX(Math.PI / 2.6);
+    const redRadarCone = new THREE.Mesh(
+      beamGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xef4444,
+        transparent: true,
+        opacity: 0.24,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    const blueRadarCone = new THREE.Mesh(
+      beamGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0x3b82f6,
+        transparent: true,
+        opacity: 0.24,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    blueRadarCone.rotation.y = Math.PI;
+    radarSweepPivot.add(redRadarCone, blueRadarCone);
+    scene.add(radarSweepPivot);
 
-    const coinGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.14, 18);
-    const coinMat = new THREE.MeshStandardMaterial({
-      color: 0xfacc15,
-      roughness: 0.22,
-      metalness: 0.78,
+    // Coastal Sea Rocks around the Sandy Cove!
+    const rockPlacements: Array<[number, number, string, number]> = [
+      [18.5, -17.5, "/models/ksida/rocks-a.glb", 4.2],
+      [-18.8, -16.8, "/models/ksida/rocks-b.glb", 3.9],
+      [-18.5, 17.5, "/models/ksida/rocks-a.glb", 3.6],
+      [18.2, 17.8, "/models/ksida/rocks-b.glb", 3.8],
+    ];
+    rockPlacements.forEach(([rx, rz, rUrl, rSpan]) => {
+      loadClonedModel(rUrl)
+        .then(({ scene: raw }) => {
+          const rk = fitModelToFootprint(raw, rSpan);
+          rk.position.set(rx, -0.68, rz);
+          rk.rotation.y = rx * 0.5;
+          scene.add(rk);
+        })
+        .catch(() => {});
     });
-    const coinMeshes: THREE.Mesh[] = [];
-    for (let i = 0; i < 24; i++) {
-      const stackIdx = i % 4;
-      const layer = Math.floor(i / 4);
-      const offsets = [
-        [-0.48, -0.45],
-        [0.48, -0.45],
-        [-0.45, 0.48],
-        [0.45, 0.48],
-      ];
-      const cm = new THREE.Mesh(coinGeo, coinMat);
-      cm.position.set(
-        offsets[stackIdx][0],
-        0.08 + layer * 0.15,
-        offsets[stackIdx][1]
-      );
-      cm.castShadow = true;
-      jackpotGroup.add(cm);
-      coinMeshes.push(cm);
-    }
 
-    // 5. Build All 24 Interactive 3D Board Tiles + Outer Building Plots!
+    // 8 Glowing Moroccan Medina Street Lanterns around the Plaza!
+    loadClonedModel("/models/simsar/medina/lantern.glb")
+      .then(({ scene: raw }) => {
+        const lanternCoords: Array<[number, number]> = [
+          [-8.5, -8.5],
+          [0, -8.5],
+          [8.5, -8.5],
+          [8.5, 0],
+          [8.5, 8.5],
+          [0, 8.5],
+          [-8.5, 8.5],
+          [-8.5, 0],
+        ];
+        const glowOrbGeo = new THREE.SphereGeometry(0.18, 10, 10);
+        const glowOrbMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+        lanternCoords.forEach(([lx, lz]) => {
+          const ln = fitModelToFootprint(raw.clone(true), 0.95);
+          ln.position.set(lx, 0.08, lz);
+          const orb = new THREE.Mesh(glowOrbGeo, glowOrbMat);
+          orb.position.set(0, 1.38, 0);
+          ln.add(orb);
+          scene.add(ln);
+        });
+      })
+      .catch(() => {});
+
+    // =========================================================================
+    // 4. ALL 24 BEVELED ROUNDED-BOX MARBLE TILES + PRE-DRESSED SKYLINE PLOTS!
+    // =========================================================================
     const tilePickMeshes: THREE.Mesh[] = [];
+    const tileRigs = new Map<number, TileAnimRig>();
     const buildingSlots = new Map<number, BuildingSlotRig>();
+
     const selectionRing = new THREE.Mesh(
-      new THREE.RingGeometry(1.85, 2.22, 32),
+      new THREE.RingGeometry(1.88, 2.28, 36),
       new THREE.MeshBasicMaterial({
         color: 0xfef08a,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.92,
+        blending: THREE.AdditiveBlending,
       })
     );
     selectionRing.rotation.x = -Math.PI / 2;
-    selectionRing.position.y = 0.46;
+    selectionRing.position.y = 0.5;
     selectionRing.visible = false;
     scene.add(selectionRing);
 
-    const sidePlinthMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      roughness: 0.55,
-      metalness: 0.2,
+    const goldPlinthMat = new THREE.MeshStandardMaterial({
+      color: 0xb45309,
+      roughness: 0.34,
+      metalness: 0.62,
+    });
+    const cornerGoldMat = new THREE.MeshStandardMaterial({
+      color: 0xf59e0b,
+      roughness: 0.24,
+      metalness: 0.78,
     });
 
     SIMSAR_BOARD_TILES.forEach((tile) => {
       const tf = getTileWorldTransform(tile.index);
-      const span = tf.isCorner ? 3.52 : 3.32;
-      const height = tf.isCorner ? 0.42 : 0.34;
+      const span = tf.isCorner ? 3.54 : 3.34;
+      const height = tf.isCorner ? 0.46 : 0.36;
 
+      const tileGroup = new THREE.Group();
+      const baseY = 0.06;
+      tileGroup.position.set(tf.x, baseY, tf.z);
+      scene.add(tileGroup);
+
+      // Beveled Rounded-Box Marble Slab
+      const slabGeo = new RoundedBoxGeometry(span, height, span, 3, 0.09);
+      const slabMesh = new THREE.Mesh(
+        slabGeo,
+        tf.isCorner ? cornerGoldMat : goldPlinthMat
+      );
+      slabMesh.position.y = height * 0.5;
+      slabMesh.castShadow = true;
+      slabMesh.receiveShadow = true;
+      slabMesh.userData = { tileIndex: tile.index };
+      tileGroup.add(slabMesh);
+      tilePickMeshes.push(slabMesh);
+
+      // Crisp High-DPI Top Card Inlay
       const topTex = createTileTopTexture(tile, tf.isCorner);
-      const topMat = new THREE.MeshStandardMaterial({
-        map: topTex,
-        roughness: 0.34,
-        metalness: 0.06,
+      const topCard = new THREE.Mesh(
+        new THREE.PlaneGeometry(span - 0.14, span - 0.14),
+        new THREE.MeshStandardMaterial({
+          map: topTex,
+          roughness: 0.28,
+          metalness: 0.08,
+        })
+      );
+      topCard.rotation.x = -Math.PI / 2;
+      topCard.position.y = height + 0.008;
+      topCard.receiveShadow = true;
+      topCard.userData = { tileIndex: tile.index };
+      tileGroup.add(topCard);
+      tilePickMeshes.push(topCard);
+
+      // Raised 3D Color Curb along outer edge of City/Utility tiles!
+      if (tile.kind === "CITY" || tile.kind === "UTILITY") {
+        const curb = new THREE.Mesh(
+          new THREE.BoxGeometry(span * 0.88, 0.14, 0.24),
+          new THREE.MeshStandardMaterial({
+            color: tile.colorHex,
+            emissive: tile.colorHex,
+            emissiveIntensity: 0.2,
+            roughness: 0.3,
+          })
+        );
+        curb.position.set(
+          tf.outwardNx * (span * 0.42),
+          height + 0.06,
+          tf.outwardNz * (span * 0.42)
+        );
+        curb.rotation.y = Math.atan2(tf.outwardNx, tf.outwardNz);
+        tileGroup.add(curb);
+      }
+
+      tileRigs.set(tile.index, {
+        group: tileGroup,
+        baseY,
+        pressY: 0,
+        pressVel: 0,
       });
 
-      const boxMats = [
-        sidePlinthMat,
-        sidePlinthMat,
-        topMat,
-        sidePlinthMat,
-        sidePlinthMat,
-        sidePlinthMat,
-      ];
-
-      const tileMesh = new THREE.Mesh(
-        new THREE.BoxGeometry(span, height, span),
-        boxMats
-      );
-      tileMesh.position.set(tf.x, height * 0.5 + 0.06, tf.z);
-      tileMesh.receiveShadow = true;
-      tileMesh.castShadow = true;
-      tileMesh.userData = { tileIndex: tile.index };
-      scene.add(tileMesh);
-      tilePickMeshes.push(tileMesh);
-
-      // Property Owner Ring + 3D Building Plot right outside the tile!
+      // Outer 3D Skyline Plot for Cities & Utilities
       if (tile.kind === "CITY" || tile.kind === "UTILITY") {
         const ownerRing = new THREE.Mesh(
-          new THREE.RingGeometry(1.58, 1.82, 4),
+          new THREE.RingGeometry(1.62, 1.88, 4),
           new THREE.MeshBasicMaterial({
             color: 0xffffff,
             side: THREE.DoubleSide,
@@ -702,184 +1341,493 @@ export function Simsar3DBoardCanvas({
         );
         ownerRing.rotation.x = -Math.PI / 2;
         ownerRing.rotation.z = Math.PI / 4;
-        ownerRing.position.set(tf.x, height + 0.08, tf.z);
+        ownerRing.position.set(tf.x, height + 0.09, tf.z);
         ownerRing.visible = false;
         scene.add(ownerRing);
 
         const mortgageBadge = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.65, 0.65, 0.15, 16),
-          new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.4 })
+          new THREE.CylinderGeometry(0.62, 0.62, 0.16, 18),
+          new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.35 })
         );
-        mortgageBadge.position.set(tf.x, height + 0.16, tf.z);
+        mortgageBadge.position.set(tf.x, height + 0.17, tf.z);
         mortgageBadge.visible = false;
         scene.add(mortgageBadge);
 
         const holder = new THREE.Group();
         holder.position.set(
-          tf.x + tf.outwardNx * 2.75,
+          tf.x + tf.outwardNx * 2.85,
           0.08,
-          tf.z + tf.outwardNz * 2.75
+          tf.z + tf.outwardNz * 2.85
         );
-        // Face inward toward the board road!
         holder.rotation.y = Math.atan2(-tf.outwardNx, -tf.outwardNz);
         scene.add(holder);
 
-        const crownMesh = new THREE.Mesh(
-          new THREE.OctahedronGeometry(0.45, 0),
-          new THREE.MeshStandardMaterial({
-            color: 0xfacc15,
-            emissive: 0xd97706,
-            emissiveIntensity: 0.4,
-            roughness: 0.18,
-            metalness: 0.85,
+        const crownGroup = build3DCrownGroup(0.92);
+        crownGroup.position.set(0, 4.2, 0);
+        crownGroup.visible = false;
+        holder.add(crownGroup);
+
+        // Additive Golden Construction Skybeam!
+        const skybeam = new THREE.Mesh(
+          new THREE.CylinderGeometry(1.15, 1.45, 9.5, 20, 1, true),
+          new THREE.MeshBasicMaterial({
+            color: 0xfde047,
+            transparent: true,
+            opacity: 0,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+            depthWrite: false,
           })
         );
-        crownMesh.position.set(0, 3.8, 0);
-        crownMesh.visible = false;
-        holder.add(crownMesh);
+        skybeam.position.set(0, 4.75, 0);
+        skybeam.visible = false;
+        holder.add(skybeam);
 
         buildingSlots.set(tile.index, {
           holder,
           ownerRing,
           mortgageBadge,
-          crownMesh,
-          currentLevel: -1,
+          crownGroup,
+          skybeam,
+          beamLife: 0,
+          currentLevel: -2, // forces initial population so unowned gardens appear immediately!
           currentOwnerId: null,
           popAnim: 1,
         });
       }
     });
 
-    // 6. Real 3D Tumbling Dice Pair in Center Courtyard!
+    // =========================================================================
+    // 5. RIGID-BODY 3D DICE PHYSICS + SHOCKWAVES + PARTICLES + FLYING 3D COINS!
+    // =========================================================================
     const dieMats = createDieMaterials();
-    const dieGeo = new THREE.BoxGeometry(1.48, 1.48, 1.48);
+    const dieGeo = new RoundedBoxGeometry(1.52, 1.52, 1.52, 4, 0.2);
     const dieMesh1 = new THREE.Mesh(dieGeo, dieMats);
     const dieMesh2 = new THREE.Mesh(dieGeo, dieMats);
     dieMesh1.castShadow = true;
     dieMesh2.castShadow = true;
     dieMesh1.visible = false;
     dieMesh2.visible = false;
-    scene.add(dieMesh1);
-    scene.add(dieMesh2);
+    scene.add(dieMesh1, dieMesh2);
+
+    const diceBodies: [RigidDieBody, RigidDieBody] = [
+      {
+        mesh: dieMesh1,
+        x: -1.1,
+        y: 0.9,
+        z: 1.5,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        wx: 0,
+        wy: 0,
+        wz: 0,
+        targetQuat: new THREE.Quaternion(),
+        bounces: 0,
+        settled: true,
+      },
+      {
+        mesh: dieMesh2,
+        x: 1.1,
+        y: 0.9,
+        z: 1.5,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        wx: 0,
+        wy: 0,
+        wz: 0,
+        targetQuat: new THREE.Quaternion(),
+        bounces: 0,
+        settled: true,
+      },
+    ];
 
     let activeDiceSeq = liveRef.current.lastDice?.rollSeq ?? 0;
-    let diceAnimTimer = 0; // counts 0 -> 1.05s during roll
+    let diceRollElapsed = 99;
+    let diceCalloutSpawned = true;
+    let camShake = 0;
 
-    // 7. Particle Burst Pool (for Building Upgrades & Jackpots!)
+    // VFX Pools: Shockwaves, Burst Sparks/Dust, World Floating Callouts & Flying 3D Coins!
+    const shockwaves: ShockwaveRing[] = [];
     const bursts: BurstParticle[] = [];
-    const sparkGeo = new THREE.OctahedronGeometry(0.22, 0);
-    const sparkMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+    const worldPopups: FloatingWorldPopup[] = [];
+    const flyingCoins: FlyingCoin[] = [];
 
-    const spawnGoldenBurst = (bx: number, by: number, bz: number, count = 16) => {
+    const ringGeo = new THREE.RingGeometry(0.45, 0.78, 28);
+    const sparkGeo = new THREE.OctahedronGeometry(0.24, 0);
+    const dustGeo = new THREE.SphereGeometry(0.28, 8, 8);
+    const goldSparkMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+    const dustPuffMat = new THREE.MeshBasicMaterial({
+      color: 0xf8fafc,
+      transparent: true,
+      opacity: 0.75,
+    });
+
+    const spawnShockwave = (x: number, y: number, z: number, colorHex = 0xfef08a, maxScale = 4.2) => {
+      const mat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.92,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(ringGeo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(x, y, z);
+      scene.add(mesh);
+      shockwaves.push({ mesh, mat, life: 0.52, maxScale });
+    };
+
+    const spawnConstructionBurst = (bx: number, by: number, bz: number, count = 20) => {
+      spawnShockwave(bx, 0.22, bz, 0xfbbf24, 5.2);
       for (let i = 0; i < count; i++) {
-        const m = new THREE.Mesh(sparkGeo, sparkMat);
+        const isDust = i % 2 === 0;
+        const m = new THREE.Mesh(
+          isDust ? dustGeo : sparkGeo,
+          isDust ? dustPuffMat : goldSparkMat
+        );
         m.position.set(bx, by, bz);
-        const ang = (i / count) * Math.PI * 2 + Math.random() * 0.4;
-        const spd = 2.5 + Math.random() * 4.5;
+        const ang = (i / count) * Math.PI * 2 + Math.random() * 0.35;
+        const spd = isDust ? 2.2 + Math.random() * 2.8 : 3.2 + Math.random() * 5.2;
+        const maxLife = isDust ? 0.65 : 0.92;
         scene.add(m);
         bursts.push({
           mesh: m,
           vx: Math.cos(ang) * spd,
-          vy: 4.5 + Math.random() * 4.5,
+          vy: isDust ? 1.8 + Math.random() * 2.2 : 5.5 + Math.random() * 5.5,
           vz: Math.sin(ang) * spd,
-          life: 0.85,
+          rotSpd: 6 + Math.random() * 8,
+          life: maxLife,
+          maxLife,
+          gravity: isDust ? -4 : -15,
         });
       }
     };
 
-    // 8. Player 3D Token Rigs Manager
+    const spawnDustPuffs = (bx: number, by: number, bz: number, count = 6) => {
+      for (let i = 0; i < count; i++) {
+        const m = new THREE.Mesh(dustGeo, dustPuffMat);
+        m.position.set(bx, by, bz);
+        const ang = (i / count) * Math.PI * 2;
+        const spd = 1.6 + Math.random() * 1.5;
+        scene.add(m);
+        bursts.push({
+          mesh: m,
+          vx: Math.cos(ang) * spd,
+          vy: 1.2 + Math.random() * 1.4,
+          vz: Math.sin(ang) * spd,
+          rotSpd: 2,
+          life: 0.45,
+          maxLife: 0.45,
+          gravity: -3,
+        });
+      }
+    };
+
+    const spawnWorldPopup = (
+      x: number,
+      y: number,
+      z: number,
+      text: string,
+      bgHex: string,
+      textHex = "#ffffff"
+    ) => {
+      const sp = createPopupTextSprite(text, bgHex, textHex);
+      sp.position.set(x, y, z);
+      scene.add(sp);
+      worldPopups.push({ sprite: sp, life: 1.45, maxLife: 1.45 });
+    };
+
+    const fallbackCoinGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.12, 16);
+    fallbackCoinGeo.rotateX(Math.PI / 2);
+    const fallbackCoinMat = new THREE.MeshStandardMaterial({
+      color: 0xfacc15,
+      emissive: 0xd97706,
+      emissiveIntensity: 0.35,
+      roughness: 0.18,
+      metalness: 0.85,
+    });
+
+    const spawnCoinTransferStream = (
+      startPos: THREE.Vector3,
+      targetPlayerId: string | null,
+      fallbackTargetPos: THREE.Vector3,
+      coinCount = 16
+    ) => {
+      for (let i = 0; i < coinCount; i++) {
+        const mesh = coinProto
+          ? coinProto.clone(true)
+          : new THREE.Mesh(fallbackCoinGeo, fallbackCoinMat);
+        mesh.position.copy(startPos);
+        mesh.visible = false;
+        scene.add(mesh);
+        flyingCoins.push({
+          mesh,
+          delay: i * 0.032,
+          t: 0,
+          speed: 1.48 + (i % 3) * 0.12,
+          startPos: startPos.clone(),
+          targetPlayerId,
+          fallbackTargetPos: fallbackTargetPos.clone(),
+          peakHeight: 4.4 + (i % 4) * 0.55,
+          swirlSign: i % 2 === 0 ? 1 : -1,
+        });
+      }
+    };
+
+    // Track cash values frame-to-frame to trigger Monopoly-GO Flying 3D Coin Streams!
+    const prevCashMap = new Map<string, number>();
+    let prevPotValue = liveRef.current.gardiennagePot;
+    for (const p of Object.values(liveRef.current.players)) {
+      prevCashMap.set(p.id, p.cash);
+    }
+
+    // =========================================================================
+    // 6. UV-PRESERVED 3D PLAYER CARS + SHIELDS + CROWNS + SKYLINE BUILDER!
+    // =========================================================================
     const tokenRigs = new Map<string, TokenVisualRig>();
 
-    const populateTokenModel = (holder: THREE.Group, tokenType: SimsarTokenId) => {
+    const populateTokenModel = (rig: TokenVisualRig, tokenType: SimsarTokenId) => {
       const spec = SIMSAR_TOKENS[tokenType] || SIMSAR_TOKENS.TAXI_HMER;
-      while (holder.children.length > 0) holder.remove(holder.children[0]);
+      while (rig.bodyHolder.children.length > 0) {
+        rig.bodyHolder.remove(rig.bodyHolder.children[0]);
+      }
+      rig.wheelNodes = [];
+      rig.sirenRed = null;
+      rig.sirenBlue = null;
 
-      loadCachedGlb(spec.glbPath)
-        .then((raw) => {
-          // Tint primary body mesh with signature Moroccan livery
+      // Choose upgraded supercar model for VIP_SPORTS if available!
+      const glbUrl =
+        tokenType === "VIP_SPORTS"
+          ? "/models/cars/race-future.glb"
+          : spec.glbPath;
+
+      loadClonedModel(glbUrl)
+        .then(({ scene: raw }) => {
           raw.traverse((node) => {
-            if ((node as THREE.Mesh).isMesh && node.name.toLowerCase().includes("body")) {
+            if (node.name.toLowerCase().includes("wheel")) {
+              rig.wheelNodes.push(node);
+            }
+            if ((node as THREE.Mesh).isMesh) {
               const mesh = node as THREE.Mesh;
-              mesh.material = new THREE.MeshPhysicalMaterial({
-                color: spec.bodyHex,
-                roughness: 0.26,
-                metalness: 0.18,
-                clearcoat: 0.75,
-              });
+              if (Array.isArray(mesh.material)) {
+                mesh.material = mesh.material.map((m) =>
+                  (m as THREE.MeshStandardMaterial).isMeshStandardMaterial
+                    ? getCarLiveryMaterial(m as THREE.MeshStandardMaterial, tokenType)
+                    : m
+                );
+              } else if (
+                mesh.material &&
+                (mesh.material as THREE.MeshStandardMaterial).isMeshStandardMaterial
+              ) {
+                mesh.material = getCarLiveryMaterial(
+                  mesh.material as THREE.MeshStandardMaterial,
+                  tokenType
+                );
+              }
             }
           });
-          const fitted = fitModelToFootprint(raw, 2.05);
-          holder.add(fitted);
 
+          const fitted = fitModelToFootprint(raw, 2.22);
+          rig.bodyHolder.add(fitted);
+
+          // Glowing Twin Headlight Flares
+          const hlGeo = new THREE.SphereGeometry(0.09, 8, 8);
+          const hlMat = new THREE.MeshBasicMaterial({ color: 0xfef9c3 });
+          for (const sx of [-0.42, 0.42]) {
+            const hl = new THREE.Mesh(hlGeo, hlMat);
+            hl.position.set(sx, 0.44, 0.98);
+            rig.bodyHolder.add(hl);
+          }
+
+          // Petit Taxi Roof Sign on TAXI_HMER!
+          if (tokenType === "TAXI_HMER") {
+            const taxiSign = new THREE.Mesh(
+              new THREE.BoxGeometry(0.52, 0.18, 0.22),
+              new THREE.MeshBasicMaterial({ color: 0xfef08a })
+            );
+            taxiSign.position.set(0, 1.18, 0.05);
+            rig.bodyHolder.add(taxiSign);
+          }
+
+          // Police Red/Blue Strobe Bar on JADARMIYA!
+          if (tokenType === "JADARMIYA") {
+            const rLight = new THREE.Mesh(
+              new THREE.BoxGeometry(0.28, 0.14, 0.18),
+              new THREE.MeshBasicMaterial({ color: 0xef4444 })
+            );
+            rLight.position.set(-0.18, 1.22, 0);
+            const bLight = new THREE.Mesh(
+              new THREE.BoxGeometry(0.28, 0.14, 0.18),
+              new THREE.MeshBasicMaterial({ color: 0x3b82f6 })
+            );
+            bLight.position.set(0.18, 1.22, 0);
+            rig.bodyHolder.add(rLight, bLight);
+            rig.sirenRed = rLight;
+            rig.sirenBlue = bLight;
+          }
+
+          // Stacked 3D Watermelons in the back of WATERMELON_TRUCK!
           if (tokenType === "WATERMELON_TRUCK") {
-            loadCachedGlb("/models/food/watermelon.glb")
-              .then((wm) => {
-                const wFit = fitModelToFootprint(wm, 0.75);
-                wFit.position.set(0, 0.65, -0.35);
-                holder.add(wFit);
+            loadClonedModel("/models/food/watermelon.glb")
+              .then(({ scene: wm }) => {
+                for (const [wx, wy, wz] of [
+                  [-0.22, 0.62, -0.38],
+                  [0.22, 0.62, -0.38],
+                  [0, 0.92, -0.38],
+                ]) {
+                  const wFit = fitModelToFootprint(wm.clone(true), 0.64);
+                  wFit.position.set(wx, wy, wz);
+                  rig.bodyHolder.add(wFit);
+                }
               })
               .catch(() => {});
           }
         })
-        .catch(() => {
-          const fallback = new THREE.Mesh(
-            new THREE.BoxGeometry(1.1, 0.7, 1.6),
-            new THREE.MeshStandardMaterial({ color: spec.bodyHex })
-          );
-          fallback.position.y = 0.35;
-          holder.add(fallback);
-        });
+        .catch(() => {});
     };
 
-    const populateBuildingLevel = (
+    const populateBuildingSlot = (
       slot: BuildingSlotRig,
       level: number,
+      ownerId: string | null,
       tileIdx: number
     ) => {
-      // Keep crownMesh, remove previous building meshes
       for (let i = slot.holder.children.length - 1; i >= 0; i--) {
         const ch = slot.holder.children[i];
-        if (ch !== slot.crownMesh) slot.holder.remove(ch);
+        if (ch !== slot.crownGroup && ch !== slot.skybeam) {
+          slot.holder.remove(ch);
+        }
       }
-      slot.crownMesh.visible = level === 3;
-      if (level <= 0) return;
+      slot.crownGroup.visible = Boolean(ownerId && level === 3);
 
-      let glbUrl = "/models/ksida/fantasy/stall-green.glb";
-      let targetSpan = 1.95;
+      // UNOWNED PLOT: Pre-dressed lush Moroccan palm/planter garden so perimeter looks rich from Turn 1!
+      if (!ownerId) {
+        const gardenUrl =
+          tileIdx % 3 === 0
+            ? "/models/simsar/suburban/planter.glb"
+            : tileIdx % 3 === 1
+            ? "/models/simsar/suburban/tree-large.glb"
+            : "/models/furniture/pottedPlant.glb";
+        loadClonedModel(gardenUrl)
+          .then(({ scene: raw }) => {
+            const gFit = fitModelToFootprint(raw, 1.45);
+            slot.holder.add(gFit);
+          })
+          .catch(() => {});
+        return;
+      }
+
+      const ownerColor = liveRef.current.players[ownerId]?.accentHex || "#fbbf24";
+
+      // Helper to plant 3D Ownership Flag beside owned plot!
+      const attachOwnerFlag = (offsetX = -1.05) => {
+        loadClonedModel("/models/simsar/props/flag.glb")
+          .then(({ scene: raw }) => {
+            raw.traverse((n) => {
+              if ((n as THREE.Mesh).isMesh && n.name.includes("flag")) {
+                (n as THREE.Mesh).material = new THREE.MeshStandardMaterial({
+                  color: ownerColor,
+                  emissive: ownerColor,
+                  emissiveIntensity: 0.25,
+                  roughness: 0.35,
+                });
+              }
+            });
+            const fFit = fitModelToFootprint(raw, 0.95);
+            fFit.position.set(offsetX, 0, 0.65);
+            slot.holder.add(fFit);
+          })
+          .catch(() => {});
+      };
+
+      // LEVEL 0 (OWNED LAND): Ownership Flag + Moroccan Plaza Fountain or Souk Cart!
+      if (level <= 0) {
+        attachOwnerFlag(-0.85);
+        const lotUrl =
+          tileIdx % 2 === 0
+            ? "/models/simsar/commercial/plaza-fountain.glb"
+            : "/models/simsar/medina/cart-high.glb";
+        loadClonedModel(lotUrl)
+          .then(({ scene: raw }) => {
+            const fitted = fitModelToFootprint(raw, 1.65);
+            slot.holder.add(fitted);
+          })
+          .catch(() => {});
+        return;
+      }
+
+      // LEVEL 1 (قهوة شعبية ☕): Bustling Moroccan Café Stall + Outdoor Table!
       if (level === 1) {
-        glbUrl =
+        attachOwnerFlag(-1.15);
+        const stallUrl =
           tileIdx % 2 === 0
             ? "/models/ksida/fantasy/stall-green.glb"
             : "/models/ksida/fantasy/stall-red.glb";
-        targetSpan = 1.95;
-      } else if (level === 2) {
-        glbUrl =
-          tileIdx % 2 === 0
-            ? "/models/ksida/city/building-a.glb"
-            : "/models/ksida/city/building-c.glb";
-        targetSpan = 2.25;
-      } else {
-        glbUrl =
-          tileIdx % 2 === 0
-            ? "/models/ksida/city/building-f.glb"
-            : "/models/ksida/city/building-j.glb";
-        targetSpan = 2.55;
+        loadClonedModel(stallUrl)
+          .then(({ scene: raw }) => {
+            const fitted = fitModelToFootprint(raw, 2.15);
+            slot.holder.add(fitted);
+          })
+          .catch(() => {});
+        loadClonedModel("/models/furniture/tableRound.glb")
+          .then(({ scene: tRaw }) => {
+            const tb = fitModelToFootprint(tRaw, 0.85);
+            tb.position.set(1.05, 0, 0.55);
+            slot.holder.add(tb);
+          })
+          .catch(() => {});
+        return;
       }
 
-      loadCachedGlb(glbUrl)
-        .then((raw) => {
-          const fitted = fitModelToFootprint(raw, targetSpan);
+      // LEVEL 2 (رياض سياحي 🕌): Diverse Multi-Story Villas & Riads + Oasis Palm!
+      if (level === 2) {
+        const villaUrl = VILLA_GLBS[tileIdx % VILLA_GLBS.length];
+        loadClonedModel(villaUrl)
+          .then(({ scene: raw }) => {
+            const fitted = fitModelToFootprint(raw, 2.55);
+            slot.holder.add(fitted);
+          })
+          .catch(() => {});
+        loadClonedModel("/models/ksida/palm-bend.glb")
+          .then(({ scene: pRaw }) => {
+            const plm = fitModelToFootprint(pRaw, 1.85);
+            plm.position.set(1.25, 0, 0.55);
+            slot.holder.add(plm);
+          })
+          .catch(() => {});
+        return;
+      }
+
+      // LEVEL 3 (أوطيل 5 نجوم 👑): Towering Luxury Skyscraper Hotel + Twin Palms + Levitating Crown!
+      const hotelUrl = SKYSCRAPER_GLBS[tileIdx % SKYSCRAPER_GLBS.length];
+      loadClonedModel(hotelUrl)
+        .then(({ scene: raw }) => {
+          const fitted = fitModelToFootprint(raw, 2.85);
           slot.holder.add(fitted);
-          // Position crown right above building top!
           const bBox = new THREE.Box3().setFromObject(fitted);
-          slot.crownMesh.position.y = bBox.max.y + 0.65;
+          slot.crownGroup.position.y = bBox.max.y + 0.72;
+        })
+        .catch(() => {});
+
+      loadClonedModel("/models/ksida/palm-straight.glb")
+        .then(({ scene: pRaw }) => {
+          for (const sx of [-1.35, 1.35]) {
+            const plm = fitModelToFootprint(pRaw.clone(true), 2.05);
+            plm.position.set(sx, 0, 0.68);
+            slot.holder.add(plm);
+          }
         })
         .catch(() => {});
     };
 
-    // 9. Portrait-Friendly Touch Orbit, Pinch-Zoom & Tile Tap Raycaster!
-    let userOrbitOffset = 0; // radians dragged by finger
-    let userZoomMult = 1.0; // 0.68 .. 1.35
+    // =========================================================================
+    // 7. PORTRAIT-FRIENDLY TOUCH ORBIT, PINCH-ZOOM & TILE RAYCASTER
+    // =========================================================================
+    let userOrbitOffset = 0;
+    let userZoomMult = 1.0;
     const activePointers = new Map<number, { x: number; y: number }>();
     let downStart = { x: 0, y: 0, moved: false };
     let lastPinchDist = 0;
@@ -912,13 +1860,13 @@ export function Simsar3DBoardCanvas({
 
       if (activePointers.size === 1) {
         userOrbitOffset -= dx * 0.0075;
-        userZoomMult = Math.max(0.68, Math.min(1.35, userZoomMult + dy * 0.0018));
+        userZoomMult = Math.max(0.65, Math.min(1.36, userZoomMult + dy * 0.0018));
       } else if (activePointers.size === 2) {
         const pts = Array.from(activePointers.values());
         const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         if (lastPinchDist > 10) {
           const ratio = lastPinchDist / Math.max(10, dist);
-          userZoomMult = Math.max(0.65, Math.min(1.38, userZoomMult * ratio));
+          userZoomMult = Math.max(0.62, Math.min(1.38, userZoomMult * ratio));
         }
         lastPinchDist = dist;
       }
@@ -937,6 +1885,8 @@ export function Simsar3DBoardCanvas({
         if (hits.length > 0) {
           const tIdx = hits[0].object.userData?.tileIndex;
           if (typeof tIdx === "number") {
+            const tRig = tileRigs.get(tIdx);
+            if (tRig) tRig.pressVel = -3.8; // tactile press bounce on tap!
             simsarSfx.playPopTap(1.1);
             liveRef.current.onSelectTile(tIdx);
           }
@@ -946,7 +1896,7 @@ export function Simsar3DBoardCanvas({
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      userZoomMult = Math.max(0.65, Math.min(1.38, userZoomMult + e.deltaY * 0.0008));
+      userZoomMult = Math.max(0.62, Math.min(1.38, userZoomMult + e.deltaY * 0.0008));
     };
 
     domEl.addEventListener("pointerdown", onPointerDown);
@@ -955,171 +1905,412 @@ export function Simsar3DBoardCanvas({
     domEl.addEventListener("pointercancel", onPointerUp);
     domEl.addEventListener("wheel", onWheel, { passive: false });
 
-    const handleResize = () => {
-      if (!container) return;
-      const w = Math.max(280, container.clientWidth);
+    const resizeObs = new ResizeObserver(() => {
+      const w = Math.max(240, container.clientWidth);
       const h = Math.max(240, container.clientHeight);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
-    };
-    const resizeObs = new ResizeObserver(handleResize);
+      composer.setSize(w, h);
+      bloomPass.resolution.set(Math.floor(w * 0.5), Math.floor(h * 0.5));
+    });
     resizeObs.observe(container);
 
-    // Smooth Camera Tracking State
-    const camPos = new THREE.Vector3(0, 28, 28);
+    // =========================================================================
+    // 8. 60 FPS MASTER ANIMATION & CHOREOGRAPHY LOOP
+    // =========================================================================
+    const camPos = new THREE.Vector3(0, 26, 28);
     const camLook = new THREE.Vector3(0, 0.5, 1.5);
-
+    const clock = new THREE.Clock();
     let rafId = 0;
-    let lastPerf = performance.now();
 
     const animate = () => {
       rafId = requestAnimationFrame(animate);
-      const nowPerf = performance.now();
-      const dt = Math.min(0.05, Math.max(0.001, (nowPerf - lastPerf) * 0.001));
-      lastPerf = nowPerf;
-      const timeSec = nowPerf * 0.001;
-      const nowWall = Date.now();
-
+      const dt = Math.min(0.05, clock.getDelta());
+      const elapsed = clock.elapsedTime;
       const snap = liveRef.current;
 
-      // Animate Ocean Waves & Swaying Palms
-      waterNormalTex.offset.x = timeSec * 0.03;
-      waterNormalTex.offset.y = timeSec * 0.022;
+      // A. Update Shaders, Mixers, Train, Ships, Balloon, Windmill & Fountain Jets!
+      skyMat.uniforms.uTime.value = elapsed;
+      oceanMat.uniforms.uTime.value = elapsed;
+      for (const mx of mixers) mx.update(dt);
+
+      if (showmanCelebrationTimer > 0) {
+        showmanCelebrationTimer -= dt;
+        if (showmanCelebrationTimer <= 0) {
+          const idleName = showmanActions.Wave ? "Wave" : "Idle";
+          const idleAct = showmanActions[idleName];
+          if (idleAct && activeShowmanClip !== idleName) {
+            const prev = showmanActions[activeShowmanClip];
+            idleAct.reset().fadeIn(0.3).play();
+            if (prev) prev.fadeOut(0.3);
+            activeShowmanClip = idleName;
+          }
+        }
+      }
+
+      boraqTrain.updateTrain(elapsed);
+      radarSweepPivot.rotation.y = elapsed * 2.1;
+      if (windmillBladePivot) windmillBladePivot.rotation.z = -elapsed * 1.45;
+
+      // Balloon gentle sky float & burner flicker
+      balloon.group.position.x = -18 + Math.sin(elapsed * 0.18) * 5.5;
+      balloon.group.position.y = 13.5 + Math.sin(elapsed * 0.65) * 0.85;
+      balloon.group.rotation.y = elapsed * 0.15;
+      balloon.flameMesh.scale.setScalar(0.85 + Math.sin(elapsed * 16) * 0.25);
+
+      for (const cl of cloudRigs) {
+        cl.angle += cl.speed * dt;
+        cl.mesh.position.set(
+          Math.cos(cl.angle) * cl.radius,
+          cl.y + Math.sin(elapsed * 0.5 + cl.angle) * 0.35,
+          Math.sin(cl.angle) * cl.radius
+        );
+        cl.mesh.rotation.y = -cl.angle;
+      }
+
+      for (const sh of shipRigs) {
+        sh.phase += sh.orbitSpeed * dt;
+        const sx = Math.cos(sh.phase) * sh.orbitRadius;
+        const sz = Math.sin(sh.phase) * sh.orbitRadius;
+        sh.root.position.set(sx, -0.68 + Math.sin(elapsed * 2.2 + sh.phase) * 0.12, sz);
+        const dirSign = sh.orbitSpeed >= 0 ? 1 : -1;
+        sh.root.rotation.y = Math.atan2(-Math.sin(sh.phase) * dirSign, Math.cos(sh.phase) * dirSign);
+        sh.root.rotation.z = Math.sin(elapsed * 2.0 + sh.phase) * 0.065;
+        sh.root.rotation.x = Math.cos(elapsed * 1.6 + sh.phase) * 0.04;
+        for (const sNode of sh.sails) {
+          sNode.scale.z = 1 + Math.sin(elapsed * 4.5 + sh.phase) * 0.08;
+        }
+      }
+
       swayPalms.forEach((p, idx) => {
-        p.rotation.z = Math.sin(timeSec * 1.4 + idx) * 0.035;
+        p.rotation.z = Math.sin(elapsed * 1.6 + idx * 1.1) * 0.045;
+        p.rotation.x = Math.cos(elapsed * 1.2 + idx) * 0.025;
       });
 
-      // Sync Gardiennage Jackpot 3D Coin Pile height!
+      // Fountain Parabolic Crystal Water Jets
+      for (const wd of waterDroplets) {
+        const t = (elapsed * 0.95 + wd.phase) % 1;
+        const r = 0.25 + t * 1.65;
+        const y = 1.65 + Math.sin(t * Math.PI) * 1.45 - t * 1.15;
+        wd.mesh.position.set(Math.cos(wd.angle) * r, y, Math.sin(wd.angle) * r);
+        wd.mesh.scale.setScalar(0.55 + Math.sin(t * Math.PI) * 0.65);
+      }
+
+      // Gardiennage Coin Pile Growth & Spin
       const visibleCoins = Math.min(
-        coinMeshes.length,
-        Math.max(3, Math.floor(snap.gardiennagePot / 30))
+        jackpotCoins.length,
+        Math.max(4, Math.floor(snap.gardiennagePot / 32))
       );
-      coinMeshes.forEach((cm, idx) => {
+      jackpotCoins.forEach((cm, idx) => {
         cm.visible = idx < visibleCoins;
+        cm.rotation.y = elapsed * 2.2 + idx * 0.4;
       });
 
-      // Highlight Selected Tile Ring
-      if (snap.selectedTileIndex !== null) {
+      // B. Spring-Loaded Piano-Key Tile Physics & Selection Halo
+      for (const tRig of tileRigs.values()) {
+        const springF = -160 * tRig.pressY - 16 * tRig.pressVel;
+        tRig.pressVel += springF * dt;
+        tRig.pressY += tRig.pressVel * dt;
+        if (Math.abs(tRig.pressY) < 0.001 && Math.abs(tRig.pressVel) < 0.005) {
+          tRig.pressY = 0;
+          tRig.pressVel = 0;
+        }
+        tRig.group.position.y = tRig.baseY + tRig.pressY;
+      }
+
+      if (snap.selectedTileIndex !== null && snap.selectedTileIndex >= 0) {
         const stf = getTileWorldTransform(snap.selectedTileIndex);
         selectionRing.visible = true;
-        selectionRing.position.set(stf.x, 0.5, stf.z);
-        const pulse = 1 + Math.sin(timeSec * 6) * 0.07;
-        selectionRing.scale.set(pulse, pulse, 1);
+        selectionRing.position.set(stf.x, 0.54, stf.z);
+        selectionRing.scale.setScalar(1 + Math.sin(elapsed * 6.5) * 0.08);
       } else {
         selectionRing.visible = false;
       }
 
-      // Sync Owned Property Borders & Popping 3D Buildings!
+      // C. Sync 3D Skyline Buildings + Skybeams + Overshoot Drop-In!
       for (const [tileIdx, slot] of buildingSlots.entries()) {
         const prop = snap.properties[tileIdx];
-        const owner = prop?.ownerId ? snap.players[prop.ownerId] : null;
+        const ownerId = prop?.ownerId || null;
+        const level = ownerId ? prop?.level ?? 0 : 0;
 
-        if (prop && prop.ownerId && owner && !owner.isBankrupt) {
+        if (ownerId) {
+          const owner = snap.players[ownerId];
           slot.ownerRing.visible = true;
           (slot.ownerRing.material as THREE.MeshBasicMaterial).color.set(
-            owner.accentHex
+            owner?.accentHex || "#fbbf24"
           );
-          slot.mortgageBadge.visible = prop.isMortgaged;
-
-          const effectiveLvl = prop.isMortgaged ? 0 : prop.level;
-          if (slot.currentLevel !== effectiveLvl) {
-            const grew = effectiveLvl > slot.currentLevel && slot.currentLevel >= 0;
-            slot.currentLevel = effectiveLvl;
-            populateBuildingLevel(slot, effectiveLvl, tileIdx);
-            if (grew) {
-              slot.popAnim = 0.01;
-              simsarSfx.playBuildUpgrade(effectiveLvl);
-              spawnGoldenBurst(
-                slot.holder.position.x,
-                1.4,
-                slot.holder.position.z,
-                18
-              );
-            }
-          }
+          slot.mortgageBadge.visible = Boolean(prop?.isMortgaged);
         } else {
           slot.ownerRing.visible = false;
           slot.mortgageBadge.visible = false;
-          if (slot.currentLevel !== 0) {
-            slot.currentLevel = 0;
-            populateBuildingLevel(slot, 0, tileIdx);
+        }
+
+        if (slot.currentLevel !== level || slot.currentOwnerId !== ownerId) {
+          const isInitialBoot = slot.currentLevel === -2;
+          const wasUpgradeOrPurchase =
+            !isInitialBoot &&
+            ownerId !== null &&
+            (level > Math.max(0, slot.currentLevel) || slot.currentOwnerId !== ownerId);
+
+          slot.currentLevel = level;
+          slot.currentOwnerId = ownerId;
+          populateBuildingSlot(slot, level, ownerId, tileIdx);
+
+          if (wasUpgradeOrPurchase) {
+            slot.popAnim = 0.01;
+            slot.beamLife = 0.72;
+            slot.skybeam.visible = true;
+            camShake = Math.max(camShake, level >= 2 ? 0.42 : 0.25);
+            triggerShowmanCelebration(level === 3 ? "Dance" : "Jump");
+            spawnConstructionBurst(
+              slot.holder.position.x,
+              1.1,
+              slot.holder.position.z,
+              level === 3 ? 28 : 18
+            );
           }
         }
 
-        // Spring Pop Animation on Building Holder
         if (slot.popAnim < 1) {
           slot.popAnim = Math.min(1, slot.popAnim + dt * 2.8);
-          const t = slot.popAnim;
-          const elastic =
-            t === 1
-              ? 1
-              : 1 - Math.pow(2, -9 * t) * Math.cos(t * Math.PI * 2.5);
-          const s = Math.max(0.05, elastic);
-          slot.holder.scale.set(s, s, s);
+          const sc = Math.max(0.05, easeOutBackOvershoot(slot.popAnim));
+          const dropY = (1 - slot.popAnim) * (1 - slot.popAnim) * 4.2;
+          slot.holder.position.y = 0.08 + dropY;
+          slot.holder.scale.set(sc, sc, sc);
         } else {
-          slot.holder.scale.set(1, 1, 1);
+          slot.holder.position.y = 0.08;
+          slot.holder.scale.setScalar(1);
         }
 
-        if (slot.crownMesh.visible) {
-          slot.crownMesh.rotation.y = timeSec * 2.2;
+        if (slot.beamLife > 0) {
+          slot.beamLife -= dt;
+          (slot.skybeam.material as THREE.MeshBasicMaterial).opacity =
+            Math.max(0, slot.beamLife / 0.72) * 0.55;
+          slot.skybeam.scale.x = 0.5 + (1 - slot.beamLife / 0.72) * 1.1;
+          slot.skybeam.scale.z = slot.skybeam.scale.x;
+          if (slot.beamLife <= 0) slot.skybeam.visible = false;
         }
-      }
 
-      // Trigger 3D Tumbling Dice Roll when `lastDice.rollSeq` advances!
-      if (snap.lastDice && snap.lastDice.rollSeq !== activeDiceSeq) {
-        activeDiceSeq = snap.lastDice.rollSeq;
-        diceAnimTimer = 0.001;
-        dieMesh1.visible = true;
-        dieMesh2.visible = true;
-        simsarSfx.playDiceRoll();
-      }
-
-      if (diceAnimTimer > 0 && snap.lastDice) {
-        diceAnimTimer += dt;
-        const p = Math.min(1, diceAnimTimer / 0.92);
-        const bounceY =
-          0.9 +
-          Math.max(0, (1 - p) * 6.5 * Math.abs(Math.cos(p * Math.PI * 2.5)));
-
-        const e1 = getDieTopEuler(snap.lastDice.die1);
-        const e2 = getDieTopEuler(snap.lastDice.die2);
-        const spinFade = Math.pow(1 - p, 2);
-
-        dieMesh1.position.set(-1.35, bounceY, 2.2 - (1 - p) * 2.5);
-        dieMesh2.position.set(1.35, bounceY + (1 - p) * 0.4, 2.2 - (1 - p) * 2.0);
-
-        dieMesh1.rotation.set(
-          e1.rx + spinFade * 14,
-          spinFade * 9,
-          e1.rz + spinFade * 11
-        );
-        dieMesh2.rotation.set(
-          e2.rx - spinFade * 13,
-          -spinFade * 10,
-          e2.rz + spinFade * 12
-        );
-
-        if (p >= 1 && diceAnimTimer > 3.8) {
-          diceAnimTimer = 0;
+        if (slot.crownGroup.visible) {
+          slot.crownGroup.rotation.y = elapsed * 2.4;
+          slot.crownGroup.position.y += Math.sin(elapsed * 4) * 0.004;
         }
       }
 
-      // Sync & Animate 3D Hopping Player Tokens!
+      // D. Real Rigid-Body 3D Dice Throw, Bounce & Clatter!
+      const ld = snap.lastDice;
+      if (ld) {
+        if (ld.rollSeq !== activeDiceSeq) {
+          activeDiceSeq = ld.rollSeq;
+          diceRollElapsed = 0;
+          diceCalloutSpawned = false;
+
+          const targets = [ld.die1, ld.die2];
+          diceBodies.forEach((b, idx) => {
+            const sign = idx === 0 ? -1 : 1;
+            b.mesh.visible = true;
+            // Launch from foreground toward the center Zellige plaza!
+            b.x = sign * 2.4;
+            b.y = 5.4 + idx * 0.6;
+            b.z = 8.4;
+            b.vx = -sign * (1.2 + Math.random() * 0.9);
+            b.vy = 2.6 + Math.random() * 1.5;
+            b.vz = -(7.6 + Math.random() * 1.4);
+            b.wx = (Math.random() > 0.5 ? 1 : -1) * (15 + Math.random() * 8);
+            b.wy = (Math.random() - 0.5) * 14;
+            b.wz = (Math.random() > 0.5 ? 1 : -1) * (14 + Math.random() * 8);
+            b.targetQuat = getDieTopQuaternion(
+              targets[idx],
+              (idx === 0 ? 0.18 : -0.22) + (Math.random() - 0.5) * 0.2
+            );
+            b.bounces = 0;
+            b.settled = false;
+          });
+        }
+
+        diceRollElapsed += dt;
+        const floorY = 0.9;
+
+        for (const b of diceBodies) {
+          b.mesh.visible = true;
+          if (!b.settled) {
+            b.vy -= 42 * dt; // crisp arcade gravity
+            b.x += b.vx * dt;
+            b.y += b.vy * dt;
+            b.z += b.vz * dt;
+
+            // Keep inside center plaza bounds
+            if (Math.abs(b.x) > 4.2) {
+              b.x = Math.sign(b.x) * 4.2;
+              b.vx *= -0.6;
+            }
+            if (Math.abs(b.z) > 4.2) {
+              b.z = Math.sign(b.z) * 4.2;
+              b.vz *= -0.6;
+            }
+
+            if (b.y <= floorY) {
+              b.y = floorY;
+              b.bounces += 1;
+              if (Math.abs(b.vy) > 2.4 && b.bounces <= 3) {
+                b.vy = -b.vy * 0.48;
+                b.vx *= 0.68;
+                b.vz *= 0.68;
+                b.wx *= 0.65;
+                b.wy *= 0.65;
+                b.wz *= 0.65;
+                spawnShockwave(b.x, 0.18, b.z, 0xfef08a, 2.4);
+                camShake = Math.max(camShake, 0.16);
+              } else {
+                b.vy = 0;
+                b.vx = 0;
+                b.vz = 0;
+                b.settled = true;
+              }
+            }
+
+            // Integrate angular velocity while tumbling, then smoothly slerp into exact target face!
+            if (diceRollElapsed < 0.56 && !b.settled) {
+              b.mesh.rotation.x += b.wx * dt;
+              b.mesh.rotation.y += b.wy * dt;
+              b.mesh.rotation.z += b.wz * dt;
+            } else {
+              b.mesh.quaternion.slerp(b.targetQuat, Math.min(1, dt * 15));
+            }
+          } else {
+            b.mesh.quaternion.slerp(b.targetQuat, Math.min(1, dt * 18));
+            b.y = floorY;
+          }
+          b.mesh.position.set(b.x, b.y, b.z);
+        }
+
+        // Prevent dice overlap if they landed too close
+        const dx = diceBodies[1].x - diceBodies[0].x;
+        const dz = diceBodies[1].z - diceBodies[0].z;
+        const dDist = Math.hypot(dx, dz);
+        if (dDist < 1.85 && dDist > 0.001) {
+          const push = (1.85 - dDist) * 0.5;
+          const nx = dx / dDist;
+          const nz = dz / dDist;
+          diceBodies[0].x -= nx * push;
+          diceBodies[0].z -= nz * push;
+          diceBodies[1].x += nx * push;
+          diceBodies[1].z += nz * push;
+        }
+
+        if (!diceCalloutSpawned && diceRollElapsed > 0.64) {
+          diceCalloutSpawned = true;
+          const midX = (diceBodies[0].x + diceBodies[1].x) * 0.5;
+          const midZ = (diceBodies[0].z + diceBodies[1].z) * 0.5;
+          const callTxt = ld.isDoubles
+            ? `🔥 ضوبل ${ld.total}!`
+            : `🎲 مجموع ${ld.total}!`;
+          spawnWorldPopup(
+            midX,
+            2.35,
+            midZ,
+            callTxt,
+            ld.isDoubles ? "#7c3aed" : "#0f172a",
+            "#fde047"
+          );
+          if (ld.isDoubles) triggerShowmanCelebration("Dance");
+        }
+      }
+
+      // E. Detect Cash Transfers & Launch Flying 3D Gold Coin Streams!
       const alivePlayers = Object.values(snap.players).filter((p) => !p.isBankrupt);
-      const seenIds = new Set<string>();
+      let topWealthId = "";
+      let topWealthVal = -1;
+      for (const p of alivePlayers) {
+        if (p.netWorth > topWealthVal) {
+          topWealthVal = p.netWorth;
+          topWealthId = p.id;
+        }
+      }
 
-      // Group co-located tokens slightly so they never overlap on START!
+      const gainers: Array<{ id: string; delta: number }> = [];
+      const losers: Array<{ id: string; delta: number }> = [];
+      for (const p of Object.values(snap.players)) {
+        const oldCash = prevCashMap.get(p.id);
+        if (oldCash !== undefined && oldCash !== p.cash) {
+          const delta = p.cash - oldCash;
+          if (delta >= 20) gainers.push({ id: p.id, delta });
+          else if (delta <= -20) losers.push({ id: p.id, delta: -delta });
+        }
+        prevCashMap.set(p.id, p.cash);
+      }
+      const potDelta = snap.gardiennagePot - prevPotValue;
+      prevPotValue = snap.gardiennagePot;
+
+      const getPlayerWorldPos = (pid: string): THREE.Vector3 => {
+        const r = tokenRigs.get(pid);
+        if (r) return r.root.position.clone().add(new THREE.Vector3(0, 0.8, 0));
+        const pObj = snap.players[pid];
+        const tf = getTileWorldTransform(pObj?.position ?? 0);
+        return new THREE.Vector3(tf.x, 1.1, tf.z);
+      };
+
+      if (gainers.length > 0 && losers.length > 0) {
+        // Direct Player-to-Player Transfer (Rent Paid or Bank Heist!)
+        const srcPos = getPlayerWorldPos(losers[0].id);
+        for (const g of gainers) {
+          const dstPos = getPlayerWorldPos(g.id);
+          spawnCoinTransferStream(
+            srcPos,
+            g.id,
+            dstPos,
+            Math.min(26, Math.max(12, Math.floor(g.delta / 14)))
+          );
+          spawnWorldPopup(dstPos.x, dstPos.y + 1.8, dstPos.z, `+${g.delta} DH`, "#059669", "#fef08a");
+        }
+        const lPos = getPlayerWorldPos(losers[0].id);
+        spawnWorldPopup(lPos.x, lPos.y + 1.8, lPos.z, `-${losers[0].delta} DH`, "#be123c", "#ffffff");
+        triggerShowmanCelebration("ThumbsUp");
+      } else if (gainers.length > 0) {
+        // Bank / Salary / Gardiennage Jackpot / Mini-Game Reward -> Player!
+        const fromJackpot = potDelta < -40;
+        const startTf = getTileWorldTransform(0);
+        const bankPos = fromJackpot
+          ? jackpotOrigin.clone().add(new THREE.Vector3(0, 1.0, 0))
+          : new THREE.Vector3(startTf.x, 1.3, startTf.z);
+
+        for (const g of gainers) {
+          const dstPos = getPlayerWorldPos(g.id);
+          spawnCoinTransferStream(
+            bankPos,
+            g.id,
+            dstPos,
+            Math.min(24, Math.max(10, Math.floor(g.delta / 18)))
+          );
+          spawnWorldPopup(dstPos.x, dstPos.y + 1.8, dstPos.z, `+${g.delta} DH`, "#059669", "#fef08a");
+        }
+        if (fromJackpot) triggerShowmanCelebration("Dance");
+      } else if (losers.length > 0 && potDelta > 0) {
+        // Tax / Radar Fine / Bail -> Flying Coins into the Center Treasure Chest!
+        const srcPos = getPlayerWorldPos(losers[0].id);
+        spawnCoinTransferStream(
+          srcPos,
+          null,
+          jackpotOrigin.clone().add(new THREE.Vector3(0, 0.9, 0)),
+          14
+        );
+        spawnWorldPopup(srcPos.x, srcPos.y + 1.8, srcPos.z, `-${losers[0].delta} DH`, "#be123c", "#ffffff");
+      }
+
+      // F. Sync & Animate Pixar-Style Hopping 3D Player Vehicles!
+      const seenIds = new Set<string>();
       const tileOccupants = new Map<number, string[]>();
-      alivePlayers.forEach((p) => {
+      for (const p of alivePlayers) {
         const rig = tokenRigs.get(p.id);
         const tIdx = rig ? rig.renderedTile : p.position;
         const arr = tileOccupants.get(tIdx) || [];
         arr.push(p.id);
         tileOccupants.set(tIdx, arr);
-      });
+      }
 
       let activeFocusPos: THREE.Vector3 | null = null;
+      const nowWall = Date.now();
 
       for (const p of alivePlayers) {
         seenIds.add(p.id);
@@ -1129,15 +2320,56 @@ export function Simsar3DBoardCanvas({
           const root = new THREE.Group();
           const bodyHolder = new THREE.Group();
           root.add(bodyHolder);
-          populateTokenModel(bodyHolder, p.token);
+
+          const leaderCrown = build3DCrownGroup(0.62);
+          leaderCrown.position.set(0, 1.72, 0);
+          leaderCrown.visible = false;
+          root.add(leaderCrown);
+
+          const shieldDome = new THREE.Mesh(
+            new THREE.SphereGeometry(1.38, 18, 14),
+            new THREE.MeshBasicMaterial({
+              color: 0x38bdf8,
+              transparent: true,
+              opacity: 0.22,
+              wireframe: true,
+            })
+          );
+          shieldDome.position.y = 0.65;
+          shieldDome.visible = false;
+          root.add(shieldDome);
+
+          // 3D Iron Jail Cage when locked in الفوريان!
+          const jailCage = new THREE.Group();
+          const barMat = new THREE.MeshStandardMaterial({
+            color: 0x475569,
+            roughness: 0.35,
+            metalness: 0.85,
+          });
+          const barGeo = new THREE.CylinderGeometry(0.045, 0.045, 1.55, 8);
+          for (let bx = -0.85; bx <= 0.85; bx += 0.425) {
+            for (const bz of [-0.95, 0.95]) {
+              const bar = new THREE.Mesh(barGeo, barMat);
+              bar.position.set(bx, 0.78, bz);
+              jailCage.add(bar);
+            }
+          }
+          const roofFrame = new THREE.Mesh(
+            new THREE.BoxGeometry(1.85, 0.08, 2.05),
+            barMat
+          );
+          roofFrame.position.y = 1.56;
+          jailCage.add(roofFrame);
+          jailCage.visible = false;
+          root.add(jailCage);
 
           const badge = createFloatingBadgeSprite(p.nickname, p.accentHex);
-          badge.sprite.position.set(0, 2.05, 0);
+          badge.sprite.position.set(0, 2.38, 0);
           root.add(badge.sprite);
           scene.add(root);
 
           const initTf = getTileWorldTransform(p.position);
-          root.position.set(initTf.x, 0.48, initTf.z);
+          root.position.set(initTf.x, 0.5, initTf.z);
           root.rotation.y = initTf.forwardYaw;
 
           rig = {
@@ -1145,6 +2377,12 @@ export function Simsar3DBoardCanvas({
             tokenType: p.token,
             root,
             bodyHolder,
+            wheelNodes: [],
+            sirenRed: null,
+            sirenBlue: null,
+            leaderCrown,
+            shieldDome,
+            jailCage,
             badge,
             renderedTile: p.position,
             targetTile: p.position,
@@ -1152,18 +2390,37 @@ export function Simsar3DBoardCanvas({
             hopProgress: 1,
             hopFromTile: p.position,
             hopToTile: p.position,
+            isFinalStep: false,
             stepCounter: 0,
+            joyBounce: 0,
+            smoothYaw: initTf.forwardYaw,
             lastLabelKey: "",
           };
+          populateTokenModel(rig, p.token);
           tokenRigs.set(p.id, rig);
         }
 
         if (rig.tokenType !== p.token) {
           rig.tokenType = p.token;
-          populateTokenModel(rig.bodyHolder, p.token);
+          populateTokenModel(rig, p.token);
         }
 
-        // Update floating badge text (shows live Darija meme reaction when triggered!)
+        rig.leaderCrown.visible = p.id === topWealthId;
+        if (rig.leaderCrown.visible) {
+          rig.leaderCrown.rotation.y = elapsed * 2.5;
+        }
+        rig.shieldDome.visible = p.shields > 0;
+        if (rig.shieldDome.visible) {
+          rig.shieldDome.rotation.y = -elapsed * 1.4;
+        }
+        rig.jailCage.visible = p.inJailTurns > 0 && rig.hopProgress >= 1;
+
+        if (rig.sirenRed && rig.sirenBlue) {
+          const flash = Math.sin(elapsed * 18) > 0;
+          rig.sirenRed.scale.setScalar(flash ? 1.35 : 0.85);
+          rig.sirenBlue.scale.setScalar(flash ? 0.85 : 1.35);
+        }
+
         const activeReaction =
           p.lastReactionId && nowWall - p.lastReactionAt < 3800
             ? SIMSAR_REACTIONS[p.lastReactionId]
@@ -1184,60 +2441,126 @@ export function Simsar3DBoardCanvas({
           rig.targetTile = p.position;
         }
 
-        // Wait 0.45s for dice tumble before hopping!
+        // Wait ~0.62s for the rigid-body 3D dice bounce before starting car hops!
         const waitingOnDice =
-          diceAnimTimer > 0 &&
-          diceAnimTimer < 0.48 &&
-          snap.lastDice?.rollerId === p.id;
+          diceRollElapsed < 0.62 && snap.lastDice?.rollerId === p.id;
 
         if (!waitingOnDice) {
           if (rig.hopProgress >= 1 && rig.renderedTile !== rig.targetTile) {
             rig.hopFromTile = rig.renderedTile;
             rig.hopToTile = (rig.renderedTile + 1) % BOARD_TILE_COUNT;
-            rig.hopProgress = 0;
+            rig.isFinalStep = rig.hopToTile === rig.targetTile;
+            // Pre-jump crouch anticipation on first step!
+            rig.hopProgress = rig.stepCounter === 0 ? -0.14 : 0;
             rig.stepCounter += 1;
             simsarSfx.playTileHop(rig.stepCounter);
+            spawnDustPuffs(rig.root.position.x, 0.5, rig.root.position.z, 4);
           }
 
-          if (rig.hopProgress < 1) {
-            rig.hopProgress = Math.min(1, rig.hopProgress + dt * 5.4);
+          if (rig.hopProgress < 0) {
+            // Pixar Crouch Anticipation!
+            rig.hopProgress = Math.min(0, rig.hopProgress + dt * 2.2);
+            const crouchT = 1 + rig.hopProgress / 0.14; // 0 -> 1
+            rig.bodyHolder.scale.set(
+              1 + Math.sin(crouchT * Math.PI) * 0.18,
+              1 - Math.sin(crouchT * Math.PI) * 0.24,
+              1 + Math.sin(crouchT * Math.PI) * 0.14
+            );
+            rig.bodyHolder.rotation.x = -0.18 * Math.sin(crouchT * Math.PI);
+          } else if (rig.hopProgress < 1) {
+            const hopSpd = rig.isFinalStep ? 3.8 : 5.2;
+            rig.hopProgress = Math.min(1, rig.hopProgress + dt * hopSpd);
             const fromTf = getTileWorldTransform(rig.hopFromTile);
             const toTf = getTileWorldTransform(rig.hopToTile);
             const t = rig.hopProgress;
 
             const curX = fromTf.x + (toTf.x - fromTf.x) * t;
             const curZ = fromTf.z + (toTf.z - fromTf.z) * t;
-            const arcY = 0.46 + Math.sin(t * Math.PI) * 1.45;
+            const peak = rig.isFinalStep ? 2.55 : 1.72;
+            const arcY = 0.52 + Math.sin(t * Math.PI) * peak;
 
             rig.root.position.set(curX, arcY, curZ);
-            rig.root.rotation.y = toTf.forwardYaw;
 
-            // Squash & stretch bounce!
-            const stretch = 1 + Math.sin(t * Math.PI) * 0.16;
-            rig.bodyHolder.scale.set(1 / Math.sqrt(stretch), stretch, 1 / Math.sqrt(stretch));
+            // Smooth shortest-angle yaw interpolation + corner banking!
+            const yawDelta = shortestAngleDiff(rig.smoothYaw, toTf.forwardYaw);
+            rig.smoothYaw += yawDelta * Math.min(1, dt * 14);
+            rig.root.rotation.y = rig.smoothYaw;
 
+            // Pitch nose up going up, nose down descending!
+            const pitchAngle = -Math.cos(t * Math.PI) * (rig.isFinalStep ? 0.34 : 0.24);
+            rig.bodyHolder.rotation.x = pitchAngle;
+            rig.bodyHolder.rotation.z = Math.max(-0.25, Math.min(0.25, -yawDelta * 0.45));
+
+            // Airborne stretch!
+            const stretch = 1 + Math.sin(t * Math.PI) * 0.18;
+            const squash = 1 / Math.sqrt(stretch);
+            rig.bodyHolder.scale.set(squash, stretch, squash);
+
+            // Spin 3D wheels rapidly!
+            for (const w of rig.wheelNodes) {
+              w.rotation.x += dt * 24;
+            }
+
+            // Touchdown on Tile!
             if (rig.hopProgress >= 1) {
               rig.renderedTile = rig.hopToTile;
-              rig.bodyHolder.scale.set(1, 1, 1);
+              rig.bodyHolder.rotation.set(0, 0, 0);
+              rig.bodyHolder.scale.set(1.18, 0.78, 1.18); // landing squash!
+
+              // Depress the landed 3D marble tile like a piano key!
+              const landedTileRig = tileRigs.get(rig.renderedTile);
+              if (landedTileRig) {
+                landedTileRig.pressVel = rig.isFinalStep ? -5.6 : -3.4;
+              }
+              spawnShockwave(
+                toTf.x,
+                0.52,
+                toTf.z,
+                rig.isFinalStep ? 0xfef08a : 0x38bdf8,
+                rig.isFinalStep ? 4.4 : 2.6
+              );
+              if (rig.isFinalStep) {
+                rig.stepCounter = 0;
+                camShake = Math.max(camShake, 0.24);
+                spawnDustPuffs(toTf.x, 0.55, toTf.z, 8);
+              }
             }
           } else {
-            const tf = getTileWorldTransform(rig.renderedTile);
-            const coList = tileOccupants.get(rig.renderedTile) || [p.id];
-            const slotIdx = coList.indexOf(p.id);
-            const spreadAngle = (slotIdx / Math.max(1, coList.length)) * Math.PI * 2;
-            const spreadRad = coList.length > 1 ? 0.68 : 0;
+            // Parked Idle + Co-located Offset + Joy Bounce when receiving coins!
+            const baseTf = getTileWorldTransform(rig.renderedTile);
+            const occ = tileOccupants.get(rig.renderedTile) || [p.id];
+            const slotIdx = Math.max(0, occ.indexOf(p.id));
+            const spread = occ.length > 1 ? 0.68 : 0;
+            const ang = (slotIdx / Math.max(1, occ.length)) * Math.PI * 2;
+            const targetX = baseTf.x + Math.cos(ang) * spread;
+            const targetZ = baseTf.z + Math.sin(ang) * spread;
 
-            const targetX = tf.x + Math.cos(spreadAngle) * spreadRad;
-            const targetZ = tf.z + Math.sin(spreadAngle) * spreadRad;
-            const idleBob =
+            // Follow depressed tile height!
+            const tileOffsetY = tileRigs.get(rig.renderedTile)?.pressY ?? 0;
+
+            let joyY = 0;
+            if (rig.joyBounce > 0) {
+              rig.joyBounce = Math.max(0, rig.joyBounce - dt * 2.8);
+              joyY = Math.abs(Math.sin(rig.joyBounce * Math.PI * 2)) * 0.75;
+            }
+
+            const isTurnIdle =
               p.id === snap.currentPlayerId
-                ? Math.abs(Math.sin(timeSec * 4.2)) * 0.18
-                : 0;
+                ? Math.abs(Math.sin(elapsed * 4.2)) * 0.14
+                : Math.sin(elapsed * 2.2 + slotIdx) * 0.03;
 
             rig.root.position.x += (targetX - rig.root.position.x) * Math.min(1, dt * 10);
             rig.root.position.z += (targetZ - rig.root.position.z) * Math.min(1, dt * 10);
-            rig.root.position.y = 0.46 + idleBob;
-            rig.root.rotation.y = tf.forwardYaw;
+            rig.root.position.y = Math.max(0.28, 0.52 + tileOffsetY + isTurnIdle + joyY);
+
+            const yawDelta = shortestAngleDiff(rig.smoothYaw, baseTf.forwardYaw);
+            rig.smoothYaw += yawDelta * Math.min(1, dt * 10);
+            rig.root.rotation.y = rig.smoothYaw;
+
+            // Recover landing squash back to (1,1,1) smoothly
+            rig.bodyHolder.scale.lerp(new THREE.Vector3(1, 1, 1), Math.min(1, dt * 12));
+            rig.bodyHolder.rotation.x *= 0.85;
+            rig.bodyHolder.rotation.z *= 0.85;
           }
         }
 
@@ -1253,7 +2576,58 @@ export function Simsar3DBoardCanvas({
         }
       }
 
-      // Step Golden Upgrade Burst Particles
+      // G. Step Flying 3D Gold Coin Transfers (`coin.glb`)!
+      for (let i = flyingCoins.length - 1; i >= 0; i--) {
+        const fc = flyingCoins[i];
+        if (fc.delay > 0) {
+          fc.delay -= dt;
+          continue;
+        }
+        fc.mesh.visible = true;
+        fc.t += dt * fc.speed;
+
+        const targetRig = fc.targetPlayerId ? tokenRigs.get(fc.targetPlayerId) : undefined;
+        const endPos = targetRig
+          ? targetRig.root.position.clone().add(new THREE.Vector3(0, 0.85, 0))
+          : fc.fallbackTargetPos;
+
+        if (fc.t >= 1) {
+          scene.remove(fc.mesh);
+          flyingCoins.splice(i, 1);
+          if (targetRig) targetRig.joyBounce = Math.max(targetRig.joyBounce, 0.55);
+          continue;
+        }
+
+        const u = fc.t;
+        const lateralSwirl = Math.sin(u * Math.PI) * 0.85 * fc.swirlSign;
+        fc.mesh.position.x =
+          fc.startPos.x + (endPos.x - fc.startPos.x) * u + lateralSwirl * 0.4;
+        fc.mesh.position.z =
+          fc.startPos.z + (endPos.z - fc.startPos.z) * u - lateralSwirl * 0.4;
+        fc.mesh.position.y =
+          fc.startPos.y +
+          (endPos.y - fc.startPos.y) * u +
+          Math.sin(u * Math.PI) * fc.peakHeight;
+
+        fc.mesh.rotation.y += dt * 16;
+        fc.mesh.rotation.x += dt * 8;
+      }
+
+      // H. Step Shockwave Rings, Burst Particles & World Popups
+      for (let i = shockwaves.length - 1; i >= 0; i--) {
+        const sw = shockwaves[i];
+        sw.life -= dt;
+        if (sw.life <= 0) {
+          scene.remove(sw.mesh);
+          sw.mat.dispose();
+          shockwaves.splice(i, 1);
+          continue;
+        }
+        const prog = 1 - sw.life / 0.52;
+        sw.mesh.scale.setScalar(0.5 + prog * sw.maxScale);
+        sw.mat.opacity = (1 - prog) * 0.88;
+      }
+
       for (let i = bursts.length - 1; i >= 0; i--) {
         const b = bursts[i];
         b.life -= dt;
@@ -1262,43 +2636,58 @@ export function Simsar3DBoardCanvas({
           bursts.splice(i, 1);
           continue;
         }
-        b.vy -= 12 * dt;
+        b.vy += b.gravity * dt;
         b.mesh.position.x += b.vx * dt;
         b.mesh.position.y += b.vy * dt;
         b.mesh.position.z += b.vz * dt;
-        b.mesh.rotation.x += dt * 8;
-        b.mesh.scale.setScalar(Math.max(0.1, b.life));
+        b.mesh.rotation.x += b.rotSpd * dt;
+        b.mesh.rotation.y += b.rotSpd * dt;
+        b.mesh.scale.setScalar(Math.max(0.08, b.life / b.maxLife));
       }
 
-      // 10. Portrait-Smart Auto-Director Camera!
+      for (let i = worldPopups.length - 1; i >= 0; i--) {
+        const wp = worldPopups[i];
+        wp.life -= dt;
+        if (wp.life <= 0) {
+          scene.remove(wp.sprite);
+          (wp.sprite.material as THREE.SpriteMaterial).map?.dispose();
+          (wp.sprite.material as THREE.SpriteMaterial).dispose();
+          worldPopups.splice(i, 1);
+          continue;
+        }
+        wp.sprite.position.y += dt * 1.65;
+        const alpha = Math.min(1, (wp.life / wp.maxLife) * 2.2);
+        (wp.sprite.material as THREE.SpriteMaterial).opacity = alpha;
+      }
+
+      // I. Portrait-Smart Auto-Director Camera + Micro Camera Shake!
       const aspect = camera.aspect;
-      // Scale distance seamlessly on tall narrow portrait phones so the full 3D board fits edge-to-edge!
       const portraitMult =
-        aspect < 1.05 ? Math.min(1.72, 1.05 / Math.max(0.5, aspect)) : 1.0;
+        aspect < 1.05 ? Math.min(1.68, 1.05 / Math.max(0.5, aspect)) : 1.0;
 
       let desiredLookX = 0;
-      let desiredLookZ = 1.2;
-      let baseDist = 27.5;
-      let baseElev = 24.5;
+      let desiredLookZ = 1.1;
+      let baseDist = 27.2;
+      let baseElev = 24.0;
 
       if (snap.cameraMode === "AUTO") {
-        if (diceAnimTimer > 0 && diceAnimTimer < 0.9) {
-          // Focus on tumbling 3D dice in center courtyard!
+        if (diceRollElapsed < 0.85) {
+          // Dramatic zoom onto tumbling rigid-body dice in the center Zellige plaza!
           desiredLookX = 0;
-          desiredLookZ = 1.8;
-          baseDist = 20.5;
-          baseElev = 19.5;
+          desiredLookZ = 1.6;
+          baseDist = 19.8;
+          baseElev = 18.8;
         } else if (snap.selectedTileIndex !== null) {
           const stf = getTileWorldTransform(snap.selectedTileIndex);
-          desiredLookX = stf.x * 0.55;
-          desiredLookZ = stf.z * 0.55;
-          baseDist = 21.5;
-          baseElev = 19.5;
+          desiredLookX = stf.x * 0.58;
+          desiredLookZ = stf.z * 0.58;
+          baseDist = 20.8;
+          baseElev = 18.8;
         } else if (activeFocusPos) {
-          desiredLookX = activeFocusPos.x * 0.45;
-          desiredLookZ = activeFocusPos.z * 0.45 + 0.8;
-          baseDist = 22.8;
-          baseElev = 20.5;
+          desiredLookX = activeFocusPos.x * 0.48;
+          desiredLookZ = activeFocusPos.z * 0.48 + 0.7;
+          baseDist = 22.4;
+          baseElev = 19.8;
         }
       }
 
@@ -1317,10 +2706,18 @@ export function Simsar3DBoardCanvas({
       camLook.x += (desiredLookX - camLook.x) * Math.min(1, dt * 6.5);
       camLook.z += (desiredLookZ - camLook.z) * Math.min(1, dt * 6.5);
 
-      camera.position.copy(camPos);
+      let shakeX = 0;
+      let shakeY = 0;
+      if (camShake > 0.005) {
+        shakeX = (Math.random() - 0.5) * camShake * 1.1;
+        shakeY = (Math.random() - 0.5) * camShake * 0.9;
+        camShake = Math.max(0, camShake - dt * 1.85);
+      }
+
+      camera.position.set(camPos.x + shakeX, camPos.y + shakeY, camPos.z);
       camera.lookAt(camLook);
 
-      renderer.render(scene, camera);
+      composer.render();
     };
 
     animate();
@@ -1335,6 +2732,7 @@ export function Simsar3DBoardCanvas({
       domEl.removeEventListener("wheel", onWheel);
       envTex.dispose();
       pmrem.dispose();
+      composer.dispose();
       renderer.dispose();
     };
   }, []);
@@ -1342,7 +2740,8 @@ export function Simsar3DBoardCanvas({
   return (
     <div
       ref={containerRef}
-      className="w-full h-full touch-none select-none cursor-grab active:cursor-grabbing"
+      className="relative w-full h-full overflow-hidden touch-none select-none"
+      aria-label="رقعة سمسار رويال الثلاثية الأبعاد"
     />
   );
 }

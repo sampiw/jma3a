@@ -2,6 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import confetti from "canvas-confetti";
 import {
   Building2,
   Camera,
@@ -12,6 +14,7 @@ import {
   Gavel,
   Maximize2,
   Minimize2,
+  Repeat,
   RotateCcw,
   Settings2,
   Smile,
@@ -99,6 +102,59 @@ const SPECIAL_TILE_DESC_AR: Partial<Record<SimsarTileSpec["kind"], string>> = {
   TAX: "الضريبة ومول الضو 🧾! كتخلص المساهمة وكتتزاد مباشرة فـ صندوقة الكارديان الوسط!",
 };
 
+function AnimatedNumber({
+  value,
+  className = "",
+}: {
+  value: number;
+  className?: string;
+}) {
+  const [display, setDisplay] = useState<number>(value);
+  const [flash, setFlash] = useState<"UP" | "DOWN" | null>(null);
+  const curRef = useRef<number>(value);
+
+  useEffect(() => {
+    const startVal = curRef.current;
+    if (startVal === value) return;
+    setFlash(value > startVal ? "UP" : "DOWN");
+    const flashTimer = setTimeout(() => setFlash(null), 520);
+
+    const startTime = performance.now();
+    const duration = 420;
+    let rafId = 0;
+
+    const step = (now: number) => {
+      const t = Math.min(1, (now - startTime) / duration);
+      const ease = 1 - Math.pow(1 - t, 3);
+      const next = Math.round(startVal + (value - startVal) * ease);
+      curRef.current = next;
+      setDisplay(next);
+      if (t < 1) {
+        rafId = requestAnimationFrame(step);
+      }
+    };
+    rafId = requestAnimationFrame(step);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(flashTimer);
+    };
+  }, [value]);
+
+  const pulseCss =
+    flash === "UP"
+      ? "scale-110 text-amber-200 drop-shadow-[0_0_8px_rgba(251,191,36,0.75)]"
+      : flash === "DOWN"
+      ? "scale-105 text-rose-300"
+      : "";
+
+  return (
+    <span className={`inline-block transition-transform duration-200 ${pulseCss} ${className}`}>
+      {display}
+    </span>
+  );
+}
+
 export function Simsar3DGameView({
   publicData,
   privateData,
@@ -116,6 +172,7 @@ export function Simsar3DGameView({
   const [isMuted, setIsMuted] = useState(() => sound.isMuted);
   const [cameraMode, setCameraMode] = useState<"AUTO" | "OVERVIEW">("AUTO");
   const [rollMultiplier, setRollMultiplier] = useState<1 | 2>(1);
+  const [autoRoll, setAutoRoll] = useState(false);
   const [inspectedTileIndex, setInspectedTileIndex] = useState<number | null>(null);
   const [empireOpen, setEmpireOpen] = useState(false);
   const [reactionsOpen, setReactionsOpen] = useState(false);
@@ -128,6 +185,7 @@ export function Simsar3DGameView({
 
   const lastEventIdRef = useRef<string>("");
   const lastHeistResolvedRef = useRef<string>("");
+  const lastGameOverConfettiRef = useRef<boolean>(false);
 
   useEffect(() => {
     setMounted(true);
@@ -200,7 +258,7 @@ export function Simsar3DGameView({
     }
   }, [state?.recentEvents]);
 
-  // Play fanfare when a 9-Tajine heist resolves
+  // Play fanfare + golden confetti burst when a 9-Tajine heist resolves
   useEffect(() => {
     const h = state?.heist;
     if (!h || !h.resolvedTier) return;
@@ -208,8 +266,36 @@ export function Simsar3DGameView({
     if (lastHeistResolvedRef.current !== key) {
       lastHeistResolvedRef.current = key;
       simsarSfx.playFanfare();
+      try {
+        confetti({
+          particleCount: 70,
+          spread: 72,
+          origin: { y: 0.58 },
+          colors: ["#fbbf24", "#34d399", "#38bdf8", "#f43f5e"],
+        });
+      } catch {}
     }
   }, [state?.heist]);
+
+  // Fire royal podium confetti when match concludes!
+  useEffect(() => {
+    if (state?.phase === "GAME_OVER") {
+      if (!lastGameOverConfettiRef.current) {
+        lastGameOverConfettiRef.current = true;
+        simsarSfx.playFanfare();
+        try {
+          confetti({
+            particleCount: 110,
+            spread: 85,
+            origin: { y: 0.5 },
+            colors: ["#fbbf24", "#f59e0b", "#10b981", "#38bdf8"],
+          });
+        } catch {}
+      }
+    } else {
+      lastGameOverConfettiRef.current = false;
+    }
+  }, [state?.phase]);
 
   // Reset inspected tile when turn changes so the 3D board stays unobstructed
   useEffect(() => {
@@ -223,6 +309,67 @@ export function Simsar3DGameView({
       setRollMultiplier(1);
     }
   }, [me, rollMultiplier]);
+
+  const isMyTurn = Boolean(me && !me.isBankrupt && state?.currentPlayerId === effectiveMyId);
+
+  const handleRollDice = useCallback(() => {
+    if (!state || !isMyTurn || state.phase !== "ROLL_READY" || rollCooldown) return;
+    setRollCooldown(true);
+    setTimeout(() => setRollCooldown(false), 700);
+    setInspectedTileIndex(null);
+    simsarSfx.playDiceRoll();
+    dispatchSimsar({ type: "ROLL_DICE", multiplier: rollMultiplier });
+  }, [state, isMyTurn, rollCooldown, dispatchSimsar, rollMultiplier]);
+
+  const heistKey = state?.heist
+    ? `${state.heist.raiderId}_${state.heist.victimId}_${state.lastDice?.rollSeq ?? 0}`
+    : "";
+  const showHeistModal =
+    Boolean(state?.heist) &&
+    (state?.phase === "HEIST" ||
+      (Boolean(state?.heist?.resolvedTier) && dismissedHeistSeq !== heistKey));
+
+  // === MONOPOLY-GO HANDS-FREE AUTO-ROLL ENGINE ===
+  // Automatically rolls & ends non-purchase turns while pausing for Buy/Auction/Heist/Mini-Games!
+  useEffect(() => {
+    if (!autoRoll || !state || !isMyTurn) return;
+    if (
+      state.phase === "AUCTION" ||
+      state.phase === "HEIST" ||
+      state.phase === "MINIGAME" ||
+      state.phase === "GAME_OVER" ||
+      showHeistModal ||
+      empireOpen
+    ) {
+      return;
+    }
+
+    if (state.phase === "ROLL_READY" && (me?.inJailTurns ?? 0) === 0 && !rollCooldown) {
+      const t = setTimeout(() => {
+        handleRollDice();
+      }, 650);
+      return () => clearTimeout(t);
+    }
+
+    if (state.phase === "LANDED_DECISION" && state.pendingTileIndex === null) {
+      const msSinceRoll = state.lastDice ? Date.now() - state.lastDice.rolledAt : 9999;
+      const waitMs = Math.max(950, 2250 - msSinceRoll);
+      const t = setTimeout(() => {
+        dispatchSimsar({ type: "END_TURN" });
+      }, waitMs);
+      return () => clearTimeout(t);
+    }
+  }, [
+    autoRoll,
+    state,
+    isMyTurn,
+    me?.inJailTurns,
+    rollCooldown,
+    showHeistModal,
+    empireOpen,
+    handleRollDice,
+    dispatchSimsar,
+  ]);
 
   // === AUTOMATED HOST / SOLO BOT & AUCTION TIMER DRIVER ===
   const humanCount = useMemo(() => {
@@ -251,14 +398,14 @@ export function Simsar3DGameView({
     const botDecision = chooseNextBotAction(state);
     if (botDecision) {
       const msSinceRoll = state.lastDice ? Date.now() - state.lastDice.rolledAt : 9999;
-      let delayMs = 1100;
+      let delayMs = 1150;
       if (state.phase === "AUCTION") {
         delayMs = 900;
       } else if (state.phase === "HEIST") {
-        delayMs = msSinceRoll < 1600 ? 1750 : 880;
-      } else if (msSinceRoll < 1700) {
-        // Let the 3D dice tumble and car hops finish cleanly before Bot buys/ends turn!
-        delayMs = Math.max(1150, 1950 - msSinceRoll);
+        delayMs = msSinceRoll < 1850 ? 1950 : 880;
+      } else if (msSinceRoll < 2150) {
+        // Let the 3D rigid-body dice bounce, Pixar car hops & flying coins play out!
+        delayMs = Math.max(1300, 2280 - msSinceRoll);
       }
 
       timers.push(
@@ -289,7 +436,6 @@ export function Simsar3DGameView({
   const standings = sortSimsarStandings(Object.values(state.players));
   const leaderId = standings[0]?.id;
   const currentPlayer = state.players[state.currentPlayerId];
-  const isMyTurn = Boolean(me && !me.isBankrupt && state.currentPlayerId === effectiveMyId);
 
   const pendingTile =
     state.pendingTileIndex !== null ? SIMSAR_BOARD_TILES[state.pendingTileIndex] : null;
@@ -321,13 +467,6 @@ export function Simsar3DGameView({
     return onCurrentPos || candidates[candidates.length - 1];
   })();
 
-  const heistKey = state.heist
-    ? `${state.heist.raiderId}_${state.heist.victimId}_${state.lastDice?.rollSeq ?? 0}`
-    : "";
-  const showHeistModal =
-    Boolean(state.heist) &&
-    (state.phase === "HEIST" || (Boolean(state.heist?.resolvedTier) && dismissedHeistSeq !== heistKey));
-
   const inspectedTile =
     inspectedTileIndex !== null ? SIMSAR_BOARD_TILES[inspectedTileIndex] : null;
   const inspectedProp =
@@ -347,15 +486,6 @@ export function Simsar3DGameView({
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 1800);
     } catch {}
-  };
-
-  const handleRollDice = () => {
-    if (!isMyTurn || state.phase !== "ROLL_READY" || rollCooldown) return;
-    setRollCooldown(true);
-    setTimeout(() => setRollCooldown(false), 700);
-    setInspectedTileIndex(null);
-    simsarSfx.playDiceRoll();
-    dispatchSimsar({ type: "ROLL_DICE", multiplier: rollMultiplier });
   };
 
   const topEvent = state.recentEvents[0];
@@ -398,7 +528,7 @@ export function Simsar3DGameView({
             >
               <span className="text-xs">🦺</span>
               <span className="text-[11px] font-black text-amber-200 tabular-nums">
-                {state.gardiennagePot} DH
+                <AnimatedNumber value={state.gardiennagePot} /> DH
               </span>
             </div>
 
@@ -530,10 +660,11 @@ export function Simsar3DGameView({
                       p.cash < 120 ? "text-rose-300" : "text-emerald-300"
                     }`}
                   >
-                    {p.cash} <span className="text-[9px] opacity-80">DH</span>
+                    <AnimatedNumber value={p.cash} />{" "}
+                    <span className="text-[9px] opacity-80">DH</span>
                   </span>
                   <span className="text-[9px] font-bold text-slate-400 tabular-nums">
-                    💎{p.netWorth}
+                    💎<AnimatedNumber value={p.netWorth} />
                   </span>
                 </div>
               </div>
@@ -585,46 +716,60 @@ export function Simsar3DGameView({
           }}
         />
 
-        {/* Floating Live Event Banner (Top of 3D Viewport) */}
-        {topEvent && (
-          <div className="pointer-events-none absolute top-2 inset-x-2.5 z-10 flex justify-center">
-            <div
-              key={topEvent.id}
-              className={`max-w-md w-full px-3 py-1.5 rounded-2xl bg-gradient-to-r ${eventToneCss} border backdrop-blur-md shadow-xl flex items-center gap-2 animate-fadeIn`}
-            >
-              <span className="text-lg shrink-0">{topEvent.emoji}</span>
-              <div className="min-w-0 flex-1 leading-tight">
-                <div className="text-xs font-black truncate">{topEvent.titleAr}</div>
-                <div className="text-[10px] font-semibold opacity-85 truncate">
-                  {topEvent.subtitleAr}
+        {/* Floating Live Event Banner (Top of 3D Viewport — Spring Physics!) */}
+        <div className="pointer-events-none absolute top-2 inset-x-2.5 z-10 flex justify-center">
+          <AnimatePresence mode="popLayout">
+            {topEvent && (
+              <motion.div
+                key={topEvent.id}
+                initial={{ opacity: 0, y: -26, scale: 0.92 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -18, scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 420, damping: 28 }}
+                className={`max-w-md w-full px-3 py-1.5 rounded-2xl bg-gradient-to-r ${eventToneCss} border backdrop-blur-md shadow-xl flex items-center gap-2`}
+              >
+                <span className="text-lg shrink-0">{topEvent.emoji}</span>
+                <div className="min-w-0 flex-1 leading-tight">
+                  <div className="text-xs font-black truncate">{topEvent.titleAr}</div>
+                  <div className="text-[10px] font-semibold opacity-85 truncate">
+                    {topEvent.subtitleAr}
+                  </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
         {/* Bottom-Left Floating Last Dice Pill */}
-        {state.lastDice && (
-          <div className="pointer-events-none absolute bottom-2.5 left-2.5 z-10">
-            <div className="px-2.5 py-1 rounded-xl bg-slate-950/85 border border-amber-400/45 backdrop-blur-md shadow-lg flex items-center gap-1.5 text-xs font-black">
-              <span>🎲</span>
-              <span className="text-white tabular-nums">
-                {state.lastDice.die1} + {state.lastDice.die2} ={" "}
-                <strong className="text-amber-300">{state.lastDice.total}</strong>
-              </span>
-              {state.lastDice.multiplier === 2 && (
-                <span className="px-1.5 py-0.5 rounded-md bg-orange-500 text-slate-950 text-[10px] font-black">
-                  x2⚡
+        <AnimatePresence mode="popLayout">
+          {state.lastDice && (
+            <motion.div
+              key={state.lastDice.rollSeq}
+              initial={{ opacity: 0, scale: 0.72, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ type: "spring", stiffness: 460, damping: 22 }}
+              className="pointer-events-none absolute bottom-2.5 left-2.5 z-10"
+            >
+              <div className="px-2.5 py-1 rounded-xl bg-slate-950/85 border border-amber-400/45 backdrop-blur-md shadow-lg flex items-center gap-1.5 text-xs font-black">
+                <span>🎲</span>
+                <span className="text-white tabular-nums">
+                  {state.lastDice.die1} + {state.lastDice.die2} ={" "}
+                  <strong className="text-amber-300">{state.lastDice.total}</strong>
                 </span>
-              )}
-              {state.lastDice.isDoubles && (
-                <span className="px-1.5 py-0.5 rounded-md bg-cyan-400/20 border border-cyan-400/50 text-cyan-200 text-[10px] font-black">
-                  ضوبل!
-                </span>
-              )}
-            </div>
-          </div>
-        )}
+                {state.lastDice.multiplier === 2 && (
+                  <span className="px-1.5 py-0.5 rounded-md bg-orange-500 text-slate-950 text-[10px] font-black">
+                    x2⚡
+                  </span>
+                )}
+                {state.lastDice.isDoubles && (
+                  <span className="px-1.5 py-0.5 rounded-md bg-cyan-400/20 border border-cyan-400/50 text-cyan-200 text-[10px] font-black">
+                    ضوبل!
+                  </span>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Bottom-Right Floating Camera Mode Toggle */}
         <div className="absolute bottom-2.5 right-2.5 z-10 flex items-center gap-1.5">
@@ -641,9 +786,17 @@ export function Simsar3DGameView({
         </div>
 
         {/* Floating Tap-to-Inspect 3D Tile Deed Popover */}
-        {inspectedTile && (
-          <div className="absolute inset-x-3 bottom-12 z-20 flex justify-center animate-fadeIn">
-            <div className="w-full max-w-sm rounded-2xl bg-slate-950/95 border border-amber-400/45 backdrop-blur-xl shadow-2xl overflow-hidden">
+        <AnimatePresence>
+          {inspectedTile && (
+            <motion.div
+              key={inspectedTile.index}
+              initial={{ opacity: 0, y: 24, scale: 0.92 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 18, scale: 0.94 }}
+              transition={{ type: "spring", stiffness: 430, damping: 28 }}
+              className="absolute inset-x-3 bottom-12 z-20 flex justify-center"
+            >
+              <div className="w-full max-w-sm rounded-2xl bg-slate-950/95 border border-amber-400/45 backdrop-blur-xl shadow-2xl overflow-hidden">
               <div
                 className="px-3 py-2 flex items-center justify-between"
                 style={{
@@ -810,8 +963,9 @@ export function Simsar3DGameView({
                 )}
               </div>
             </div>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* =====================================================================
@@ -920,7 +1074,7 @@ export function Simsar3DGameView({
                   simsarSfx.playPopTap();
                   setRollMultiplier((m) => (m === 1 ? 2 : 1));
                 }}
-                className={`px-3 py-1.5 rounded-xl border text-[11px] font-black flex items-center gap-1 transition-all active:scale-95 ${
+                className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-black flex items-center gap-1 transition-all active:scale-95 ${
                   rollMultiplier === 2
                     ? "bg-gradient-to-r from-orange-500 to-rose-600 border-amber-300 text-white shadow-lg shadow-orange-500/25"
                     : (me?.cash ?? 0) >= 500
@@ -931,10 +1085,10 @@ export function Simsar3DGameView({
                 <Flame className="w-3.5 h-3.5" />
                 <span>
                   {rollMultiplier === 2
-                    ? "مضاعف x2 شاعل 🔥"
+                    ? "مضاعف x2 🔥"
                     : (me?.cash ?? 0) >= 500
-                    ? "مضاعف x1 (برك لـ x2)"
-                    : "x2 (خصك +500 DH)"}
+                    ? "مضاعف x1"
+                    : "x2 (+500)"}
                 </span>
               </button>
 
@@ -952,6 +1106,23 @@ export function Simsar3DGameView({
                     <span>كفالة {JAIL_BAIL_DH} DH</span>
                   </button>
                 )}
+
+                {/* Monopoly-GO Auto-Roll Toggle */}
+                <button
+                  onClick={() => {
+                    simsarSfx.playPopTap();
+                    setAutoRoll((v) => !v);
+                  }}
+                  className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-black flex items-center gap-1 active:scale-95 transition-all ${
+                    autoRoll
+                      ? "bg-emerald-500/25 border-emerald-400 text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.3)]"
+                      : "bg-slate-800 border-white/15 text-slate-300"
+                  }`}
+                  title="رمي النرد تلقائياً (كيوقف ملي تلقى عقار للشراء!)"
+                >
+                  <Repeat className={`w-3.5 h-3.5 ${autoRoll ? "animate-spin text-emerald-300" : ""}`} />
+                  <span>{autoRoll ? "أوتو ✓" : "أوتو"}</span>
+                </button>
 
                 <button
                   onClick={() => {
@@ -990,19 +1161,29 @@ export function Simsar3DGameView({
               </div>
             )}
 
-            {/* GIANT ONE-THUMB 3D ROLL DICE HERO BUTTON */}
-            <button
+            {/* GIANT ONE-THUMB 3D ROLL DICE HERO BUTTON WITH SHIMMER */}
+            <motion.button
+              whileTap={{ scale: 0.96, y: 3 }}
               onClick={handleRollDice}
               disabled={rollCooldown}
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-orange-500 text-slate-950 font-black text-lg sm:text-xl shadow-[0_5px_0_#b45309,0_10px_25px_rgba(245,158,11,0.4)] active:translate-y-1 active:shadow-[0_1px_0_#b45309] transition-all flex items-center justify-center gap-2.5 touch-manipulation"
+              className="relative overflow-hidden w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-orange-500 text-slate-950 font-black text-lg sm:text-xl shadow-[0_5px_0_#b45309,0_10px_25px_rgba(245,158,11,0.45)] flex items-center justify-center gap-2.5 touch-manipulation"
             >
-              <span className="text-2xl">🎲</span>
-              <span>
+              <motion.span
+                aria-hidden
+                initial={{ x: "-130%" }}
+                animate={{ x: "230%" }}
+                transition={{ repeat: Infinity, repeatDelay: 1.8, duration: 1.25, ease: "easeInOut" }}
+                className="pointer-events-none absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/45 to-transparent skew-x-[-20deg]"
+              />
+              <span className="text-2xl relative z-10">🎲</span>
+              <span className="relative z-10">
                 {me && me.inJailTurns > 0
                   ? "لوح النرد (جيب الضوبل باش تخرج!)"
+                  : autoRoll
+                  ? "كيلوح أوتو... (برك للرمي دابا!)"
                   : `لوح النرد دابا! ${rollMultiplier === 2 ? "⚡x2" : ""}`}
               </span>
-            </button>
+            </motion.button>
           </div>
         ) : /* CASE C: MY TURN — LANDED ON UNOWNED CITY / UTILITY (BUY OR AUCTION!) */ isMyTurn &&
           state.phase === "LANDED_DECISION" &&
@@ -1123,11 +1304,25 @@ export function Simsar3DGameView({
                   simsarSfx.playPopTap();
                   setEmpireOpen(true);
                 }}
-                className="py-3.5 px-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-white/15 text-slate-100 font-black text-xs flex items-center gap-1.5 shrink-0 active:scale-95 transition-all"
+                className="py-3.5 px-3 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-white/15 text-slate-100 font-black text-xs flex items-center gap-1.5 shrink-0 active:scale-95 transition-all"
               >
                 <Building2 className="w-4 h-4 text-emerald-400" />
                 <span>عقاراتي ({myOwnedIndices.length})</span>
               </button>
+
+              {autoRoll && (
+                <button
+                  onClick={() => {
+                    simsarSfx.playPopTap();
+                    setAutoRoll(false);
+                  }}
+                  className="py-3.5 px-2.5 rounded-2xl bg-emerald-500/20 border border-emerald-400/60 text-emerald-200 font-black text-[11px] flex items-center gap-1 shrink-0 active:scale-95"
+                  title="إيقاف الرمي التلقائي"
+                >
+                  <Repeat className="w-3.5 h-3.5 animate-spin" />
+                  <span>حبس أوتو</span>
+                </button>
+              )}
 
               <button
                 onClick={() => {
@@ -1268,20 +1463,27 @@ export function Simsar3DGameView({
                       const meta = HEIST_SYMBOL_META[sym];
 
                       return (
-                        <button
+                        <motion.button
                           key={idx}
+                          whileTap={!isOpen && amRaider ? { scale: 0.88 } : undefined}
+                          animate={
+                            wasPicked
+                              ? { rotateY: [90, 0], scale: [0.85, 1.06, 1] }
+                              : { rotateY: 0, scale: 1 }
+                          }
+                          transition={{ type: "spring", stiffness: 360, damping: 20 }}
                           disabled={!amRaider || isOpen || Boolean(h.resolvedTier)}
                           onClick={() => {
                             simsarSfx.playPopTap();
                             dispatchSimsar({ type: "PICK_HEIST_BOX", boxIndex: idx });
                           }}
-                          className={`aspect-square rounded-2xl border flex flex-col items-center justify-center transition-all ${
+                          className={`aspect-square rounded-2xl border flex flex-col items-center justify-center transition-colors ${
                             wasPicked
-                              ? `bg-gradient-to-b ${meta.pillCss} shadow-lg scale-100`
+                              ? `bg-gradient-to-b ${meta.pillCss} shadow-lg`
                               : isOpen
                               ? "bg-slate-900/70 border-white/10 opacity-50"
                               : amRaider
-                              ? "bg-gradient-to-b from-amber-600/40 to-orange-950/80 border-amber-400/60 hover:brightness-110 active:scale-90 shadow-md"
+                              ? "bg-gradient-to-b from-amber-600/40 to-orange-950/80 border-amber-400/60 hover:brightness-110 shadow-md"
                               : "bg-slate-900 border-amber-500/30"
                           }`}
                         >
@@ -1298,7 +1500,7 @@ export function Simsar3DGameView({
                               </span>
                             </>
                           )}
-                        </button>
+                        </motion.button>
                       );
                     })}
                   </div>

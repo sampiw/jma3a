@@ -71,6 +71,7 @@ describe("SIMSAR ROYALE 3D — Production 3D Board, GLB Assets, Auctions, Heist,
     }
 
     const requiredWorldGlbs = [
+      // v1 + core world landmarks
       "models/ksida/fantasy/fountain.glb",
       "models/ksida/palm-bend.glb",
       "models/ksida/palm-straight.glb",
@@ -85,6 +86,43 @@ describe("SIMSAR ROYALE 3D — Production 3D Board, GLB Assets, Auctions, Heist,
       "models/ksida/city/building-c.glb",
       "models/ksida/city/building-f.glb",
       "models/ksida/city/building-j.glb",
+      "models/hunter.glb",
+      "models/cars/suv-luxury.glb",
+      "models/cars/race-future.glb",
+      // v2 Commercial Skyscrapers & Plaza
+      "models/simsar/commercial/skyscraper-a.glb",
+      "models/simsar/commercial/skyscraper-b.glb",
+      "models/simsar/commercial/skyscraper-c.glb",
+      "models/simsar/commercial/skyscraper-d.glb",
+      "models/simsar/commercial/plaza-fountain.glb",
+      "models/simsar/commercial/lightposts.glb",
+      // v2 Suburban Riads & Gardens
+      "models/simsar/suburban/villa-d.glb",
+      "models/simsar/suburban/villa-g.glb",
+      "models/simsar/suburban/villa-k.glb",
+      "models/simsar/suburban/villa-n.glb",
+      "models/simsar/suburban/villa-r.glb",
+      "models/simsar/suburban/villa-t.glb",
+      "models/simsar/suburban/tree-large.glb",
+      "models/simsar/suburban/planter.glb",
+      // v2 Maritime Ships & Animated Treasure Chest
+      "models/simsar/maritime/ship-large.glb",
+      "models/simsar/maritime/ship-medium.glb",
+      "models/simsar/maritime/chest.glb",
+      "models/simsar/maritime/tower-small.glb",
+      "models/simsar/maritime/cannon.glb",
+      // v2 Medina Windmill, Lanterns & Banners
+      "models/simsar/medina/windmill.glb",
+      "models/simsar/medina/blade.glb",
+      "models/simsar/medina/lantern.glb",
+      "models/simsar/medina/banner-red.glb",
+      "models/simsar/medina/banner-green.glb",
+      // v2 3D Props & Skinned Characters
+      "models/simsar/props/coin.glb",
+      "models/simsar/props/block-coin.glb",
+      "models/simsar/props/cloud.glb",
+      "models/simsar/props/flag.glb",
+      "models/simsar/props/character.glb",
     ];
     for (const rel of requiredWorldGlbs) {
       const full = path.join(process.cwd(), "public", rel);
@@ -96,6 +134,11 @@ describe("SIMSAR ROYALE 3D — Production 3D Board, GLB Assets, Auctions, Heist,
       "textures/shooter/waternormals.jpg",
       "textures/shooter/brick_diffuse.jpg",
       "textures/shooter/brick_bump.jpg",
+      "models/cars/Textures/colormap.png",
+      "models/simsar/commercial/Textures/colormap.png",
+      "models/simsar/suburban/Textures/colormap.png",
+      "models/simsar/maritime/Textures/colormap.png",
+      "models/simsar/props/Textures/colormap.png",
     ];
     for (const texRel of requiredTextures) {
       expect(fs.existsSync(path.join(process.cwd(), "public", texRel))).toBe(true);
