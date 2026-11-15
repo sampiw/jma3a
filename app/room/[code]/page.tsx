@@ -6,6 +6,7 @@ import { AuthorizedGameState, GameId, DevicePlayerInfo } from "@/lib/types";
 import { QRCodeModal } from "@/components/QRCodeModal";
 import { PassThePhoneCurtain } from "@/components/PassThePhoneCurtain";
 import { DiibCardsGameView } from "@/components/games/DiibCardsGameView";
+import { Simsar3DGameView } from "@/components/games/Simsar3DGameView";
 import { Ksida3DGameView } from "@/components/games/Ksida3DGameView";
 import { DibGameView } from "@/components/games/DibGameView";
 import { DibNightTimer } from "@/components/games/DibNightTimer";
@@ -41,10 +42,19 @@ import {
   Minimize,
 } from "lucide-react";
 
-// Active flagship games: KSIDA ROYAL 3D, DIIB CARDS, PROTOCOL CARBON 3D, DIB 3D, Ghammada 3D & Classic DIB
-const ACTIVE_GAMES: GameId[] = ["ksida3d", "diib-cards", "carbon3d", "dib3d", "ghammada", "dib"];
+// Active flagship games: SIMSAR ROYALE 3D, KSIDA ROYAL 3D, DIIB CARDS, PROTOCOL CARBON 3D, DIB 3D, Ghammada 3D & Classic DIB
+const ACTIVE_GAMES: GameId[] = [
+  "simsar3d",
+  "ksida3d",
+  "diib-cards",
+  "carbon3d",
+  "dib3d",
+  "ghammada",
+  "dib",
+];
 
 const GAME_NAMES: Record<GameId, string> = {
+  simsar3d: "سمسار رويال 3D: إمبراطورية الهمزة 🎲🏨💸",
   ksida3d: "كسيدة رويال 3D: حرب الطاكسيات 🚕💥🩴",
   "diib-cards": "DIIB CARDS: كوارط الذيب 🃏👑",
   carbon3d: "عملية الأطلس 3D: فرقة النخبة 🪖🔥",
@@ -365,7 +375,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   };
 
   const handleGameAction = async (action: any, targetPlayerId?: string) => {
-    if (action.type !== "NIGHT_TIMER_EXPIRED") sound.playCardFlip();
+    const isSilentAutoTick =
+      action.type === "NIGHT_TIMER_EXPIRED" ||
+      action.type === "BOT_STEP" ||
+      action.type === "FINALIZE_AUCTION" ||
+      action.type === "FINALIZE_MINIGAME";
+    if (!isSilentAutoTick) sound.playCardFlip();
     const actorId = targetPlayerId || activeLocalPlayerId || gameState?.player?.id;
     try {
       const res = await fetch(`/api/rooms/${roomCode}/action`, {
@@ -375,7 +390,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        if (action.type !== "NIGHT_TIMER_EXPIRED") {
+        if (!isSilentAutoTick) {
           setActionError(data.error || "تعذر تنفيذ الحركة");
         }
         await fetchState();
@@ -385,7 +400,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       await fetchState();
       return true;
     } catch {
-      if (action.type !== "NIGHT_TIMER_EXPIRED") setActionError("خطأ فالشبكة. حاول مرة أخرى.");
+      if (!isSilentAutoTick) setActionError("خطأ فالشبكة. حاول مرة أخرى.");
       return false;
     }
   };
@@ -671,6 +686,51 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                           className={`py-2 px-2 rounded-xl text-[11px] font-black border transition-all ${
                             active
                               ? "bg-cyan-950/90 border-cyan-400 text-cyan-200 shadow-md"
+                              : "bg-jma3a-dark/80 border-jma3a-border text-jma3a-muted hover:text-white"
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Simsar Royale 3D Quick Mode Selector in Lobby */}
+              {room.selectedGameId === "simsar3d" && (
+                <div className="mt-4 pt-3.5 border-t border-jma3a-border/50">
+                  <span className="text-[11px] text-emerald-300 font-bold block mb-2">
+                    طور سمسار رويال 3D (1 حتى 6 سماسرية بيد وحدة فالهاتف أو سولو):
+                  </span>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {(
+                      [
+                        { id: "BLITZ", label: "⚡ سمسار سريع (10 دورات)" },
+                        { id: "EMPIRE", label: "👑 إمبراطور العقار (15 دورة)" },
+                      ] as const
+                    ).map((m) => {
+                      const curMode =
+                        ((room.settings.gameSettings as any)?.mode as string) || "BLITZ";
+                      const active = curMode === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          disabled={!isHost}
+                          onClick={async () => {
+                            sound.playCardFlip();
+                            await fetch(`/api/rooms/${roomCode}/settings`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                gameSettings: { mode: m.id },
+                              }),
+                            });
+                            fetchState();
+                          }}
+                          className={`py-2 px-2 rounded-xl text-[11px] font-black border transition-all ${
+                            active
+                              ? "bg-emerald-950/90 border-emerald-400 text-emerald-200 shadow-md"
                               : "bg-jma3a-dark/80 border-jma3a-border text-jma3a-muted hover:text-white"
                           }`}
                         >
@@ -1201,6 +1261,21 @@ function renderActiveGameView(
   onRefresh?: () => void
 ) {
   switch (gameId) {
+    case "simsar3d":
+      return (
+        <Simsar3DGameView
+          publicData={publicData}
+          privateData={privateData}
+          isHost={isHost}
+          onAction={onAction}
+          players={players}
+          activePlayerId={activePlayerId}
+          devicePlayers={devicePlayers}
+          onSelectPlayer={onSelectPlayer}
+          roomCode={roomCode}
+          onRefresh={onRefresh}
+        />
+      );
     case "ksida3d":
       return (
         <Ksida3DGameView

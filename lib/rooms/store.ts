@@ -12,6 +12,8 @@ import { generateRoomCode, normalizeRoomCode } from "./code";
 import { getGameDefinition } from "@/games";
 import { buildHumanCombatant, DEFAULT_CARBON_SETTINGS } from "@/games/carbon3d/engine";
 import { buildHumanRacer, DEFAULT_KSIDA_SETTINGS } from "@/games/ksida3d/engine";
+import { DEFAULT_SIMSAR_SETTINGS } from "@/games/simsar3d/engine";
+import { SIMSAR_TOKEN_ORDER, SIMSAR_TOKENS } from "@/games/simsar3d/types";
 import { realtimeHub } from "@/lib/realtime/pubsub";
 import { Redis } from "@upstash/redis";
 import fs from "node:fs";
@@ -279,7 +281,12 @@ export class RoomStore {
       room.status === "ACTIVE" &&
       room.players.filter((p) => p.status !== "LEFT").length < 8;
 
-    if (room.status !== "LOBBY" && !canHotJoinCarbon && !canHotJoinKsida) {
+    const canHotJoinSimsar =
+      room.selectedGameId === "simsar3d" &&
+      room.status === "ACTIVE" &&
+      room.players.filter((p) => p.status !== "LEFT").length < 6;
+
+    if (room.status !== "LOBBY" && !canHotJoinCarbon && !canHotJoinKsida && !canHotJoinSimsar) {
       return { success: false, error: "اللعبة بدات ديجا فهاد الغرفة!" };
     }
 
@@ -364,6 +371,71 @@ export class RoomStore {
             }
           }
         }
+        session.stateVersion = (session.stateVersion || 1) + 1;
+        await this.persistSession(session);
+      }
+    }
+
+    // Inject late-joining tycoon directly into an active Simsar Royale 3D board!
+    if (canHotJoinSimsar && room.activeSessionId) {
+      const session = await this.getSession(room.activeSessionId);
+      if (session && session.state && session.state.players && Array.isArray(session.state.turnOrder)) {
+        const settings = {
+          ...DEFAULT_SIMSAR_SETTINGS,
+          ...(session.state.settings || {}),
+        };
+        const activeIdx = room.players.filter((p) => p.status !== "LEFT").length - 1;
+        const tok = SIMSAR_TOKEN_ORDER[Math.max(0, activeIdx) % SIMSAR_TOKEN_ORDER.length];
+        const tokSpec = SIMSAR_TOKENS[tok];
+
+        session.state.players[newPlayer.id] = {
+          id: newPlayer.id,
+          nickname: newPlayer.nickname,
+          isBot: false,
+          token: tok,
+          accentHex: tokSpec.accentCss,
+          cash: settings.startingCash,
+          netWorth: settings.startingCash,
+          position: 0,
+          prevPosition: 0,
+          moveSeq: 0,
+          inJailTurns: 0,
+          shields: 0,
+          isBankrupt: false,
+          rentCollected: 0,
+          rentPaid: 0,
+          heistStolen: 0,
+          auctionsWon: 0,
+          miniGamesWon: 0,
+          jailVisits: 0,
+          lastReactionId: null,
+          lastReactionAt: 0,
+        };
+
+        // If table has solo bots and botFill wasn't requested, replace a non-current bot slot cleanly!
+        const removableBotId = !settings.botFill
+          ? session.state.turnOrder.find(
+              (pid: string) =>
+                session.state.players[pid]?.isBot && pid !== session.state.currentPlayerId
+            )
+          : undefined;
+
+        if (removableBotId) {
+          for (const prop of Object.values(session.state.properties || {})) {
+            if ((prop as any)?.ownerId === removableBotId) {
+              (prop as any).ownerId = null;
+              (prop as any).level = 0;
+              (prop as any).isMortgaged = false;
+            }
+          }
+          delete session.state.players[removableBotId];
+          session.state.turnOrder = session.state.turnOrder.map((pid: string) =>
+            pid === removableBotId ? newPlayer.id : pid
+          );
+        } else if (!session.state.turnOrder.includes(newPlayer.id)) {
+          session.state.turnOrder.push(newPlayer.id);
+        }
+
         session.stateVersion = (session.stateVersion || 1) + 1;
         await this.persistSession(session);
       }

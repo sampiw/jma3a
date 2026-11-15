@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { sound } from "@/lib/sound";
+import { Simsar3DIcon } from "@/components/icons/Simsar3DIcon";
 import { Ksida3DIcon } from "@/components/icons/Ksida3DIcon";
 import { Carbon3DIcon } from "@/components/icons/Carbon3DIcon";
 import { DiibCardsIcon } from "@/components/icons/DiibCardsIcon";
@@ -36,6 +37,18 @@ interface GameInfo {
 }
 
 const GAMES: GameInfo[] = [
+  {
+    id: "simsar3d",
+    title: "سمسار رويال 3D: إمبراطورية الهمزة 🎲🏨💸",
+    tagline: "جديد! مونوبولي المغرب 3D × تحديات جماعية بيد وحدة فالهاتف! 👑💰",
+    description:
+      "لوح النرد بيد وحدة فجزيرة المغرب المصغرة 3D! شري شفشاون ومراكش وكازا، بني القهاوي والرياضات وأوطيلات 5 نجوم، دير السطو على الخزنة فـ 9 طواجن، زايد فالدلالة الحية، وتنافس فتحديات جماعية سريعة ديال 20 ثانية!",
+    players: "1-6 سماسرية",
+    duration: "10-16 دقيقة",
+    modes: ["مصممة للهاتف بيد وحدة 📱", "لعب فردي Solo ⚡", "مزاد وسطو وتحديات 🔥"],
+    icon: <Simsar3DIcon className="w-14 h-14" />,
+    badgeColor: "from-emerald-500/45 to-amber-950/75 border-amber-400/80 text-amber-200",
+  },
   {
     id: "ksida3d",
     title: "كسيدة رويال 3D: حرب الطاكسيات 🚕💥🩴",
@@ -117,7 +130,7 @@ export default function HomePage() {
 
   // Create room modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<GameId>("ksida3d");
+  const [selectedGame, setSelectedGame] = useState<GameId>("simsar3d");
   const [hostNickname, setHostNickname] = useState("");
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("MULTI_PHONE");
   const [isCreating, setIsCreating] = useState(false);
@@ -152,7 +165,7 @@ export default function HomePage() {
     setCreateModalOpen(true);
   };
 
-  const handleInstantSoloLaunch = async (gameId: "ksida3d" | "carbon3d") => {
+  const handleInstantSoloLaunch = async (gameId: "simsar3d" | "ksida3d" | "carbon3d") => {
     if (launchingSoloGame) return;
     setLaunchingSoloGame(gameId);
     sound.playCardFlip();
@@ -161,7 +174,12 @@ export default function HomePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          hostNickname: gameId === "ksida3d" ? "مول الطاكسي 🚕" : "STRIKER-1",
+          hostNickname:
+            gameId === "simsar3d"
+              ? "الحاج السمسار 👑"
+              : gameId === "ksida3d"
+              ? "مول الطاكسي 🚕"
+              : "STRIKER-1",
           gameId,
           mode: "MULTI_PHONE",
           locale: "darija",
@@ -345,20 +363,26 @@ export default function HomePage() {
                 </div>
 
                 {/* Play CTA Button */}
-                {game.id === "ksida3d" || game.id === "carbon3d" ? (
+                {game.id === "simsar3d" || game.id === "ksida3d" || game.id === "carbon3d" ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <button
                       onClick={() => openCreateForGame(game.id)}
                       className="py-3.5 px-3 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold text-xs sm:text-sm shadow-lg shadow-jma3a-terracotta/20 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-1.5"
                     >
                       <Play className="w-4 h-4 fill-white shrink-0" />
-                      <span>غرفة بالويفي (1-8)</span>
+                      <span>
+                        {game.id === "simsar3d" ? "غرفة مع الصحاب (1-6)" : "غرفة بالويفي (1-8)"}
+                      </span>
                     </button>
                     <button
-                      onClick={() => handleInstantSoloLaunch(game.id as "ksida3d" | "carbon3d")}
+                      onClick={() =>
+                        handleInstantSoloLaunch(game.id as "simsar3d" | "ksida3d" | "carbon3d")
+                      }
                       disabled={Boolean(launchingSoloGame)}
                       className={`py-3.5 px-3 rounded-2xl border text-white font-bold text-xs sm:text-sm shadow-lg hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-60 ${
-                        game.id === "ksida3d"
+                        game.id === "simsar3d"
+                          ? "bg-gradient-to-r from-emerald-500 to-amber-600 border-amber-300/70 shadow-emerald-500/25"
+                          : game.id === "ksida3d"
                           ? "bg-gradient-to-r from-amber-500 to-rose-600 border-amber-300/60 shadow-amber-500/20"
                           : "bg-gradient-to-r from-cyan-600 to-blue-700 border-cyan-400/50 shadow-cyan-500/20"
                       }`}
