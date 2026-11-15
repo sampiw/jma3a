@@ -25,26 +25,26 @@ export function createSimsarSkyMaterial(): THREE.ShaderMaterial {
 
       void main() {
         vec3 dir = normalize(vWorldPos);
-        float h = clamp(dir.y * 0.88 + 0.14, 0.0, 1.0);
+        float h = clamp(dir.y * 0.90 + 0.12, 0.0, 1.0);
 
-        vec3 horizonCol = vec3(1.0, 0.62, 0.28);   // Golden Marrakech Sunset
-        vec3 midSkyCol  = vec3(0.95, 0.38, 0.48);  // Warm Coral & Bougainvillea
-        vec3 zenithCol  = vec3(0.05, 0.24, 0.58);  // Royal Majorelle Azure
+        vec3 horizonCol = vec3(0.96, 0.54, 0.22);   // Warm Moroccan Sunset Gold
+        vec3 midSkyCol  = vec3(0.82, 0.30, 0.44);   // Rich Marrakech Coral
+        vec3 zenithCol  = vec3(0.04, 0.17, 0.44);   // Deep Royal Majorelle Azure
 
-        vec3 sky = mix(horizonCol, midSkyCol, smoothstep(0.0, 0.28, h));
-        sky = mix(sky, zenithCol, smoothstep(0.24, 0.85, h));
+        vec3 sky = mix(horizonCol, midSkyCol, smoothstep(0.0, 0.26, h));
+        sky = mix(sky, zenithCol, smoothstep(0.22, 0.82, h));
 
-        // Radiant Golden Sun Disc & Warm Atmospheric Halo
-        vec3 sunDir = normalize(vec3(0.58, 0.30, -0.68));
+        // Low Horizon Sun Disc (never blinds overhead board camera)
+        vec3 sunDir = normalize(vec3(0.72, 0.18, -0.67));
         float sunDot = max(dot(dir, sunDir), 0.0);
-        sky += vec3(1.15, 0.96, 0.65) * pow(sunDot, 72.0) * 1.4;
-        sky += vec3(1.0, 0.64, 0.30) * pow(sunDot, 6.5) * 0.38;
+        sky += vec3(1.0, 0.88, 0.55) * pow(sunDot, 64.0) * 0.95;
+        sky += vec3(0.95, 0.55, 0.24) * pow(sunDot, 7.0) * 0.28;
 
         // Soft drifting sunset cloud bands
         float c1 = sin(dir.x * 8.0 + uTime * 0.06) * cos(dir.z * 6.0 - uTime * 0.04);
         float c2 = sin(dir.x * 16.0 - uTime * 0.09 + dir.z * 11.0) * 0.5;
         float band = smoothstep(0.08, 0.44, h) * (1.0 - smoothstep(0.48, 0.90, h));
-        sky += vec3(1.0, 0.84, 0.68) * max(0.0, c1 + c2 * 0.5) * band * 0.16;
+        sky += vec3(0.98, 0.78, 0.62) * max(0.0, c1 + c2 * 0.5) * band * 0.12;
 
         gl_FragColor = vec4(sky, 1.0);
       }
@@ -83,40 +83,41 @@ export function createSimsarOceanMaterial(waterNormalTex: THREE.Texture): THREE.
       varying vec3 vWorldPos;
 
       void main() {
-        vec2 uv1 = vWorldPos.xz * 0.045 + vec2(uTime * 0.028, uTime * 0.020);
-        vec2 uv2 = vWorldPos.xz * 0.078 - vec2(uTime * 0.022, -uTime * 0.031);
+        vec2 uv1 = vWorldPos.xz * 0.052 + vec2(uTime * 0.028, uTime * 0.020);
+        vec2 uv2 = vWorldPos.xz * 0.088 - vec2(uTime * 0.022, -uTime * 0.031);
 
         vec3 n1 = texture2D(uWaterNormals, uv1).xyz * 2.0 - 1.0;
         vec3 n2 = texture2D(uWaterNormals, uv2).xyz * 2.0 - 1.0;
-        vec3 normal = normalize(vec3((n1.x + n2.x) * 0.85, 2.2, (n1.y + n2.y) * 0.85));
+        vec3 normal = normalize(vec3((n1.x + n2.x) * 0.65, 2.5, (n1.y + n2.y) * 0.65));
 
-        vec3 sunDir = normalize(vec3(0.58, 0.42, -0.68));
+        // Glancing sunset light so overhead camera sees rich sapphire/turquoise water + crisp wave glints (ZERO whiteout!)
+        vec3 sunDir = normalize(vec3(0.78, 0.14, -0.61));
         vec3 viewDir = normalize(cameraPosition - vWorldPos);
         vec3 halfVec = normalize(sunDir + viewDir);
 
-        float fresnel = pow(1.0 - max(dot(viewDir, vec3(0.0, 1.0, 0.0)), 0.0), 3.2);
-        float spec = pow(max(dot(normal, halfVec), 0.0), 96.0);
+        float fresnel = pow(1.0 - max(dot(viewDir, vec3(0.0, 1.0, 0.0)), 0.0), 3.6);
+        float spec = pow(max(dot(normal, halfVec), 0.0), 120.0);
 
-        // Rounded-square distance from the Kasbah island shore (~17.5m..22m)
-        vec2 q = abs(vWorldPos.xz) - vec2(14.5, 14.5);
+        // Distance from the sculpted Kasbah island shore (~16.2m)
+        vec2 q = abs(vWorldPos.xz) - vec2(15.6, 15.6);
         float shoreDist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
 
-        float shallowLagoon = 1.0 - smoothstep(0.0, 16.0, shoreDist);
+        float shallowLagoon = 1.0 - smoothstep(0.0, 14.0, shoreDist);
 
-        vec3 deepOcean = vec3(0.02, 0.22, 0.46);
-        vec3 turquoiseReef = vec3(0.06, 0.68, 0.74);
-        vec3 col = mix(deepOcean, turquoiseReef, shallowLagoon * 0.92);
-        col = mix(col, vec3(0.98, 0.62, 0.36), fresnel * 0.30);
+        vec3 deepOcean = vec3(0.015, 0.16, 0.38);
+        vec3 turquoiseReef = vec3(0.035, 0.49, 0.60);
+        vec3 col = mix(deepOcean, turquoiseReef, shallowLagoon * 0.88);
+        col = mix(col, vec3(0.88, 0.48, 0.26), fresnel * 0.22);
 
-        // Animated white surf foam rings lapping against the sandy island beach!
-        float surfWave1 = sin(shoreDist * 1.65 - uTime * 2.8 + n1.x * 2.2);
-        float surfMask1 = (1.0 - smoothstep(0.5, 6.2, shoreDist)) * smoothstep(-1.5, 0.8, shoreDist);
-        col += vec3(0.95, 0.98, 1.0) * smoothstep(0.45, 0.92, surfWave1) * surfMask1 * 0.72;
+        // Crisp white surf foam rings lapping right along the sandy cove beach!
+        float surfWave1 = sin(shoreDist * 1.9 - uTime * 2.9 + n1.x * 2.5);
+        float surfMask1 = (1.0 - smoothstep(0.4, 4.8, shoreDist)) * smoothstep(-1.2, 0.5, shoreDist);
+        col += vec3(0.88, 0.96, 1.0) * smoothstep(0.56, 0.94, surfWave1) * surfMask1 * 0.52;
 
-        // Glittering golden sun diamonds on water ripples
-        col += vec3(1.25, 0.95, 0.58) * spec * 1.65;
+        // Subtle golden sun diamonds ONLY on tilted wave crests
+        col += vec3(1.0, 0.85, 0.48) * spec * 0.65;
 
-        gl_FragColor = vec4(col, 1.0);
+        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
       }
     `,
   });

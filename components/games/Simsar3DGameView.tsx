@@ -527,7 +527,7 @@ export function Simsar3DGameView({
               title="صندوقة پلاصة الكارديان الوسط"
             >
               <span className="text-xs">🦺</span>
-              <span className="text-[11px] font-black text-amber-200 tabular-nums">
+              <span dir="ltr" className="text-[11px] font-black text-amber-200 tabular-nums whitespace-nowrap">
                 <AnimatedNumber value={state.gardiennagePot} /> DH
               </span>
             </div>
@@ -654,16 +654,20 @@ export function Simsar3DGameView({
                   </div>
                 </div>
 
-                <div className="flex items-baseline justify-between mt-0.5">
+                <div className="flex items-center justify-between gap-1 mt-0.5">
                   <span
-                    className={`text-[11px] font-black tabular-nums ${
+                    dir="ltr"
+                    className={`text-[10px] font-black tabular-nums whitespace-nowrap leading-none ${
                       p.cash < 120 ? "text-rose-300" : "text-emerald-300"
                     }`}
                   >
                     <AnimatedNumber value={p.cash} />{" "}
-                    <span className="text-[9px] opacity-80">DH</span>
+                    <span className="text-[8px] opacity-85">DH</span>
                   </span>
-                  <span className="text-[9px] font-bold text-slate-400 tabular-nums">
+                  <span
+                    dir="ltr"
+                    className="text-[8.5px] font-bold text-amber-200/80 tabular-nums whitespace-nowrap leading-none"
+                  >
                     💎<AnimatedNumber value={p.netWorth} />
                   </span>
                 </div>

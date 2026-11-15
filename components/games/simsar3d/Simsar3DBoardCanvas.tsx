@@ -6,10 +6,6 @@ import { GLTF, GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import {
   BOARD_TILE_COUNT,
   getTileWorldTransform,
@@ -78,7 +74,11 @@ function loadClonedModel(url: string, isSkinned = false): Promise<{
   });
 }
 
-function fitModelToFootprint(model: THREE.Object3D, targetSpan: number): THREE.Group {
+function fitModelToFootprint(
+  model: THREE.Object3D,
+  targetSpan: number,
+  maxHeight = targetSpan * 1.45
+): THREE.Group {
   const wrapper = new THREE.Group();
   model.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(model);
@@ -88,7 +88,10 @@ function fitModelToFootprint(model: THREE.Object3D, targetSpan: number): THREE.G
   box.getCenter(center);
 
   const maxHoriz = Math.max(0.01, size.x, size.z);
-  const scale = targetSpan / maxHoriz;
+  const scaleXZ = targetSpan / maxHoriz;
+  const scaleY = maxHeight / Math.max(0.01, size.y);
+  const scale = Math.min(scaleXZ, scaleY);
+
   model.scale.multiplyScalar(scale);
   model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
   model.traverse((node) => {
@@ -114,7 +117,7 @@ function easeOutBackOvershoot(x: number): number {
   return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
 }
 
-/** High-DPI 512x512 Luxury Marble & Gold Zellige 3D Tile Top Texture */
+/** High-DPI 512x512 Royal Obsidian-Slate & Gold Zellige 3D Tile Top Texture (Zero White Glare!) */
 function createTileTopTexture(tile: SimsarTileSpec, isCorner: boolean): THREE.CanvasTexture {
   const c = document.createElement("canvas");
   c.width = 512;
@@ -122,80 +125,77 @@ function createTileTopTexture(tile: SimsarTileSpec, isCorner: boolean): THREE.Ca
   const ctx = c.getContext("2d")!;
 
   const bgGrad = ctx.createLinearGradient(0, 0, 512, 512);
-  bgGrad.addColorStop(0, isCorner ? "#fffbeb" : "#ffffff");
-  bgGrad.addColorStop(0.6, isCorner ? "#fef3c7" : "#f8fafc");
-  bgGrad.addColorStop(1, isCorner ? "#fde68a" : "#e2e8f0");
+  bgGrad.addColorStop(0, isCorner ? "#3b1d06" : "#0f172a");
+  bgGrad.addColorStop(0.55, isCorner ? "#451a03" : "#1e293b");
+  bgGrad.addColorStop(1, isCorner ? "#1c1917" : "#090d16");
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, 512, 512);
 
-  // Subtle marble veining
-  ctx.strokeStyle = "rgba(148,163,184,0.16)";
+  // Subtle geometric Moroccan star watermark in background
+  ctx.strokeStyle = isCorner ? "rgba(251,191,36,0.18)" : "rgba(148,163,184,0.12)";
   ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.moveTo(40, 180);
-  ctx.bezierCurveTo(180, 210, 290, 140, 470, 240);
-  ctx.moveTo(70, 340);
-  ctx.bezierCurveTo(220, 300, 340, 380, 480, 320);
+  ctx.arc(256, 258, 108, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Outer metallic gold / royal slate frame
-  ctx.strokeStyle = isCorner ? "#d97706" : "#334155";
-  ctx.lineWidth = 20;
+  // Outer brushed gold & royal frame
+  ctx.strokeStyle = isCorner ? "#fbbf24" : "#d97706";
+  ctx.lineWidth = 18;
   ctx.strokeRect(10, 10, 492, 492);
 
-  ctx.strokeStyle = "#fbbf24";
-  ctx.lineWidth = 4;
-  ctx.strokeRect(22, 22, 468, 468);
+  ctx.strokeStyle = isCorner ? "#fef08a" : tile.colorHex;
+  ctx.lineWidth = 5;
+  ctx.strokeRect(24, 24, 464, 464);
 
   // Top Color Monopoly Header Band
-  const bandH = isCorner ? 118 : 134;
-  const hdrGrad = ctx.createLinearGradient(0, 22, 0, 22 + bandH);
+  const bandH = isCorner ? 116 : 136;
+  const hdrGrad = ctx.createLinearGradient(0, 24, 0, 24 + bandH);
   hdrGrad.addColorStop(0, tile.colorHex);
   hdrGrad.addColorStop(1, tile.colorHex);
   ctx.fillStyle = hdrGrad;
-  ctx.fillRect(22, 22, 468, bandH);
+  ctx.fillRect(24, 24, 464, bandH);
 
-  // Glossy highlight & Zellige diamonds on header band
-  ctx.fillStyle = "rgba(255,255,255,0.22)";
-  ctx.fillRect(22, 22, 468, 26);
-  for (let x = 44; x < 474; x += 56) {
+  // Glossy top sheen & Zellige diamonds on header band
+  ctx.fillStyle = "rgba(255,255,255,0.24)";
+  ctx.fillRect(24, 24, 464, 26);
+  for (let x = 48; x < 472; x += 56) {
     ctx.beginPath();
-    ctx.moveTo(x, 48);
-    ctx.lineTo(x + 16, 66);
-    ctx.lineTo(x, 84);
-    ctx.lineTo(x - 16, 66);
+    ctx.moveTo(x, 52);
+    ctx.lineTo(x + 15, 69);
+    ctx.lineTo(x, 86);
+    ctx.lineTo(x - 15, 69);
     ctx.closePath();
     ctx.fill();
   }
 
   // Tile Index Pill
-  ctx.fillStyle = "rgba(15,23,42,0.82)";
+  ctx.fillStyle = "rgba(2,6,23,0.88)";
   ctx.beginPath();
-  ctx.roundRect(32, 34, 84, 52, 16);
+  ctx.roundRect(34, 36, 86, 52, 16);
   ctx.fill();
   ctx.fillStyle = "#fde047";
   ctx.font = "900 31px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(`#${tile.index}`, 74, 61);
+  ctx.fillText(`#${tile.index}`, 77, 63);
 
-  // Giant Crisp Centerpiece Emoji with subtle drop shadow
+  // Giant Crisp Centerpiece Emoji with golden drop glow
   ctx.save();
-  ctx.shadowColor = "rgba(15,23,42,0.25)";
-  ctx.shadowBlur = 12;
+  ctx.shadowColor = "rgba(0,0,0,0.65)";
+  ctx.shadowBlur = 14;
   ctx.shadowOffsetY = 6;
   ctx.font = isCorner ? "148px system-ui, sans-serif" : "132px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(tile.emoji, 256, isCorner ? 246 : 238);
+  ctx.fillText(tile.emoji, 256, isCorner ? 246 : 240);
   ctx.restore();
 
-  // Bold Arabic Short Name
-  ctx.fillStyle = "#0f172a";
+  // Bold Crisp White Arabic Short Name
+  ctx.fillStyle = "#ffffff";
   ctx.font = "900 58px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(tile.shortAr, 256, 366);
+  ctx.fillText(tile.shortAr, 256, 362);
 
   // Bottom Price / Bonus Pill
   const footerText = tile.price
@@ -212,18 +212,18 @@ function createTileTopTexture(tile: SimsarTileSpec, isCorner: boolean): THREE.Ca
     ? "للفوريان!"
     : tile.shortAr;
 
-  ctx.fillStyle = tile.price ? "#0f172a" : tile.colorHex;
+  ctx.fillStyle = tile.price ? "#020617" : tile.colorHex;
   ctx.beginPath();
-  ctx.roundRect(58, 408, 396, 74, 26);
+  ctx.roundRect(54, 406, 404, 74, 26);
   ctx.fill();
 
   ctx.strokeStyle = "#fbbf24";
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 4;
   ctx.stroke();
 
   ctx.fillStyle = tile.price ? "#fde047" : "#ffffff";
-  ctx.font = "900 44px system-ui, sans-serif";
-  ctx.fillText(footerText, 256, 447);
+  ctx.font = "900 45px system-ui, sans-serif";
+  ctx.fillText(footerText, 256, 445);
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -609,14 +609,15 @@ export function Simsar3DBoardCanvas({
     if (!container) return;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0c4a6e);
-    scene.fog = new THREE.FogExp2(0x1e3a8a, 0.0042);
+    scene.background = new THREE.Color(0x062444);
+    // Keep fog strictly beyond 90m on the distant ocean horizon — ZERO haze over the 3D board!
+    scene.fog = new THREE.Fog(0x0b3b60, 92, 215);
 
     const initW = Math.max(300, container.clientWidth);
     const initH = Math.max(300, container.clientHeight);
 
-    const camera = new THREE.PerspectiveCamera(43, initW / initH, 0.5, 320);
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.85);
+    const camera = new THREE.PerspectiveCamera(40, initW / initH, 0.5, 320);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -627,40 +628,27 @@ export function Simsar3DBoardCanvas({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.14;
+    renderer.toneMappingExposure = 0.96;
 
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
 
-    // Post-Processing HDR Bloom Pipeline (Half-res internal bloom for silky 60 FPS on phones!)
-    const composer = new EffectComposer(renderer);
-    const renderPass = new RenderPass(scene, camera);
-    composer.addPass(renderPass);
-
-    const bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(Math.floor(initW * 0.5), Math.floor(initH * 0.5)),
-      0.3,
-      0.48,
-      0.86
-    );
-    composer.addPass(bloomPass);
-    composer.addPass(new OutputPass());
-
     const pmrem = new THREE.PMREMGenerator(renderer);
     const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     scene.environment = envTex;
+    (scene as any).environmentIntensity = 0.42;
 
-    // Golden-Hour Moroccan Lighting Rig
-    const hemi = new THREE.HemisphereLight(0xfffbeb, 0x0284c7, 1.05);
+    // Crisp High-Contrast Golden-Hour Moroccan Lighting Rig (Zero Exposure Washout!)
+    const hemi = new THREE.HemisphereLight(0xffe8c2, 0x1e3a8a, 0.68);
     scene.add(hemi);
 
-    const sun = new THREE.DirectionalLight(0xfff7ed, 2.25);
-    sun.position.set(24, 42, -28);
+    const sun = new THREE.DirectionalLight(0xfff1d0, 1.68);
+    sun.position.set(22, 36, -24);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 6;
-    sun.shadow.camera.far = 115;
-    const shBounds = 24;
+    sun.shadow.camera.far = 96;
+    const shBounds = 21;
     sun.shadow.camera.left = -shBounds;
     sun.shadow.camera.right = shBounds;
     sun.shadow.camera.top = shBounds;
@@ -668,9 +656,9 @@ export function Simsar3DBoardCanvas({
     sun.shadow.bias = -0.0005;
     scene.add(sun);
 
-    // Warm Rim Fill Light from South-Front so front-row cars & tiles gleam!
-    const frontFill = new THREE.DirectionalLight(0xfde68a, 0.65);
-    frontFill.position.set(-12, 16, 26);
+    // Subtle warm front fill so car grilles & doors read crisply
+    const frontFill = new THREE.DirectionalLight(0xfde68a, 0.34);
+    frontFill.position.set(-10, 14, 24);
     scene.add(frontFill);
 
     const texLoader = new THREE.TextureLoader();
@@ -777,25 +765,25 @@ export function Simsar3DBoardCanvas({
     woodDiff.repeat.set(4, 2);
     woodDiff.colorSpace = THREE.SRGBColorSpace;
 
-    // Golden Sandy Cove Ring
+    // Warm Coastal Atlantic Sand Cove Ring
     const sandCove = new THREE.Mesh(
-      new THREE.CylinderGeometry(21.2, 24.4, 0.95, 56),
-      new THREE.MeshStandardMaterial({ color: 0xfde68a, roughness: 0.86 })
+      new THREE.CylinderGeometry(20.4, 23.2, 0.95, 56),
+      new THREE.MeshStandardMaterial({ color: 0xd6b07a, roughness: 0.92 })
     );
     sandCove.position.y = -0.62;
     sandCove.receiveShadow = true;
     scene.add(sandCove);
 
-    // Lower Beveled Sandstone Cliff Base
+    // Lower Beveled Terracotta Kasbah Cliff Base
     const lowerCliff = new THREE.Mesh(
-      new RoundedBoxGeometry(31.8, 1.1, 31.8, 4, 0.45),
+      new RoundedBoxGeometry(31.6, 1.1, 31.6, 4, 0.45),
       new THREE.MeshStandardMaterial({
         map: brickDiff,
         bumpMap: brickBump,
         bumpScale: 0.1,
         roughnessMap: brickRough,
-        color: 0xfdba74,
-        roughness: 0.72,
+        color: 0xc2410c,
+        roughness: 0.76,
       })
     );
     lowerCliff.position.y = -0.52;
@@ -803,21 +791,30 @@ export function Simsar3DBoardCanvas({
     lowerCliff.castShadow = true;
     scene.add(lowerCliff);
 
-    // Upper Polished Kasbah Boulevard Deck
+    // Upper Warm Marrakech Sandstone Boulevard Deck (Rich contrast, zero whiteout!)
     const upperDeck = new THREE.Mesh(
-      new RoundedBoxGeometry(29.8, 0.62, 29.8, 4, 0.28),
+      new RoundedBoxGeometry(29.6, 0.62, 29.6, 4, 0.28),
       new THREE.MeshStandardMaterial({
         map: brickDiff,
         bumpMap: brickBump,
         bumpScale: 0.05,
-        color: 0xffedd5,
-        roughness: 0.58,
+        color: 0xd97706,
+        roughness: 0.68,
       })
     );
     upperDeck.position.y = -0.24;
     upperDeck.receiveShadow = true;
     upperDeck.castShadow = true;
     scene.add(upperDeck);
+
+    // Sleek Dark Asphalt & Gold Rim Road Ring under the 24 Tiles
+    const roadBed = new THREE.Mesh(
+      new RoundedBoxGeometry(25.4, 0.16, 25.4, 3, 0.08),
+      new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.55, metalness: 0.15 })
+    );
+    roadBed.position.y = 0.03;
+    roadBed.receiveShadow = true;
+    scene.add(roadBed);
 
     // Wooden Marina Dock Pier extending East into the Turquoise Lagoon!
     const marinaPier = new THREE.Mesh(
@@ -829,58 +826,83 @@ export function Simsar3DBoardCanvas({
     marinaPier.receiveShadow = true;
     scene.add(marinaPier);
 
-    // Intricate 1024x1024 Royal Emerald, Turquoise & Gold Zellige Mosaic Courtyard
-    const zCanvas = document.createElement("canvas");
-    zCanvas.width = 1024;
-    zCanvas.height = 1024;
-    const zCtx = zCanvas.getContext("2d")!;
-    zCtx.fillStyle = "#064e3b";
-    zCtx.fillRect(0, 0, 1024, 1024);
-    for (let y = 0; y < 1024; y += 128) {
-      for (let x = 0; x < 1024; x += 128) {
-        const cx = x + 64;
-        const cy = y + 64;
-        zCtx.fillStyle = (x / 128 + y / 128) % 2 === 0 ? "#0f766e" : "#047857";
-        zCtx.fillRect(x + 4, y + 4, 120, 120);
+    // Sculpted Royal Medina Stone Courtyard (Clean dark-slate & inlaid gold compass — ZERO noisy grid!)
+    const cCanvas = document.createElement("canvas");
+    cCanvas.width = 512;
+    cCanvas.height = 512;
+    const cCtx = cCanvas.getContext("2d")!;
+    const cGrad = cCtx.createRadialGradient(256, 256, 30, 256, 256, 340);
+    cGrad.addColorStop(0, "#1e293b");
+    cGrad.addColorStop(0.65, "#0f172a");
+    cGrad.addColorStop(1, "#1c1917");
+    cCtx.fillStyle = cGrad;
+    cCtx.fillRect(0, 0, 512, 512);
 
-        // 8-point Moroccan star rosette
-        zCtx.fillStyle = "#fbbf24";
-        for (const rot of [0, Math.PI / 4]) {
-          zCtx.save();
-          zCtx.translate(cx, cy);
-          zCtx.rotate(rot);
-          zCtx.fillRect(-26, -26, 52, 52);
-          zCtx.restore();
-        }
-        zCtx.fillStyle = "#ecfdf5";
-        zCtx.beginPath();
-        zCtx.arc(cx, cy, 16, 0, Math.PI * 2);
-        zCtx.fill();
-      }
-    }
-    const zelligeTex = new THREE.CanvasTexture(zCanvas);
-    zelligeTex.colorSpace = THREE.SRGBColorSpace;
-    zelligeTex.wrapS = THREE.RepeatWrapping;
-    zelligeTex.wrapT = THREE.RepeatWrapping;
-    zelligeTex.repeat.set(3, 3);
+    // Subtle Royal Gold Compass Rings & Cross Walkways
+    cCtx.strokeStyle = "rgba(251,191,36,0.35)";
+    cCtx.lineWidth = 8;
+    cCtx.strokeRect(18, 18, 476, 476);
+    cCtx.beginPath();
+    cCtx.arc(256, 256, 195, 0, Math.PI * 2);
+    cCtx.stroke();
+    cCtx.strokeStyle = "rgba(56,189,248,0.25)";
+    cCtx.lineWidth = 5;
+    cCtx.beginPath();
+    cCtx.arc(256, 256, 118, 0, Math.PI * 2);
+    cCtx.stroke();
+
+    const plazaTex = new THREE.CanvasTexture(cCanvas);
+    plazaTex.colorSpace = THREE.SRGBColorSpace;
 
     const courtyardMesh = new THREE.Mesh(
-      new RoundedBoxGeometry(17.8, 0.2, 17.8, 3, 0.08),
+      new RoundedBoxGeometry(17.8, 0.22, 17.8, 3, 0.08),
       new THREE.MeshStandardMaterial({
-        map: zelligeTex,
-        roughness: 0.24,
-        metalness: 0.16,
+        map: plazaTex,
+        roughness: 0.42,
+        metalness: 0.14,
       })
     );
-    courtyardMesh.position.y = 0.04;
+    courtyardMesh.position.y = 0.05;
     courtyardMesh.receiveShadow = true;
     scene.add(courtyardMesh);
 
+    // 4 Lush Sculpted Emerald Riad Garden Quadrants + Miniature Medina Stalls inside Courtyard!
+    const lawnMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.78 });
+    const lawnCurbMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.38, metalness: 0.45 });
+    const gardenQuadrants: Array<[number, number, string, number]> = [
+      [-4.9, 4.9, "/models/ksida/fantasy/stall-green.glb", 0.6],
+      [4.9, 4.9, "/models/ksida/fantasy/stall-red.glb", -0.6],
+      [4.9, -4.9, "/models/simsar/medina/cart-high.glb", -2.2],
+      [-4.9, -4.9, "", 0], // Reserved for Animated Treasure Chest & Gold Coin Mountain!
+    ];
+    gardenQuadrants.forEach(([gx, gz, propUrl, rotY]) => {
+      const curb = new THREE.Mesh(new RoundedBoxGeometry(3.8, 0.14, 3.8, 3, 0.06), lawnCurbMat);
+      curb.position.set(gx, 0.17, gz);
+      curb.receiveShadow = true;
+      scene.add(curb);
+
+      const lawn = new THREE.Mesh(new RoundedBoxGeometry(3.5, 0.16, 3.5, 3, 0.06), lawnMat);
+      lawn.position.set(gx, 0.19, gz);
+      lawn.receiveShadow = true;
+      scene.add(lawn);
+
+      if (propUrl) {
+        loadClonedModel(propUrl)
+          .then(({ scene: raw }) => {
+            const pFit = fitModelToFootprint(raw, 1.85, 2.2);
+            pFit.position.set(gx, 0.26, gz);
+            pFit.rotation.y = rotY;
+            scene.add(pFit);
+          })
+          .catch(() => {});
+      }
+    });
+
     // Animated ONCF "Al Boraq" High-Speed Train circling the inner courtyard!
-    const boraqTrain = buildAlBoraqTrainSystem(scene, 7.35);
+    const boraqTrain = buildAlBoraqTrainSystem(scene, 7.55);
 
     // =========================================================================
-    // 3. LIVING CENTER PLAZA, ANIMATED SKINNED CHARACTERS & CORNER LANDMARKS!
+    // 3. LIVING CENTER PLAZA, TURQUOISE OASIS POOL, SKINNED CHARACTERS & LANDMARKS!
     // =========================================================================
     const mixers: THREE.AnimationMixer[] = [];
     let showmanActions: Record<string, THREE.AnimationAction> = {};
@@ -900,26 +922,36 @@ export function Simsar3DBoardCanvas({
       showmanCelebrationTimer = 2.8;
     };
 
-    // Center Royal Fountain + Sparkling Parabolic Water Jets!
-    const centerRing = new THREE.Mesh(
-      new THREE.RingGeometry(2.65, 3.18, 40),
+    // Sunken Glowing Turquoise Oasis Pool + Golden Zellige Rim + Grand 3D Fountain!
+    const oasisRim = new THREE.Mesh(
+      new THREE.CylinderGeometry(3.25, 3.45, 0.22, 44),
       new THREE.MeshStandardMaterial({
-        color: 0xfacc15,
-        emissive: 0xb45309,
-        emissiveIntensity: 0.25,
-        roughness: 0.22,
-        metalness: 0.78,
-        side: THREE.DoubleSide,
+        color: 0xf59e0b,
+        roughness: 0.28,
+        metalness: 0.65,
       })
     );
-    centerRing.rotation.x = -Math.PI / 2;
-    centerRing.position.y = 0.16;
-    scene.add(centerRing);
+    oasisRim.position.y = 0.2;
+    oasisRim.receiveShadow = true;
+    scene.add(oasisRim);
+
+    const oasisWater = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.98, 2.98, 0.24, 44),
+      new THREE.MeshStandardMaterial({
+        color: 0x06b6d4,
+        emissive: 0x0284c7,
+        emissiveIntensity: 0.35,
+        roughness: 0.12,
+        metalness: 0.25,
+      })
+    );
+    oasisWater.position.y = 0.21;
+    scene.add(oasisWater);
 
     loadClonedModel("/models/ksida/fantasy/fountain.glb")
       .then(({ scene: raw }) => {
-        const ftn = fitModelToFootprint(raw, 4.5);
-        ftn.position.set(0, 0.13, 0);
+        const ftn = fitModelToFootprint(raw, 4.1, 3.6);
+        ftn.position.set(0, 0.28, 0);
         scene.add(ftn);
       })
       .catch(() => {});
@@ -998,14 +1030,14 @@ export function Simsar3DBoardCanvas({
     });
 
     // Animated Treasure Chest (`chest.glb`) + 3D `coin.glb` Jackpot Mountain!
-    const jackpotOrigin = new THREE.Vector3(-4.1, 0.15, -4.1);
+    const jackpotOrigin = new THREE.Vector3(-4.9, 0.28, -4.9);
     const jackpotGroup = new THREE.Group();
     jackpotGroup.position.copy(jackpotOrigin);
     scene.add(jackpotGroup);
 
     loadClonedModel("/models/simsar/maritime/chest.glb", true)
       .then(({ scene: raw, animations }) => {
-        const chestFit = fitModelToFootprint(raw, 1.85);
+        const chestFit = fitModelToFootprint(raw, 1.9, 1.85);
         chestFit.rotation.y = Math.PI / 4;
         jackpotGroup.add(chestFit);
         if (animations.length > 0) {
@@ -1027,11 +1059,11 @@ export function Simsar3DBoardCanvas({
     const jackpotCoins: THREE.Object3D[] = [];
     loadClonedModel("/models/simsar/props/coin.glb")
       .then(({ scene: raw }) => {
-        coinProto = fitModelToFootprint(raw, 0.72);
+        coinProto = fitModelToFootprint(raw, 0.72, 0.72);
         for (let i = 0; i < 24; i++) {
           const cMesh = coinProto.clone(true);
           const ringAng = (i % 8) * ((Math.PI * 2) / 8) + Math.floor(i / 8) * 0.35;
-          const ringRad = 1.05 + (i % 2) * 0.32;
+          const ringRad = 1.05 + (i % 2) * 0.28;
           cMesh.position.set(
             Math.cos(ringAng) * ringRad,
             0.05 + Math.floor(i / 8) * 0.24,
@@ -1047,19 +1079,19 @@ export function Simsar3DBoardCanvas({
     // Swaying Oasis Palms + Essaouira Spinning Windmill + Corner Fortresses!
     const swayPalms: THREE.Group[] = [];
     const palmSpots: Array<[number, number, string, number, number]> = [
-      [-5.6, -5.6, "/models/ksida/palm-bend.glb", 0.5, 3.1],
-      [5.6, -5.6, "/models/ksida/palm-straight.glb", 2.1, 3.0],
-      [-5.6, 5.6, "/models/ksida/palm-straight.glb", -1.2, 3.1],
-      [5.6, 5.6, "/models/ksida/palm-bend.glb", 3.0, 2.9],
+      [-6.2, -6.2, "/models/ksida/palm-bend.glb", 0.5, 3.0],
+      [6.2, -6.2, "/models/ksida/palm-straight.glb", 2.1, 3.0],
+      [-6.2, 6.2, "/models/ksida/palm-straight.glb", -1.2, 3.0],
+      [6.2, 6.2, "/models/ksida/palm-bend.glb", 3.0, 3.0],
       [-14.6, 14.2, "/models/ksida/palm-bend.glb", 0.8, 3.4],
-      [14.6, -14.2, "/models/ksida/palm-straight.glb", -2.2, 3.3],
-      [15.8, 2.2, "/models/ksida/palm-bend.glb", 1.4, 2.9],
-      [-15.8, -2.2, "/models/ksida/palm-straight.glb", -0.6, 2.9],
+      [14.6, -14.2, "/models/ksida/palm-straight.glb", -2.2, 3.4],
+      [15.6, 2.2, "/models/ksida/palm-bend.glb", 1.4, 3.1],
+      [-15.6, -2.2, "/models/ksida/palm-straight.glb", -0.6, 3.1],
     ];
     palmSpots.forEach(([px, pz, url, rot, span]) => {
       loadClonedModel(url)
         .then(({ scene: raw }) => {
-          const p = fitModelToFootprint(raw, span);
+          const p = fitModelToFootprint(raw, span, 4.6);
           p.position.set(px, 0.08, pz);
           p.rotation.y = rot;
           scene.add(p);
@@ -1095,24 +1127,49 @@ export function Simsar3DBoardCanvas({
       })
       .catch(() => {});
 
-    // Essaouira Spinning Windmill on South-West Breeze Edge!
+    // JACKPOT Corner (Tile 12: -10.8, -10.8): Essaouira Spinning Windmill Monument!
     let windmillBladePivot: THREE.Group | null = null;
     loadClonedModel("/models/simsar/medina/windmill.glb")
       .then(({ scene: raw }) => {
-        const wm = fitModelToFootprint(raw, 2.9);
-        wm.position.set(3.6, 0.06, 14.3);
-        wm.rotation.y = Math.PI;
-        scene.add(wm);
+        const mount = new THREE.Group();
+        mount.position.set(-13.7, 0.06, -13.7);
+        mount.rotation.y = Math.PI / 4;
+
+        const wm = fitModelToFootprint(raw, 2.85, 4.2);
+        wm.updateMatrixWorld(true);
+        const wmBox = new THREE.Box3().setFromObject(wm);
+        const wmSize = new THREE.Vector3();
+        wmBox.getSize(wmSize);
+        mount.add(wm);
+        scene.add(mount);
 
         loadClonedModel("/models/simsar/medina/blade.glb")
           .then(({ scene: bRaw }) => {
+            bRaw.updateMatrixWorld(true);
+            const bBox = new THREE.Box3().setFromObject(bRaw);
+            const bSize = new THREE.Vector3();
+            const bCenter = new THREE.Vector3();
+            bBox.getSize(bSize);
+            bBox.getCenter(bCenter);
+
+            const bScale = 2.35 / Math.max(0.01, bSize.x, bSize.y, bSize.z);
+            bRaw.scale.multiplyScalar(bScale);
+            bRaw.position.set(
+              -bCenter.x * bScale,
+              -bCenter.y * bScale,
+              -bCenter.z * bScale
+            );
+            bRaw.traverse((node) => {
+              if ((node as THREE.Mesh).isMesh) {
+                node.castShadow = true;
+                node.receiveShadow = true;
+              }
+            });
+
             const pivot = new THREE.Group();
-            pivot.position.set(3.6, 2.35, 13.35);
-            const bFit = fitModelToFootprint(bRaw, 2.45);
-            // Center blade on rotation axis
-            bFit.position.y = -1.22;
-            pivot.add(bFit);
-            scene.add(pivot);
+            pivot.position.set(0, wmSize.y * 0.68, wmSize.z * 0.5 + 0.08);
+            pivot.add(bRaw);
+            mount.add(pivot);
             windmillBladePivot = pivot;
           })
           .catch(() => {});
@@ -1204,7 +1261,7 @@ export function Simsar3DBoardCanvas({
         .catch(() => {});
     });
 
-    // 8 Glowing Moroccan Medina Street Lanterns around the Plaza!
+    // 8 Ornate Moroccan Medina Street Lanterns (True human scale ~1.45m, warm amber glow!)
     loadClonedModel("/models/simsar/medina/lantern.glb")
       .then(({ scene: raw }) => {
         const lanternCoords: Array<[number, number]> = [
@@ -1217,13 +1274,13 @@ export function Simsar3DBoardCanvas({
           [-8.5, 8.5],
           [-8.5, 0],
         ];
-        const glowOrbGeo = new THREE.SphereGeometry(0.18, 10, 10);
-        const glowOrbMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+        const glowOrbGeo = new THREE.SphereGeometry(0.11, 8, 8);
+        const glowOrbMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
         lanternCoords.forEach(([lx, lz]) => {
-          const ln = fitModelToFootprint(raw.clone(true), 0.95);
+          const ln = fitModelToFootprint(raw.clone(true), 0.55, 1.45);
           ln.position.set(lx, 0.08, lz);
           const orb = new THREE.Mesh(glowOrbGeo, glowOrbMat);
-          orb.position.set(0, 1.38, 0);
+          orb.position.set(0, 1.08, 0);
           ln.add(orb);
           scene.add(ln);
         });
@@ -1355,9 +1412,9 @@ export function Simsar3DBoardCanvas({
 
         const holder = new THREE.Group();
         holder.position.set(
-          tf.x + tf.outwardNx * 2.85,
+          tf.x + tf.outwardNx * 3.15,
           0.08,
-          tf.z + tf.outwardNz * 2.85
+          tf.z + tf.outwardNz * 3.15
         );
         holder.rotation.y = Math.atan2(-tf.outwardNx, -tf.outwardNz);
         scene.add(holder);
@@ -1630,40 +1687,40 @@ export function Simsar3DBoardCanvas({
             }
           });
 
-          const fitted = fitModelToFootprint(raw, 2.22);
+          const fitted = fitModelToFootprint(raw, 2.58, 1.95);
           rig.bodyHolder.add(fitted);
 
           // Glowing Twin Headlight Flares
-          const hlGeo = new THREE.SphereGeometry(0.09, 8, 8);
-          const hlMat = new THREE.MeshBasicMaterial({ color: 0xfef9c3 });
-          for (const sx of [-0.42, 0.42]) {
+          const hlGeo = new THREE.SphereGeometry(0.1, 8, 8);
+          const hlMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+          for (const sx of [-0.46, 0.46]) {
             const hl = new THREE.Mesh(hlGeo, hlMat);
-            hl.position.set(sx, 0.44, 0.98);
+            hl.position.set(sx, 0.48, 1.12);
             rig.bodyHolder.add(hl);
           }
 
           // Petit Taxi Roof Sign on TAXI_HMER!
           if (tokenType === "TAXI_HMER") {
             const taxiSign = new THREE.Mesh(
-              new THREE.BoxGeometry(0.52, 0.18, 0.22),
+              new THREE.BoxGeometry(0.56, 0.2, 0.24),
               new THREE.MeshBasicMaterial({ color: 0xfef08a })
             );
-            taxiSign.position.set(0, 1.18, 0.05);
+            taxiSign.position.set(0, 1.32, 0.05);
             rig.bodyHolder.add(taxiSign);
           }
 
           // Police Red/Blue Strobe Bar on JADARMIYA!
           if (tokenType === "JADARMIYA") {
             const rLight = new THREE.Mesh(
-              new THREE.BoxGeometry(0.28, 0.14, 0.18),
+              new THREE.BoxGeometry(0.32, 0.16, 0.2),
               new THREE.MeshBasicMaterial({ color: 0xef4444 })
             );
-            rLight.position.set(-0.18, 1.22, 0);
+            rLight.position.set(-0.2, 1.36, 0);
             const bLight = new THREE.Mesh(
-              new THREE.BoxGeometry(0.28, 0.14, 0.18),
+              new THREE.BoxGeometry(0.32, 0.16, 0.2),
               new THREE.MeshBasicMaterial({ color: 0x3b82f6 })
             );
-            bLight.position.set(0.18, 1.22, 0);
+            bLight.position.set(0.2, 1.36, 0);
             rig.bodyHolder.add(rLight, bLight);
             rig.sirenRed = rLight;
             rig.sirenBlue = bLight;
@@ -1674,11 +1731,11 @@ export function Simsar3DBoardCanvas({
             loadClonedModel("/models/food/watermelon.glb")
               .then(({ scene: wm }) => {
                 for (const [wx, wy, wz] of [
-                  [-0.22, 0.62, -0.38],
-                  [0.22, 0.62, -0.38],
-                  [0, 0.92, -0.38],
+                  [-0.25, 0.68, -0.44],
+                  [0.25, 0.68, -0.44],
+                  [0, 1.0, -0.44],
                 ]) {
-                  const wFit = fitModelToFootprint(wm.clone(true), 0.64);
+                  const wFit = fitModelToFootprint(wm.clone(true), 0.7, 0.7);
                   wFit.position.set(wx, wy, wz);
                   rig.bodyHolder.add(wFit);
                 }
@@ -1703,18 +1760,31 @@ export function Simsar3DBoardCanvas({
       }
       slot.crownGroup.visible = Boolean(ownerId && level === 3);
 
-      // UNOWNED PLOT: Pre-dressed lush Moroccan palm/planter garden so perimeter looks rich from Turn 1!
+      // UNOWNED PLOT: Rich 3D Moroccan Neighborhood Architecture & Gardens from Frame 1!
       if (!ownerId) {
-        const gardenUrl =
-          tileIdx % 3 === 0
-            ? "/models/simsar/suburban/planter.glb"
-            : tileIdx % 3 === 1
-            ? "/models/simsar/suburban/tree-large.glb"
-            : "/models/furniture/pottedPlant.glb";
-        loadClonedModel(gardenUrl)
+        const unownedBuildingUrls = [
+          "/models/ksida/city/building-a.glb",
+          "/models/ksida/city/building-c.glb",
+          "/models/simsar/suburban/villa-g.glb",
+          "/models/simsar/commercial/plaza-fountain.glb",
+        ];
+        const previewUrl = unownedBuildingUrls[tileIdx % unownedBuildingUrls.length];
+        loadClonedModel(previewUrl)
           .then(({ scene: raw }) => {
-            const gFit = fitModelToFootprint(raw, 1.45);
-            slot.holder.add(gFit);
+            const bFit = fitModelToFootprint(raw, 1.95, 2.2);
+            slot.holder.add(bFit);
+          })
+          .catch(() => {});
+
+        const sideTreeUrl =
+          tileIdx % 2 === 0
+            ? "/models/simsar/suburban/tree-large.glb"
+            : "/models/simsar/suburban/planter.glb";
+        loadClonedModel(sideTreeUrl)
+          .then(({ scene: raw }) => {
+            const tFit = fitModelToFootprint(raw, 0.95, 1.65);
+            tFit.position.set(1.05, 0, 0.45);
+            slot.holder.add(tFit);
           })
           .catch(() => {});
         return;
@@ -1723,7 +1793,7 @@ export function Simsar3DBoardCanvas({
       const ownerColor = liveRef.current.players[ownerId]?.accentHex || "#fbbf24";
 
       // Helper to plant 3D Ownership Flag beside owned plot!
-      const attachOwnerFlag = (offsetX = -1.05) => {
+      const attachOwnerFlag = (offsetX = -1.1) => {
         loadClonedModel("/models/simsar/props/flag.glb")
           .then(({ scene: raw }) => {
             raw.traverse((n) => {
@@ -1731,51 +1801,51 @@ export function Simsar3DBoardCanvas({
                 (n as THREE.Mesh).material = new THREE.MeshStandardMaterial({
                   color: ownerColor,
                   emissive: ownerColor,
-                  emissiveIntensity: 0.25,
+                  emissiveIntensity: 0.3,
                   roughness: 0.35,
                 });
               }
             });
-            const fFit = fitModelToFootprint(raw, 0.95);
-            fFit.position.set(offsetX, 0, 0.65);
+            const fFit = fitModelToFootprint(raw, 0.85, 1.6);
+            fFit.position.set(offsetX, 0, 0.72);
             slot.holder.add(fFit);
           })
           .catch(() => {});
       };
 
-      // LEVEL 0 (OWNED LAND): Ownership Flag + Moroccan Plaza Fountain or Souk Cart!
+      // LEVEL 0 (OWNED LAND): Ownership Flag + Cozy 3D Moroccan Villa / Pavilion!
       if (level <= 0) {
-        attachOwnerFlag(-0.85);
+        attachOwnerFlag(-1.05);
         const lotUrl =
           tileIdx % 2 === 0
-            ? "/models/simsar/commercial/plaza-fountain.glb"
-            : "/models/simsar/medina/cart-high.glb";
+            ? "/models/simsar/suburban/villa-k.glb"
+            : "/models/ksida/city/building-a.glb";
         loadClonedModel(lotUrl)
           .then(({ scene: raw }) => {
-            const fitted = fitModelToFootprint(raw, 1.65);
+            const fitted = fitModelToFootprint(raw, 2.15, 2.45);
             slot.holder.add(fitted);
           })
           .catch(() => {});
         return;
       }
 
-      // LEVEL 1 (قهوة شعبية ☕): Bustling Moroccan Café Stall + Outdoor Table!
+      // LEVEL 1 (قهوة شعبية ☕): Bustling Moroccan Café Stall + Villa Backdrop + Outdoor Table!
       if (level === 1) {
-        attachOwnerFlag(-1.15);
+        attachOwnerFlag(-1.2);
         const stallUrl =
           tileIdx % 2 === 0
             ? "/models/ksida/fantasy/stall-green.glb"
             : "/models/ksida/fantasy/stall-red.glb";
         loadClonedModel(stallUrl)
           .then(({ scene: raw }) => {
-            const fitted = fitModelToFootprint(raw, 2.15);
+            const fitted = fitModelToFootprint(raw, 2.35, 2.65);
             slot.holder.add(fitted);
           })
           .catch(() => {});
         loadClonedModel("/models/furniture/tableRound.glb")
           .then(({ scene: tRaw }) => {
-            const tb = fitModelToFootprint(tRaw, 0.85);
-            tb.position.set(1.05, 0, 0.55);
+            const tb = fitModelToFootprint(tRaw, 0.85, 0.9);
+            tb.position.set(1.08, 0, 0.6);
             slot.holder.add(tb);
           })
           .catch(() => {});
@@ -1784,17 +1854,18 @@ export function Simsar3DBoardCanvas({
 
       // LEVEL 2 (رياض سياحي 🕌): Diverse Multi-Story Villas & Riads + Oasis Palm!
       if (level === 2) {
+        attachOwnerFlag(-1.25);
         const villaUrl = VILLA_GLBS[tileIdx % VILLA_GLBS.length];
         loadClonedModel(villaUrl)
           .then(({ scene: raw }) => {
-            const fitted = fitModelToFootprint(raw, 2.55);
+            const fitted = fitModelToFootprint(raw, 2.75, 3.35);
             slot.holder.add(fitted);
           })
           .catch(() => {});
         loadClonedModel("/models/ksida/palm-bend.glb")
           .then(({ scene: pRaw }) => {
-            const plm = fitModelToFootprint(pRaw, 1.85);
-            plm.position.set(1.25, 0, 0.55);
+            const plm = fitModelToFootprint(pRaw, 2.1, 3.5);
+            plm.position.set(1.3, 0, 0.55);
             slot.holder.add(plm);
           })
           .catch(() => {});
@@ -1802,10 +1873,11 @@ export function Simsar3DBoardCanvas({
       }
 
       // LEVEL 3 (أوطيل 5 نجوم 👑): Towering Luxury Skyscraper Hotel + Twin Palms + Levitating Crown!
+      attachOwnerFlag(-1.35);
       const hotelUrl = SKYSCRAPER_GLBS[tileIdx % SKYSCRAPER_GLBS.length];
       loadClonedModel(hotelUrl)
         .then(({ scene: raw }) => {
-          const fitted = fitModelToFootprint(raw, 2.85);
+          const fitted = fitModelToFootprint(raw, 2.95, 5.1);
           slot.holder.add(fitted);
           const bBox = new THREE.Box3().setFromObject(fitted);
           slot.crownGroup.position.y = bBox.max.y + 0.72;
@@ -1815,7 +1887,7 @@ export function Simsar3DBoardCanvas({
       loadClonedModel("/models/ksida/palm-straight.glb")
         .then(({ scene: pRaw }) => {
           for (const sx of [-1.35, 1.35]) {
-            const plm = fitModelToFootprint(pRaw.clone(true), 2.05);
+            const plm = fitModelToFootprint(pRaw.clone(true), 2.15, 3.8);
             plm.position.set(sx, 0, 0.68);
             slot.holder.add(plm);
           }
@@ -1911,8 +1983,6 @@ export function Simsar3DBoardCanvas({
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
-      composer.setSize(w, h);
-      bloomPass.resolution.set(Math.floor(w * 0.5), Math.floor(h * 0.5));
     });
     resizeObs.observe(container);
 
@@ -2110,13 +2180,13 @@ export function Simsar3DBoardCanvas({
           diceBodies.forEach((b, idx) => {
             const sign = idx === 0 ? -1 : 1;
             b.mesh.visible = true;
-            // Launch from foreground toward the center Zellige plaza!
-            b.x = sign * 2.4;
-            b.y = 5.4 + idx * 0.6;
-            b.z = 8.4;
-            b.vx = -sign * (1.2 + Math.random() * 0.9);
-            b.vy = 2.6 + Math.random() * 1.5;
-            b.vz = -(7.6 + Math.random() * 1.4);
+            // Launch from foreground onto the open stone plaza in front of the Oasis Fountain!
+            b.x = sign * 2.1;
+            b.y = 5.0 + idx * 0.55;
+            b.z = 8.8;
+            b.vx = -sign * (1.05 + Math.random() * 0.75);
+            b.vy = 2.4 + Math.random() * 1.3;
+            b.vz = -(4.3 + Math.random() * 1.1);
             b.wx = (Math.random() > 0.5 ? 1 : -1) * (15 + Math.random() * 8);
             b.wy = (Math.random() - 0.5) * 14;
             b.wz = (Math.random() > 0.5 ? 1 : -1) * (14 + Math.random() * 8);
@@ -2140,14 +2210,17 @@ export function Simsar3DBoardCanvas({
             b.y += b.vy * dt;
             b.z += b.vz * dt;
 
-            // Keep inside center plaza bounds
-            if (Math.abs(b.x) > 4.2) {
-              b.x = Math.sign(b.x) * 4.2;
+            // Keep inside open front stone plaza (clear of the center fountain!)
+            if (Math.abs(b.x) > 2.6) {
+              b.x = Math.sign(b.x) * 2.6;
               b.vx *= -0.6;
             }
-            if (Math.abs(b.z) > 4.2) {
-              b.z = Math.sign(b.z) * 4.2;
-              b.vz *= -0.6;
+            if (b.z < 3.6) {
+              b.z = 3.6;
+              b.vz = Math.abs(b.vz) * 0.55;
+            } else if (b.z > 5.6) {
+              b.z = 5.6;
+              b.vz = -Math.abs(b.vz) * 0.55;
             }
 
             if (b.y <= floorY) {
@@ -2660,39 +2733,38 @@ export function Simsar3DBoardCanvas({
         (wp.sprite.material as THREE.SpriteMaterial).opacity = alpha;
       }
 
-      // I. Portrait-Smart Auto-Director Camera + Micro Camera Shake!
+      // I. Monopoly-GO Portrait Action Director Camera + Micro Camera Shake!
       const aspect = camera.aspect;
-      const portraitMult =
-        aspect < 1.05 ? Math.min(1.68, 1.05 / Math.max(0.5, aspect)) : 1.0;
+      const overviewPortraitMult =
+        aspect < 1.05 ? Math.min(1.52, 1.05 / Math.max(0.54, aspect)) : 1.0;
+      const closePortraitMult = aspect < 0.78 ? 1.22 : 1.0;
 
       let desiredLookX = 0;
-      let desiredLookZ = 1.1;
-      let baseDist = 27.2;
-      let baseElev = 24.0;
+      let desiredLookZ = 0.8;
+      let finalDist = 24.8 * overviewPortraitMult * userZoomMult;
+      let finalElev = 23.2 * Math.pow(overviewPortraitMult, 0.72) * userZoomMult;
 
       if (snap.cameraMode === "AUTO") {
-        if (diceRollElapsed < 0.85) {
-          // Dramatic zoom onto tumbling rigid-body dice in the center Zellige plaza!
+        if (diceRollElapsed < 0.92) {
+          // Hero close-up onto tumbling rigid-body 3D dice on the front Oasis Plaza!
           desiredLookX = 0;
-          desiredLookZ = 1.6;
-          baseDist = 19.8;
-          baseElev = 18.8;
+          desiredLookZ = 2.6;
+          finalDist = 17.2 * closePortraitMult * userZoomMult;
+          finalElev = 15.6 * closePortraitMult * userZoomMult;
         } else if (snap.selectedTileIndex !== null) {
           const stf = getTileWorldTransform(snap.selectedTileIndex);
-          desiredLookX = stf.x * 0.58;
-          desiredLookZ = stf.z * 0.58;
-          baseDist = 20.8;
-          baseElev = 18.8;
+          desiredLookX = stf.x * 0.68;
+          desiredLookZ = stf.z * 0.68;
+          finalDist = 17.8 * closePortraitMult * userZoomMult;
+          finalElev = 15.6 * closePortraitMult * userZoomMult;
         } else if (activeFocusPos) {
-          desiredLookX = activeFocusPos.x * 0.48;
-          desiredLookZ = activeFocusPos.z * 0.48 + 0.7;
-          baseDist = 22.4;
-          baseElev = 19.8;
+          desiredLookX = activeFocusPos.x * 0.64;
+          desiredLookZ = activeFocusPos.z * 0.64 + 0.4;
+          finalDist = 18.8 * closePortraitMult * userZoomMult;
+          finalElev = 16.2 * closePortraitMult * userZoomMult;
         }
       }
 
-      const finalDist = baseDist * portraitMult * userZoomMult;
-      const finalElev = baseElev * Math.pow(portraitMult, 0.72) * userZoomMult;
       const orbitYaw = userOrbitOffset;
 
       const targetCamX = desiredLookX + Math.sin(orbitYaw) * finalDist;
@@ -2717,7 +2789,7 @@ export function Simsar3DBoardCanvas({
       camera.position.set(camPos.x + shakeX, camPos.y + shakeY, camPos.z);
       camera.lookAt(camLook);
 
-      composer.render();
+      renderer.render(scene, camera);
     };
 
     animate();
@@ -2732,7 +2804,6 @@ export function Simsar3DBoardCanvas({
       domEl.removeEventListener("wheel", onWheel);
       envTex.dispose();
       pmrem.dispose();
-      composer.dispose();
       renderer.dispose();
     };
   }, []);
