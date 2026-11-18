@@ -12,6 +12,8 @@ import {
   Copy,
   Flame,
   Gavel,
+  Handshake,
+  History,
   Maximize2,
   Minimize2,
   Repeat,
@@ -33,6 +35,9 @@ import {
   COLOR_GROUP_META,
   computePropertyRent,
   getGroupTileIndices,
+  getSimsarUpgradeQuote,
+  hasSimsarUpgradedTileThisTurn,
+  isSimsarPropertyPhase,
   JAIL_BAIL_DH,
   ownsFullColorSet,
   SIMSAR_BOARD_TILES,
@@ -53,13 +58,15 @@ import {
 } from "@/games/simsar3d/types";
 import { Simsar3DBoardCanvas } from "./simsar3d/Simsar3DBoardCanvas";
 import { SimsarMiniGames } from "./simsar3d/SimsarMiniGames";
+import { SimsarPropertyDeals } from "./simsar3d/SimsarPropertyDeals";
+import { SimsarRentReceipt, useRentReceipt } from "./simsar3d/SimsarRentReceipt";
 import { simsarSfx } from "./simsar3d/soundFx";
 
 export interface Simsar3DGameViewProps {
   publicData: any;
   privateData: any;
   isHost: boolean;
-  onAction: (action: SimsarAction, targetPlayerId?: string) => void;
+  onAction: (action: SimsarAction, targetPlayerId?: string) => void | Promise<boolean>;
   players: any[];
   activePlayerId?: string;
   devicePlayers?: DevicePlayerInfo[];
@@ -175,6 +182,8 @@ export function Simsar3DGameView({
   const [autoRoll, setAutoRoll] = useState(false);
   const [inspectedTileIndex, setInspectedTileIndex] = useState<number | null>(null);
   const [empireOpen, setEmpireOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [dealSheet, setDealSheet] = useState<{ tileIndex: number | null } | null>(null);
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const [tokenModalOpen, setTokenModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
@@ -232,9 +241,7 @@ export function Simsar3DGameView({
   }, [state, fallbackMyId, sharedPhonePlayerIds]);
 
   const dispatchSimsar = useCallback(
-    (action: SimsarAction, explicitActorId?: string) => {
-      onAction(action, explicitActorId || effectiveMyId);
-    },
+    (action: SimsarAction, explicitActorId?: string) => onAction(action, explicitActorId || effectiveMyId),
     [onAction, effectiveMyId]
   );
 
@@ -243,7 +250,7 @@ export function Simsar3DGameView({
     const topEv = state?.recentEvents?.[0];
     if (!topEv || topEv.id === lastEventIdRef.current) return;
     lastEventIdRef.current = topEv.id;
-    if (topEv.id === "ev_welcome") return;
+    if (topEv.id === "ev_welcome" || topEv.rent) return;
 
     if (topEv.emoji === "🚓" || topEv.emoji === "🔒") {
       simsarSfx.playRadarSiren();
@@ -311,6 +318,11 @@ export function Simsar3DGameView({
   }, [me, rollMultiplier]);
 
   const isMyTurn = Boolean(me && !me.isBankrupt && state?.currentPlayerId === effectiveMyId);
+  const canBuild = Boolean(state && isMyTurn && isSimsarPropertyPhase(state.phase) &&
+    me?.inJailTurns === 0);
+  const { visibleReceipt, waitingForReceipt, onLand } = useRentReceipt(state?.lastRent);
+  const rentPacing = Boolean(waitingForReceipt && state?.phase === "LANDED_DECISION" &&
+    state.lastRent?.payerId === state.currentPlayerId && state.lastRent.rollSeq === state.lastDice?.rollSeq);
 
   const handleRollDice = useCallback(() => {
     if (!state || !isMyTurn || state.phase !== "ROLL_READY" || rollCooldown) return;
@@ -338,8 +350,7 @@ export function Simsar3DGameView({
       state.phase === "HEIST" ||
       state.phase === "MINIGAME" ||
       state.phase === "GAME_OVER" ||
-      showHeistModal ||
-      empireOpen
+      showHeistModal || empireOpen || inspectedTileIndex !== null || dealSheet || historyOpen || rentPacing
     ) {
       return;
     }
@@ -367,6 +378,10 @@ export function Simsar3DGameView({
     rollCooldown,
     showHeistModal,
     empireOpen,
+    inspectedTileIndex,
+    dealSheet,
+    historyOpen,
+    rentPacing,
     handleRollDice,
     dispatchSimsar,
   ]);
@@ -396,7 +411,7 @@ export function Simsar3DGameView({
 
     // 2. Check if any Moroccan Tycoon Bot has a move to make right now!
     const botDecision = chooseNextBotAction(state);
-    if (botDecision) {
+    if (botDecision && !rentPacing) {
       const msSinceRoll = state.lastDice ? Date.now() - state.lastDice.rolledAt : 9999;
       let delayMs = 1150;
       if (state.phase === "AUCTION") {
@@ -423,6 +438,7 @@ export function Simsar3DGameView({
     shouldDriveBots,
     onAction,
     effectiveMyId,
+    rentPacing,
   ]);
 
   if (!state) {
@@ -444,33 +460,30 @@ export function Simsar3DGameView({
     (t) => state.properties[t.index]?.ownerId === effectiveMyId
   ).map((t) => t.index);
 
-  // Best quick-upgrade suggestion when standing in LANDED_DECISION
+  // Prefer an affordable upgrade on the city the player is standing on.
   const quickUpgradeTile: SimsarTileSpec | null = (() => {
-    if (!me || !isMyTurn || state.phase !== "LANDED_DECISION" || state.hasUpgradedThisTurn) {
+    if (!me || !canBuild) {
       return null;
     }
     const candidates = myOwnedIndices
       .map((idx) => SIMSAR_BOARD_TILES[idx])
       .filter((t) => {
-        const p = state.properties[t.index];
-        return (
-          t &&
-          t.kind === "CITY" &&
-          p &&
-          !p.isMortgaged &&
-          p.level < 3 &&
-          (t.upgradeCost ?? 9999) <= me.cash
-        );
+        const quote = getSimsarUpgradeQuote(t.index, state.properties, effectiveMyId);
+        return quote && quote.cost <= me.cash && !hasSimsarUpgradedTileThisTurn(state, t.index);
       });
     if (candidates.length === 0) return null;
     const onCurrentPos = candidates.find((t) => t.index === me.position);
     return onCurrentPos || candidates[candidates.length - 1];
   })();
+  const quickQuote = quickUpgradeTile && getSimsarUpgradeQuote(quickUpgradeTile.index, state.properties, effectiveMyId);
 
   const inspectedTile =
     inspectedTileIndex !== null ? SIMSAR_BOARD_TILES[inspectedTileIndex] : null;
   const inspectedProp =
     inspectedTileIndex !== null ? state.properties[inspectedTileIndex] : null;
+  const inspectedQuote = inspectedTile && getSimsarUpgradeQuote(inspectedTile.index, state.properties, effectiveMyId);
+  const inspectedOwner = inspectedProp?.ownerId ? state.players[inspectedProp.ownerId] : null;
+  const openOffers = state.propertyOffers?.filter((offer) => offer.toPlayerId === effectiveMyId).length ?? 0;
 
   const toggleSound = () => {
     sound.isMuted = !isMuted;
@@ -565,10 +578,26 @@ export function Simsar3DGameView({
               }}
               className="h-8 px-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-emerald-400/35 flex items-center gap-1 text-[11px] font-black text-emerald-300 active:scale-95 transition-all"
               title="عقاراتي والمدن"
+              aria-label="عقاراتي والمدن"
             >
               <Building2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">عقاراتي</span>
               <span className="tabular-nums">{myOwnedIndices.length}</span>
             </button>
+
+            {humanCount > 1 && me && !me.isBankrupt && state.phase !== "GAME_OVER" && (
+              <button
+                onClick={() => setDealSheet({ tileIndex: null })}
+                title="صفقات العقار"
+                aria-label={openOffers ? `صفقات العقار، عندك ${openOffers} عروض` : "صفقات العقار"}
+                className="relative flex h-8 w-8 items-center justify-center rounded-xl border border-amber-400/35 bg-slate-900 text-amber-200"
+              >
+                <Handshake className="h-4 w-4" />
+                {openOffers > 0 && (
+                  <span className="absolute -left-1 -top-1 rounded-full bg-amber-300 px-1 text-[10px] font-black leading-4 text-slate-950">{openOffers}</span>
+                )}
+              </button>
+            )}
 
             <button
               onClick={() => {
@@ -666,9 +695,12 @@ export function Simsar3DGameView({
                   </span>
                   <span
                     dir="ltr"
-                    className="text-[8.5px] font-bold text-amber-200/80 tabular-nums whitespace-nowrap leading-none"
+                    title="قيمة الإمبراطورية"
+                    aria-label={`قيمة الإمبراطورية ${p.netWorth} DH`}
+                    className="flex items-center gap-0.5 text-[8.5px] font-bold text-amber-200/90 tabular-nums whitespace-nowrap leading-none"
                   >
-                    💎<AnimatedNumber value={p.netWorth} />
+                    <Trophy className="h-2.5 w-2.5" aria-hidden="true" />
+                    <AnimatedNumber value={p.netWorth} />
                   </span>
                 </div>
               </div>
@@ -713,7 +745,8 @@ export function Simsar3DGameView({
           gardiennagePot={state.gardiennagePot}
           lastDice={state.lastDice}
           cameraMode={cameraMode}
-          selectedTileIndex={inspectedTileIndex ?? state.pendingTileIndex}
+          selectedTileIndex={inspectedTileIndex ?? state.pendingTileIndex ?? visibleReceipt?.tileIndex ?? null}
+          onLand={onLand}
           onSelectTile={(idx) => {
             simsarSfx.playPopTap();
             setInspectedTileIndex((prev) => (prev === idx ? null : idx));
@@ -723,7 +756,7 @@ export function Simsar3DGameView({
         {/* Floating Live Event Banner (Top of 3D Viewport — Spring Physics!) */}
         <div className="pointer-events-none absolute top-2 inset-x-2.5 z-10 flex justify-center">
           <AnimatePresence mode="popLayout">
-            {topEvent && (
+            {topEvent && !topEvent.rent && (
               <motion.div
                 key={topEvent.id}
                 initial={{ opacity: 0, y: -26, scale: 0.92 }}
@@ -740,6 +773,14 @@ export function Simsar3DGameView({
                   </div>
                 </div>
               </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="pointer-events-none absolute inset-x-3 bottom-12 z-20 flex justify-center">
+          <AnimatePresence>
+            {visibleReceipt && state.phase !== "GAME_OVER" && (
+              <SimsarRentReceipt key={visibleReceipt.id} receipt={visibleReceipt} players={state.players} myId={effectiveMyId} />
             )}
           </AnimatePresence>
         </div>
@@ -777,6 +818,14 @@ export function Simsar3DGameView({
 
         {/* Bottom-Right Floating Camera Mode Toggle */}
         <div className="absolute bottom-2.5 right-2.5 z-10 flex items-center gap-1.5">
+          <button
+            onClick={() => setHistoryOpen(true)}
+            title="آش وقع فالماتش؟"
+            aria-label="آش وقع فالماتش؟"
+            className="rounded-xl border border-white/20 bg-slate-950/90 p-2.5 text-amber-200 shadow-lg"
+          >
+            <History className="h-4 w-4" />
+          </button>
           <button
             onClick={() => {
               simsarSfx.playPopTap();
@@ -899,16 +948,12 @@ export function Simsar3DGameView({
                     {/* Direct 1-Tap Owner Actions right inside Inspect Card */}
                     {inspectedProp?.ownerId === effectiveMyId &&
                       isMyTurn &&
-                      state.phase === "LANDED_DECISION" && (
+                      isSimsarPropertyPhase(state.phase) && (
                         <div className="flex items-center gap-2 pt-1">
-                          {inspectedTile.kind === "CITY" &&
-                            !inspectedProp.isMortgaged &&
-                            inspectedProp.level < 3 &&
-                            !state.hasUpgradedThisTurn && (
+                          {inspectedQuote && canBuild && !hasSimsarUpgradedTileThisTurn(state, inspectedTile.index) && (
                               <button
-                                disabled={(me?.cash ?? 0) < (inspectedTile.upgradeCost || 0)}
+                                disabled={(me?.cash ?? 0) < inspectedQuote.cost}
                                 onClick={() => {
-                                  simsarSfx.playBuildUpgrade(inspectedProp.level + 1);
                                   dispatchSimsar({
                                     type: "UPGRADE_PROPERTY",
                                     tileIndex: inspectedTile.index,
@@ -917,11 +962,12 @@ export function Simsar3DGameView({
                                 }}
                                 className="flex-1 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 font-black text-xs disabled:opacity-45 active:scale-95 transition-all"
                               >
-                                🏗️ طوّر (+{inspectedTile.upgradeCost} DH)
+                                🏗️ {BUILDING_TIER_NAMES_AR[inspectedQuote.nextLevel]} · {inspectedQuote.cost} DH
+                                <span className="block text-[10px]">الكرا <bdi>{inspectedQuote.currentRent} → {inspectedQuote.nextRent} DH</bdi></span>
                               </button>
                             )}
 
-                          {!inspectedProp.isMortgaged ? (
+                          {state.phase !== "LANDED_DECISION" ? null : !inspectedProp.isMortgaged ? (
                             <button
                               onClick={() => {
                                 simsarSfx.playCashGain();
@@ -958,6 +1004,16 @@ export function Simsar3DGameView({
                             </button>
                           )}
                         </div>
+                      )}
+                    {me && !me.isBankrupt && inspectedOwner && inspectedOwner.id !== effectiveMyId &&
+                      !inspectedOwner.isBot && !inspectedOwner.isBankrupt && !inspectedProp?.isMortgaged &&
+                      isSimsarPropertyPhase(state.phase) && (
+                        <button
+                          onClick={() => setDealSheet({ tileIndex: inspectedTile.index })}
+                          className="rounded-xl bg-amber-400/15 px-3 py-2 text-xs font-black text-amber-200"
+                        >
+                          🤝 دير عرض على هاد العقار
+                        </button>
                       )}
                   </>
                 ) : (
@@ -1111,7 +1167,16 @@ export function Simsar3DGameView({
                   </button>
                 )}
 
-                {/* Monopoly-GO Auto-Roll Toggle */}
+                {quickQuote && (
+                  <button
+                    onClick={() => setEmpireOpen(true)}
+                    className="flex items-center gap-1 rounded-xl border border-amber-300/40 bg-amber-400/15 px-2.5 py-1.5 text-[11px] font-black text-amber-100 active:scale-95"
+                  >
+                    <Building2 className="h-3.5 w-3.5" /> طوّر عقار
+                  </button>
+                )}
+
+                {/* Auto-Roll Toggle */}
                 <button
                   onClick={() => {
                     simsarSfx.playPopTap();
@@ -1272,11 +1337,9 @@ export function Simsar3DGameView({
         ) : /* CASE D: MY TURN — UPGRADE OR END TURN */ isMyTurn &&
           state.phase === "LANDED_DECISION" ? (
           <div className="space-y-2">
-            {quickUpgradeTile && (
+            {quickUpgradeTile && quickQuote && (
               <button
                 onClick={() => {
-                  const curLvl = state.properties[quickUpgradeTile.index]?.level ?? 0;
-                  simsarSfx.playBuildUpgrade(curLvl + 1);
                   dispatchSimsar({
                     type: "UPGRADE_PROPERTY",
                     tileIndex: quickUpgradeTile.index,
@@ -1288,16 +1351,13 @@ export function Simsar3DGameView({
                   <span>🏗️</span>
                   <span className="truncate">
                     بني{" "}
-                    {
-                      BUILDING_TIER_NAMES_AR[
-                        ((state.properties[quickUpgradeTile.index]?.level ?? 0) + 1) as 1 | 2 | 3
-                      ]
-                    }{" "}
+                    {BUILDING_TIER_NAMES_AR[quickQuote.nextLevel]}{" "}
                     فـ {quickUpgradeTile.shortAr}
+                    <span className="block text-[10px] text-amber-100/80">الكرا <bdi>{quickQuote.currentRent} → {quickQuote.nextRent} DH</bdi></span>
                   </span>
                 </span>
                 <span className="px-2 py-0.5 rounded-lg bg-amber-400 text-slate-950 font-black text-[11px] shrink-0 tabular-nums">
-                  {quickUpgradeTile.upgradeCost} DH
+                  {quickQuote.cost} DH
                 </span>
               </button>
             )}
@@ -1333,11 +1393,12 @@ export function Simsar3DGameView({
                   simsarSfx.playPopTap();
                   dispatchSimsar({ type: "END_TURN" });
                 }}
-                className="flex-1 py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-500 text-slate-950 font-black text-base shadow-[0_4px_0_#0f766e] active:translate-y-0.5 transition-all flex items-center justify-center gap-2"
+                disabled={rentPacing}
+                className="flex-1 py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-500 text-slate-950 font-black text-base shadow-[0_4px_0_#0f766e] active:translate-y-0.5 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
               >
                 <Check className="w-5 h-5 stroke-[3]" />
                 <span>
-                  {state.extraRollGranted
+                  {rentPacing ? "لحظة، الكرا كيدوز…" : state.extraRollGranted
                     ? "ارمي الضوبل الإضافي! 🎲🔥"
                     : "ساليت نوبتي (التالي)"}
                 </span>
@@ -1549,6 +1610,47 @@ export function Simsar3DGameView({
         />
       )}
 
+      {dealSheet && state.phase !== "GAME_OVER" && (
+        <SimsarPropertyDeals
+          key={effectiveMyId}
+          playerId={effectiveMyId}
+          initialTile={dealSheet.tileIndex}
+          state={state}
+          onAction={dispatchSimsar}
+          onClose={() => setDealSheet(null)}
+        />
+      )}
+
+      {historyOpen && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/75 backdrop-blur-sm"
+          onKeyDown={(event) => { if (event.key === "Escape") setHistoryOpen(false); }}
+        >
+          <section role="dialog" aria-modal="true" aria-labelledby="simsar-activity-title"
+            className="flex max-h-[76dvh] w-full max-w-md flex-col rounded-t-3xl border border-amber-300/30 bg-slate-950"
+          >
+            <header className="flex items-center justify-between border-b border-white/10 p-4">
+              <h2 id="simsar-activity-title" className="flex items-center gap-2 font-black">
+                <History className="h-5 w-5 text-amber-300" /> آش وقع فالماتش؟
+              </h2>
+              <button onClick={() => setHistoryOpen(false)} aria-label="سد سجل الماتش" className="rounded-lg bg-slate-900 p-2">
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <ol className="space-y-2 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+              {state.recentEvents.map((event) => (
+                <li key={event.id} className="flex items-start gap-3 rounded-xl border border-white/10 bg-slate-900 p-3">
+                  <span aria-hidden="true">{event.emoji}</span>
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-bold text-white">{event.titleAr}</p>
+                    <p className="break-words text-xs text-slate-300">{event.subtitleAr}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        </div>
+      )}
+
       {/* =====================================================================
           OVERLAY 3: MY EMPIRE & PROPERTY MANAGER BOTTOM SHEET
       ===================================================================== */}
@@ -1562,13 +1664,11 @@ export function Simsar3DGameView({
                   <h3 className="text-sm font-black text-white">
                     إمبراطوريتي العقارية ({myOwnedIndices.length})
                   </h3>
-                  <p className="text-[10px] text-slate-400 font-semibold">
-                    طوّر المدن للقهاوي والرياضات والأوطيلات أو دير الرهن فـ نوبتك!
-                  </p>
                 </div>
               </div>
               <button
                 onClick={() => setEmpireOpen(false)}
+                aria-label="سد عقاراتي"
                 className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center text-slate-300"
               >
                 <X className="w-4 h-4" />
@@ -1576,6 +1676,20 @@ export function Simsar3DGameView({
             </div>
 
             <div className="p-3 overflow-y-auto space-y-2 flex-1">
+              {me && (
+                <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+                  <p className="flex justify-between gap-2 font-black">
+                    <span>قيمة الإمبراطورية</span><bdi>{me.netWorth} DH</bdi>
+                  </p>
+                  <p className="mt-1 flex justify-between gap-2 text-slate-300">
+                    <span>الرصيد <bdi>{me.cash} DH</bdi></span>
+                    <span>العقار والبني <bdi>{Math.max(0, me.netWorth - me.cash)} DH</bdi></span>
+                  </p>
+                </div>
+              )}
+              {isMyTurn && myOwnedIndices.length > 0 && (
+                <p className="px-1 text-xs text-amber-200">تقدر تطوّر بزاف ديال العقارات فـ نوبتك، مستوى واحد لكل عقار.</p>
+              )}
               {myOwnedIndices.length === 0 ? (
                 <div className="py-10 text-center text-xs text-slate-400 font-bold">
                   مازال ما شريتي حتى مدينة! لوح النرد وشري أول همزة فالمغرب 🏙️
@@ -1586,6 +1700,8 @@ export function Simsar3DGameView({
                   const prop = state.properties[idx];
                   if (!tile || !prop) return null;
                   const canAct = isMyTurn && state.phase === "LANDED_DECISION";
+                  const quote = getSimsarUpgradeQuote(idx, state.properties, effectiveMyId);
+                  const upgradedThisTurn = isMyTurn && hasSimsarUpgradedTileThisTurn(state, idx);
                   const curRent = computePropertyRent(idx, state.properties, 7);
                   const mortgageGain =
                     Math.round((tile.price || 0) * 0.5) +
@@ -1595,7 +1711,7 @@ export function Simsar3DGameView({
                   return (
                     <div
                       key={idx}
-                      className="p-3 rounded-2xl bg-slate-900/90 border border-white/10 flex items-center justify-between gap-2"
+                      className="p-3 rounded-2xl bg-slate-900/90 border border-white/10 space-y-2"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div
@@ -1623,24 +1739,23 @@ export function Simsar3DGameView({
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {tile.kind === "CITY" &&
-                          !prop.isMortgaged &&
-                          prop.level < 3 &&
-                          canAct &&
-                          !state.hasUpgradedThisTurn && (
+                      {(quote || canAct) && <div className="flex items-center gap-1.5">
+                        {quote && (
                             <button
-                              disabled={(me?.cash ?? 0) < (tile.upgradeCost || 0)}
+                              disabled={!canBuild || upgradedThisTurn || (me?.cash ?? 0) < quote.cost}
                               onClick={() => {
-                                simsarSfx.playBuildUpgrade(prop.level + 1);
                                 dispatchSimsar({
                                   type: "UPGRADE_PROPERTY",
                                   tileIndex: idx,
                                 });
                               }}
-                              className="px-2.5 py-1.5 rounded-xl bg-amber-400 text-slate-950 font-black text-[11px] disabled:opacity-40 active:scale-95"
+                              className="flex min-h-11 flex-1 items-center justify-between gap-2 rounded-xl bg-amber-300 px-2.5 py-1.5 text-right text-xs font-black text-slate-950 disabled:bg-slate-800 disabled:text-slate-300"
                             >
-                              🏗️ +{tile.upgradeCost}
+                              <span>
+                                {upgradedThisTurn ? "تطوّر فهاد النوبة" : `بني ${BUILDING_TIER_NAMES_AR[quote.nextLevel]}`}
+                                <span className="block text-[10px] font-semibold">الكرا <bdi>{quote.currentRent} → {quote.nextRent} DH</bdi></span>
+                              </span>
+                              <bdi className="shrink-0">{quote.cost} DH</bdi>
                             </button>
                           )}
 
@@ -1668,7 +1783,7 @@ export function Simsar3DGameView({
                             فك -{unmortgageCost}
                           </button>
                         )}
-                      </div>
+                      </div>}
                     </div>
                   );
                 })
@@ -1749,8 +1864,10 @@ export function Simsar3DGameView({
                 <strong className="text-amber-300">{state.empireTargetDh} DH</strong> فالحين!
               </div>
               <div>
-                🏘️ <strong>احتكار اللون:</strong> ملي تملك كل مدن نفس اللون، الكرا كيتضاعف{" "}
-                <strong className="text-emerald-300">x2</strong>!
+                🏆 <strong>قيمة الإمبراطورية:</strong> الرصيد ديالك زائد قيمة العقار والبني.
+              </div>
+              <div>
+                🏘️ <strong>احتكار اللون:</strong> إلا ملكتي المجموعة كاملة، كرا الأرض كيتضاعف وكرا البناية كيزيد بـ 35%.
               </div>
               <div>
                 ⚡ <strong>التحدي الجماعي:</strong> فنهاية كل دورة كيلعب الجميع 20 ثانية على{" "}
@@ -1836,6 +1953,12 @@ export function Simsar3DGameView({
                 {state.winnerSummaryAr}
               </p>
             </div>
+
+            {topEvent?.rent && (
+              <div className="flex justify-center">
+                <SimsarRentReceipt key={topEvent.rent.id} receipt={topEvent.rent} players={state.players} myId={effectiveMyId} />
+              </div>
+            )}
 
             {/* Standings Table */}
             <div className="space-y-1.5">

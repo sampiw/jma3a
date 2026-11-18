@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GameContext } from "@/games/registry";
 import { chooseNextBotAction } from "@/games/simsar3d/ai";
 import {
   BOARD_TILE_COUNT,
   computePlayerNetWorth,
   computePropertyRent,
+  getSimsarUpgradeQuote,
   getTileWorldTransform,
   HAMZA_CARDS,
   ownsFullColorSet,
@@ -21,6 +22,7 @@ import {
 import {
   SIMSAR_TOKEN_ORDER,
   SIMSAR_TOKENS,
+  SimsarAction,
   SimsarSettings,
   SimsarState,
 } from "@/games/simsar3d/types";
@@ -274,6 +276,141 @@ describe("SIMSAR ROYALE 3D — Production 3D Board, GLB Assets, Auctions, Heist,
     expect(endRes.success).toBe(true);
     expect(endRes.newState.currentPlayerId).toBe("p2");
     expect(endRes.newState.phase).toBe("ROLL_READY");
+  });
+
+  it("lets players build once on each city per turn, including before the roll and through doubles", () => {
+    const players = makePlayers(2);
+    const state = Simsar3DEngine.createInitialState(players, DEFAULT_SIMSAR_SETTINGS);
+    state.properties[1].ownerId = "p1";
+    state.properties[2].ownerId = "p1";
+    const quote = getSimsarUpgradeQuote(1, state.properties, "p1");
+    expect(quote).toEqual({ currentRent: 25, nextRent: 70, nextLevel: 1, cost: 70 });
+    const action = { type: "UPGRADE_PROPERTY", tileIndex: 1 } as const;
+    const upgraded = Simsar3DEngine.handleAction(makeCtx(players, state), "p1", action);
+    expect(upgraded.success).toBe(true);
+    expect(upgraded.newState.players.p1.cash).toBe(930);
+    expect(upgraded.newState.players.p1.netWorth).toBe(1220);
+
+    upgraded.newState.phase = "LANDED_DECISION";
+    upgraded.newState.extraRollGranted = true;
+    const doubles = Simsar3DEngine.handleAction(makeCtx(players, upgraded.newState), "p1", { type: "END_TURN" });
+    expect(doubles.newState.currentPlayerId).toBe("p1");
+    expect(doubles.newState.phase).toBe("ROLL_READY");
+    expect(Simsar3DEngine.handleAction(makeCtx(players, doubles.newState), "p1", action).success).toBe(false);
+    expect(doubles.newState.properties[1].level).toBe(1);
+    const secondCity = Simsar3DEngine.handleAction(makeCtx(players, doubles.newState), "p1", {
+      type: "UPGRADE_PROPERTY", tileIndex: 2,
+    });
+    expect(secondCity.success).toBe(true);
+    expect(secondCity.newState.properties[2].level).toBe(1);
+    expect(secondCity.newState.players.p1.cash).toBe(850);
+    secondCity.newState.phase = "LANDED_DECISION";
+    const nextTurn = Simsar3DEngine.handleAction(makeCtx(players, secondCity.newState), "p1", { type: "END_TURN" });
+    expect(nextTurn.newState.currentPlayerId).toBe("p2");
+    expect(nextTurn.newState.upgradedTileIndicesThisTurn).toEqual([]);
+  });
+
+  it("records the exact rent transfer and its landing for every room member", () => {
+    const players = makePlayers(2);
+    const state = Simsar3DEngine.createInitialState(players, DEFAULT_SIMSAR_SETTINGS);
+    state.properties[2] = { ownerId: "p2", level: 2, isMortgaged: false };
+    state.players.p1.shields = 1;
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const result = Simsar3DEngine.handleAction(makeCtx(players, state), "p1", { type: "ROLL_DICE" });
+      const after = result.newState;
+      expect(after.players.p1.cash).toBe(905);
+      expect(after.players.p2.cash).toBe(1095);
+      expect(after.lastRent).toMatchObject({
+        payerId: "p1", ownerId: "p2", tileIndex: 2, paidDh: 95, dueDh: 95, shieldUsed: true,
+        moveSeq: after.players.p1.moveSeq, rollSeq: after.lastDice?.rollSeq,
+      });
+      expect(after.recentEvents[0].rent).toEqual(after.lastRent);
+      const view = Simsar3DEngine.getPublicView(makeCtx(players, after)).publicData;
+      expect(view.lastRent).toEqual(after.lastRent);
+
+      state.players.p1.cash = 45;
+      const partial = Simsar3DEngine.handleAction(makeCtx(players, state), "p1", { type: "ROLL_DICE" });
+      expect(partial.newState.phase).toBe("GAME_OVER");
+      expect(partial.newState.lastRent).toMatchObject({ paidDh: 45, dueDh: 95 });
+    } finally {
+      random.mockRestore();
+    }
+  });
+
+  it("lets only the named recipient accept a fresh property swap and applies it once", () => {
+    const players = makePlayers(3);
+    const state = Simsar3DEngine.createInitialState(players, DEFAULT_SIMSAR_SETTINGS);
+    state.properties[1] = { ownerId: "p1", level: 1, isMortgaged: false };
+    state.properties[2] = { ownerId: "p2", level: 2, isMortgaged: false };
+    const offered = Simsar3DEngine.handleAction(makeCtx(players, state), "p1", {
+      type: "OFFER_PROPERTY_DEAL", requestedTileIndex: 2, offeredTileIndex: 1, cashDh: 150,
+    }).newState;
+    const accept = { type: "ANSWER_PROPERTY_DEAL", offerId: offered.propertyOffers![0].id, accept: true } as const;
+    const answer = (next: SimsarState, actor: string) => Simsar3DEngine.handleAction(makeCtx(players, next), actor, accept);
+    expect(answer(offered, "p3").success).toBe(false);
+    const stale = structuredClone(offered);
+    stale.properties[2].level = 3;
+    expect(answer(stale, "p2").success).toBe(false);
+    const broke = structuredClone(offered);
+    broke.players.p1.cash = 149;
+    expect(answer(broke, "p2").success).toBe(false);
+
+    const accepted = answer(offered, "p2");
+    expect(accepted.success).toBe(true);
+    expect(accepted.newState.players.p1.cash).toBe(850);
+    expect(accepted.newState.players.p2.cash).toBe(1150);
+    expect(accepted.newState.properties[1]).toMatchObject({ ownerId: "p2", level: 1 });
+    expect(accepted.newState.properties[2]).toMatchObject({ ownerId: "p1", level: 2 });
+    expect(accepted.newState.propertyOffers).toEqual([]);
+    expect(answer(accepted.newState, "p2").success).toBe(false);
+  });
+
+  it("syncs rent and trade ownership between two independently joined devices", async () => {
+    const hostSession = "sess_simsar_multi_host";
+    const guestSession = "sess_simsar_multi_guest";
+    const { room, hostPlayer } = await roomStore.createRoom("Salma", "simsar3d", "MULTI_PHONE", "darija", hostSession);
+    const guest = await roomStore.joinRoom(room.code, "Youssef", guestSession);
+    expect(guest.success).toBe(true);
+    expect((await roomStore.startGame(room.code, hostSession)).success).toBe(true);
+    const dispatch = (session: string, action: SimsarAction, actorId?: string) =>
+      roomStore.dispatchAction(room.code, session, action, actorId);
+    const view = async (session: string) => {
+      const result = await roomStore.getAuthorizedState(room.code, session);
+      expect(result?.player).toBeDefined();
+      return result!.room.gameView!.publicData as unknown as SimsarState;
+    };
+    const rollOntoTileFour = async (session: string) => {
+      const random = vi.spyOn(Math, "random").mockReturnValueOnce(0).mockReturnValueOnce(0.4);
+      try {
+        expect((await dispatch(session, { type: "ROLL_DICE" })).success).toBe(true);
+      } finally {
+        random.mockRestore();
+      }
+    };
+
+    await rollOntoTileFour(hostSession);
+    expect((await dispatch(hostSession, { type: "BUY_PROPERTY" })).success).toBe(true);
+    expect((await dispatch(hostSession, { type: "UPGRADE_PROPERTY", tileIndex: 4 })).success).toBe(true);
+    expect((await dispatch(hostSession, { type: "END_TURN" })).success).toBe(true);
+    await rollOntoTileFour(guestSession);
+
+    const hostView = await view(hostSession);
+    const guestView = await view(guestSession);
+    expect(hostView.lastRent).toMatchObject({
+      payerId: guest.player!.id, ownerId: hostPlayer.id, paidDh: 100, tileIndex: 4,
+    });
+    expect(guestView.lastRent).toEqual(hostView.lastRent);
+
+    expect((await dispatch(guestSession, {
+      type: "OFFER_PROPERTY_DEAL", requestedTileIndex: 4, offeredTileIndex: null, cashDh: 225,
+    })).success).toBe(true);
+    const offerId = (await view(hostSession)).propertyOffers![0].id;
+    const answer = { type: "ANSWER_PROPERTY_DEAL", offerId, accept: true } as const;
+    expect((await dispatch(hostSession, answer, guest.player!.id)).success).toBe(false);
+    expect((await dispatch(hostSession, answer)).success).toBe(true);
+    expect((await view(guestSession)).properties[4]).toMatchObject({ ownerId: guest.player!.id, level: 1 });
+    expect((await view(hostSession)).propertyOffers).toEqual([]);
   });
 
   it("executes Live Room Auctions (START_AUCTION -> PLACE_BID -> PASS_AUCTION) and awards city to highest bidder", () => {

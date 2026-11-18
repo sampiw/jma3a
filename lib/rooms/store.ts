@@ -677,6 +677,13 @@ export class RoomStore {
     let actor = room.players.find((p) => p.deviceSessionId === sessionToken);
     if (targetPlayerId) {
       const targetP = room.players.find((p) => p.id === targetPlayerId);
+      if (
+        firstSession.gameId === "simsar3d" &&
+        ["OFFER_PROPERTY_DEAL", "ANSWER_PROPERTY_DEAL", "CANCEL_PROPERTY_DEAL"].includes(action.type) &&
+        targetP?.deviceSessionId !== sessionToken
+      ) {
+        return { success: false, error: "Property offers must be handled on the player's device" };
+      }
       if (targetP && (targetP.deviceSessionId === sessionToken || actor?.isHost)) {
         actor = targetP;
       }

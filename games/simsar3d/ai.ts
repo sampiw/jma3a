@@ -202,7 +202,8 @@ export function chooseNextBotAction(state: SimsarState): {
     }
 
     // Check if bot can smartly upgrade one of its owned cities once this turn!
-    if (!state.hasUpgradedThisTurn) {
+    if (active.inJailTurns === 0 &&
+        (state.upgradedTileIndicesThisTurn?.length ?? Number(Boolean(state.hasUpgradedThisTurn))) === 0) {
       const upgradable = SIMSAR_BOARD_TILES.filter((t) => {
         const pr = state.properties[t.index];
         return (

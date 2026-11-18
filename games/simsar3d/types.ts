@@ -237,6 +237,32 @@ export interface SimsarEventBanner {
   subtitleAr: string;
   tone: "GOLD" | "EMERALD" | "ROSE" | "PURPLE" | "CYAN";
   createdAt: number;
+  rent?: SimsarRentReceipt;
+}
+
+export interface SimsarRentReceipt {
+  id: string;
+  createdAt: number;
+  moveSeq: number;
+  rollSeq: number;
+  tileIndex: number;
+  payerId: string;
+  ownerId: string;
+  paidDh: number;
+  dueDh: number;
+  shieldUsed: boolean;
+}
+
+export interface SimsarPropertyOffer {
+  id: string;
+  fromPlayerId: string;
+  toPlayerId: string;
+  requestedTileIndex: number;
+  requestedLevel: SimsarPropertyState["level"];
+  offeredTileIndex: number | null;
+  offeredLevel: SimsarPropertyState["level"] | null;
+  cashDh: number;
+  expiresAfterRound: number;
 }
 
 export interface SimsarAwardBadge {
@@ -276,13 +302,16 @@ export interface SimsarState {
 
   lastDice: SimsarDiceRoll | null;
   pendingTileIndex: number | null; // tile awaiting buy/auction/end-turn decision
-  hasUpgradedThisTurn: boolean;
+  upgradedTileIndicesThisTurn?: number[];
+  hasUpgradedThisTurn?: boolean; // Legacy rooms can finish the current turn under the old rule.
 
   auction: SimsarAuctionState | null;
   heist: SimsarHeistState | null;
   miniGame: SimsarMiniGameState | null;
 
   recentEvents: SimsarEventBanner[];
+  lastRent?: SimsarRentReceipt | null;
+  propertyOffers?: SimsarPropertyOffer[];
   winnerId: string | null;
   winnerSummaryAr: string | null;
   awards: SimsarAwardBadge[];
@@ -299,6 +328,9 @@ export type SimsarAction =
   | { type: "FINALIZE_AUCTION" }
   | { type: "PICK_HEIST_BOX"; boxIndex: number }
   | { type: "UPGRADE_PROPERTY"; tileIndex: number }
+  | { type: "OFFER_PROPERTY_DEAL"; requestedTileIndex: number; offeredTileIndex: number | null; cashDh: number }
+  | { type: "ANSWER_PROPERTY_DEAL"; offerId: string; accept: boolean }
+  | { type: "CANCEL_PROPERTY_DEAL"; offerId: string }
   | { type: "MORTGAGE_PROPERTY"; tileIndex: number }
   | { type: "UNMORTGAGE_PROPERTY"; tileIndex: number }
   | { type: "END_TURN" }

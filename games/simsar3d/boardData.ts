@@ -1,7 +1,9 @@
 import {
   SimsarColorGroup,
   SimsarPlayer,
+  SimsarPhase,
   SimsarPropertyState,
+  SimsarState,
   SimsarTileSpec,
 } from "./types";
 
@@ -506,6 +508,36 @@ export function computePlayerNetWorth(
     total += val + upgVal;
   }
   return total;
+}
+
+export function isSimsarPropertyPhase(phase: SimsarPhase): boolean {
+  return phase === "ROLL_READY" || phase === "LANDED_DECISION";
+}
+
+export function hasSimsarUpgradedTileThisTurn(state: SimsarState, tileIndex: number): boolean {
+  return state.upgradedTileIndicesThisTurn?.includes(tileIndex) ?? state.hasUpgradedThisTurn ?? false;
+}
+
+export function getSimsarUpgradeQuote(
+  tileIndex: number,
+  properties: Record<number, SimsarPropertyState>,
+  playerId: string
+) {
+  const tile = SIMSAR_BOARD_TILES[tileIndex];
+  const prop = properties[tileIndex];
+  if (tile?.kind !== "CITY" || !tile.upgradeCost || !prop || prop.ownerId !== playerId ||
+    prop.isMortgaged || prop.level >= 3) return null;
+
+  const nextLevel = (prop.level + 1) as 1 | 2 | 3;
+  return {
+    cost: tile.upgradeCost,
+    nextLevel,
+    currentRent: computePropertyRent(tileIndex, properties),
+    nextRent: computePropertyRent(tileIndex, {
+      ...properties,
+      [tileIndex]: { ...prop, level: nextLevel },
+    }),
+  };
 }
 
 /**

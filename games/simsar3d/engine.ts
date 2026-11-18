@@ -17,8 +17,11 @@ import {
   computePlayerNetWorth,
   computePropertyRent,
   createInitialPropertiesState,
+  getSimsarUpgradeQuote,
+  hasSimsarUpgradedTileThisTurn,
   HAMZA_CARDS,
   INITIAL_GARDIENNAGE_POT_DH,
+  isSimsarPropertyPhase,
   JAIL_BAIL_DH,
   LAND_ON_START_BONUS_DH,
   PASS_START_SALARY_DH,
@@ -35,7 +38,9 @@ import {
   SimsarMiniGameId,
   SimsarMode,
   SimsarPlayer,
+  SimsarPropertyOffer,
   SimsarPropertyState,
+  SimsarRentReceipt,
   SimsarSettings,
   SimsarState,
 } from "./types";
@@ -67,7 +72,8 @@ function pushBanner(
   emoji: string,
   titleAr: string,
   subtitleAr: string,
-  tone: SimsarEventBanner["tone"] = "GOLD"
+  tone: SimsarEventBanner["tone"] = "GOLD",
+  rent?: SimsarRentReceipt
 ) {
   const ev: SimsarEventBanner = {
     id: `ev_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -76,6 +82,7 @@ function pushBanner(
     subtitleAr,
     tone,
     createdAt: Date.now(),
+    ...(rent && { rent }),
   };
   state.recentEvents = [ev, ...state.recentEvents.slice(0, 5)];
 }
@@ -548,21 +555,33 @@ function resolveTileArrival(
           state.phase = "LANDED_DECISION";
           break;
         }
-        let rent = computePropertyRent(tile.index, state.properties, diceTotal);
-        let shieldNote = "";
-        if (player.shields > 0 && rent >= 90) {
-          player.shields -= 1;
-          rent = Math.round(rent * 0.5);
-          shieldNote = " (درع السمسار 🛡️ نقّص الكرا النص!)";
-        }
-        const paid = chargePlayerWithAutoRescue(state, player, rent, owner);
+        const fullRent = computePropertyRent(tile.index, state.properties, diceTotal);
+        const shieldUsed = player.shields > 0 && fullRent >= 90;
+        if (shieldUsed) player.shields -= 1;
+        const dueDh = shieldUsed ? Math.round(fullRent * 0.5) : fullRent;
+        const paid = chargePlayerWithAutoRescue(state, player, dueDh, owner);
         player.rentPaid += paid;
+        const rollSeq = state.lastDice?.rollSeq ?? 0;
+        const receipt: SimsarRentReceipt = {
+          id: `${state.updatedAt}:${rollSeq}:${player.id}:${player.moveSeq}`,
+          createdAt: state.updatedAt,
+          rollSeq,
+          moveSeq: player.moveSeq,
+          tileIndex: tile.index,
+          payerId: player.id,
+          ownerId: owner.id,
+          paidDh: paid,
+          dueDh,
+          shieldUsed,
+        };
+        state.lastRent = receipt;
         pushBanner(
           state,
           "💸",
           `${player.nickname} خلّص ${paid} DH كرا فـ ${tile.shortAr}!`,
-          `مشات لجيب ${owner.nickname}${shieldNote}`,
-          "ROSE"
+          `مشات لجيب ${owner.nickname}${shieldUsed ? " · 🛡️ الدرع نقص الكرا النص" : ""}`,
+          "ROSE",
+          receipt
         );
         state.phase = "LANDED_DECISION";
       }
@@ -582,8 +601,6 @@ function advanceTurnOrStartMiniGame(state: SimsarState) {
   state.pendingTileIndex = null;
   state.auction = null;
   state.heist = null;
-  state.hasUpgradedThisTurn = false;
-
   const current = state.players[state.currentPlayerId];
   if (state.extraRollGranted && current && !current.isBankrupt && current.inJailTurns === 0) {
     state.extraRollGranted = false;
@@ -597,6 +614,7 @@ function advanceTurnOrStartMiniGame(state: SimsarState) {
     );
     return;
   }
+  state.upgradedTileIndicesThisTurn = [];
   state.extraRollGranted = false;
 
   const totalOrder = state.turnOrder.length;
@@ -714,6 +732,7 @@ function finalizeMiniGamePayouts(state: SimsarState) {
   }
 
   state.round += 1;
+  state.propertyOffers = getOpenPropertyOffers(state);
   state.miniGame = null;
   state.phase = "ROLL_READY";
   checkAndFinalizeMatchIfWon(state);
@@ -758,6 +777,95 @@ function finalizeAuction(state: SimsarState) {
   state.pendingTileIndex = null;
   state.phase = "LANDED_DECISION";
   refreshAllNetWorths(state);
+}
+
+type PropertyOfferAction = Extract<SimsarAction, {
+  type: "OFFER_PROPERTY_DEAL" | "ANSWER_PROPERTY_DEAL" | "CANCEL_PROPERTY_DEAL";
+}>;
+
+function getOpenPropertyOffers(state: SimsarState): SimsarPropertyOffer[] {
+  return (state.propertyOffers ?? []).filter((offer) => {
+    const from = state.players[offer.fromPlayerId];
+    const to = state.players[offer.toPlayerId];
+    const requested = state.properties[offer.requestedTileIndex];
+    const offered = offer.offeredTileIndex === null ? null : state.properties[offer.offeredTileIndex];
+    return (
+      state.round <= offer.expiresAfterRound && from && to && !from.isBankrupt && !to.isBankrupt &&
+      requested?.ownerId === to.id && !requested.isMortgaged && requested.level === offer.requestedLevel &&
+      (offer.offeredTileIndex === null ||
+        (offered?.ownerId === from.id && !offered.isMortgaged && offered.level === offer.offeredLevel))
+    );
+  });
+}
+
+function applyPropertyOffer(state: SimsarState, actorId: string, action: PropertyOfferAction) {
+  const actor = state.players[actorId];
+  if (!actor || actor.isBot || actor.isBankrupt || state.phase === "GAME_OVER") {
+    return "الصفقات متاحة للسماسرية اللي باقيين فالماتش.";
+  }
+  const offers = getOpenPropertyOffers(state);
+  const canDeal = isSimsarPropertyPhase(state.phase);
+
+  if (action.type === "OFFER_PROPERTY_DEAL") {
+    const { requestedTileIndex, offeredTileIndex, cashDh } = action;
+    if (!canDeal) return "تسنى حتى تسالي هاد المرحلة باش تصيفط عرض.";
+    if (!Number.isInteger(requestedTileIndex) ||
+        (offeredTileIndex !== null && !Number.isInteger(offeredTileIndex)) ||
+        !Number.isSafeInteger(cashDh) || cashDh < 0 || cashDh > actor.cash ||
+        (cashDh === 0 && offeredTileIndex === null)) return "اختار عقار أو مبلغ من الرصيد ديالك.";
+
+    const requested = state.properties[requestedTileIndex];
+    const to = requested?.ownerId ? state.players[requested.ownerId] : undefined;
+    const offered = offeredTileIndex === null ? null : state.properties[offeredTileIndex];
+    if (!to || to.id === actorId || to.isBot || to.isBankrupt || requested.isMortgaged ||
+        (offeredTileIndex !== null && (offered?.ownerId !== actorId || offered.isMortgaged))) {
+      return "هاد العقار ما يمكنش يدخل فالصفقة دابا.";
+    }
+    if (offers.some((offer) => offer.fromPlayerId === actorId)) return "عندك عرض باقي كيتسنى الجواب.";
+
+    state.propertyOffers = [...offers, {
+      id: crypto.randomUUID(),
+      fromPlayerId: actorId,
+      toPlayerId: to.id,
+      requestedTileIndex,
+      requestedLevel: requested.level,
+      offeredTileIndex,
+      offeredLevel: offered?.level ?? null,
+      cashDh,
+      expiresAfterRound: state.round + 1,
+    }];
+    return;
+  }
+
+  const offer = offers.find((entry) => entry.id === action.offerId);
+  const authorizedId = action.type === "CANCEL_PROPERTY_DEAL" ? offer?.fromPlayerId : offer?.toPlayerId;
+  if (!offer || authorizedId !== actorId) return "هاد العرض ما بقاش متاح.";
+  if (action.type === "ANSWER_PROPERTY_DEAL" && typeof action.accept !== "boolean") {
+    return "اختار القبول أو الرفض.";
+  }
+
+  if (action.type === "ANSWER_PROPERTY_DEAL" && action.accept) {
+    if (!canDeal) return "تسنى حتى تسالي هاد المرحلة باش تقبل العرض.";
+    const from = state.players[offer.fromPlayerId];
+    if (from.cash < offer.cashDh) return "مول العرض ما بقاش عندو الرصيد الكافي.";
+
+    from.cash -= offer.cashDh;
+    actor.cash += offer.cashDh;
+    state.properties[offer.requestedTileIndex].ownerId = from.id;
+    if (offer.offeredTileIndex !== null) state.properties[offer.offeredTileIndex].ownerId = actor.id;
+    state.propertyOffers = getOpenPropertyOffers(state);
+    pushBanner(
+      state,
+      "🤝",
+      `${from.nickname} و ${actor.nickname} دارو صفقة!`,
+      `${SIMSAR_BOARD_TILES[offer.requestedTileIndex].shortAr} ولات ديال ${from.nickname}.`,
+      "EMERALD"
+    );
+    checkAndFinalizeMatchIfWon(state);
+    return;
+  }
+
+  state.propertyOffers = offers.filter((entry) => entry.id !== offer.id);
 }
 
 function applySimsarActionInternal(
@@ -819,6 +927,14 @@ function applySimsarActionInternal(
       me.lastReactionAt = Date.now();
     }
     return { success: true, newState: state, newPhase: state.phase };
+  }
+
+  if (action.type === "OFFER_PROPERTY_DEAL" || action.type === "ANSWER_PROPERTY_DEAL" ||
+      action.type === "CANCEL_PROPERTY_DEAL") {
+    const error = applyPropertyOffer(state, actorId, action);
+    return error
+      ? { success: false, newState: baseState, newPhase: baseState.phase, error }
+      : { success: true, newState: state, newPhase: state.phase };
   }
 
   if (action.type === "BOT_STEP") {
@@ -1178,31 +1294,26 @@ function applySimsarActionInternal(
 
   if (action.type === "UPGRADE_PROPERTY") {
     const tile = SIMSAR_BOARD_TILES[action.tileIndex];
-    const prop = state.properties[action.tileIndex];
-    if (
-      !tile ||
-      tile.kind !== "CITY" ||
-      !prop ||
-      prop.ownerId !== player.id ||
-      prop.isMortgaged ||
-      prop.level >= 3 ||
-      !tile.upgradeCost
-    ) {
-      return { success: false, newState: state, newPhase: state.phase, error: "Cannot upgrade" };
+    const quote = getSimsarUpgradeQuote(action.tileIndex, state.properties, player.id);
+    if (!quote || !isSimsarPropertyPhase(state.phase) || player.inJailTurns > 0) {
+      return { success: false, newState: state, newPhase: state.phase, error: "ما يمكنش تطوّر هاد العقار دابا." };
     }
-    if (player.cash < tile.upgradeCost) {
+    if (hasSimsarUpgradedTileThisTurn(state, tile.index)) {
+      return { success: false, newState: state, newPhase: state.phase, error: "طوّرت هاد العقار فهاد النوبة. تقدر تطوّر عقار آخر." };
+    }
+    if (player.cash < quote.cost) {
       return { success: false, newState: state, newPhase: state.phase, error: "رصيدك غير كافي للبني!" };
     }
 
-    player.cash -= tile.upgradeCost;
-    prop.level = (prop.level + 1) as 0 | 1 | 2 | 3;
-    state.hasUpgradedThisTurn = true;
+    player.cash -= quote.cost;
+    state.properties[tile.index].level = quote.nextLevel;
+    state.upgradedTileIndicesThisTurn = [...(state.upgradedTileIndicesThisTurn ?? []), tile.index];
 
     pushBanner(
       state,
       "🏗️",
-      `${player.nickname} بنى ${BUILDING_TIER_NAMES_AR[prop.level]} فـ ${tile.shortAr}!`,
-      `الكرا طلع لـ ${computePropertyRent(tile.index, state.properties, 7)} DH!`,
+      `${player.nickname} بنى ${BUILDING_TIER_NAMES_AR[quote.nextLevel]} فـ ${tile.shortAr}!`,
+      `الكرا طلع من ${quote.currentRent} لـ ${quote.nextRent} DH!`,
       "GOLD"
     );
     checkAndFinalizeMatchIfWon(state);
@@ -1355,7 +1466,7 @@ export const Simsar3DEngine: GameDefinition<SimsarState, SimsarAction, SimsarSet
       gardiennagePot: INITIAL_GARDIENNAGE_POT_DH,
       lastDice: null,
       pendingTileIndex: null,
-      hasUpgradedThisTurn: false,
+      upgradedTileIndicesThisTurn: [],
       auction: null,
       heist: null,
       miniGame: null,
@@ -1369,6 +1480,8 @@ export const Simsar3DEngine: GameDefinition<SimsarState, SimsarAction, SimsarSet
           createdAt: Date.now(),
         },
       ],
+      lastRent: null,
+      propertyOffers: [],
       winnerId: null,
       winnerSummaryAr: null,
       awards: [],
@@ -1416,6 +1529,7 @@ export const Simsar3DEngine: GameDefinition<SimsarState, SimsarAction, SimsarSet
       publicData: {
         ...s,
         heist: safeHeist,
+        propertyOffers: s.phase === "GAME_OVER" ? [] : getOpenPropertyOffers(s),
       },
     };
   },

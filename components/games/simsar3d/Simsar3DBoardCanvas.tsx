@@ -38,6 +38,7 @@ export interface Simsar3DBoardCanvasProps {
   cameraMode: "AUTO" | "OVERVIEW";
   selectedTileIndex: number | null;
   onSelectTile?: (tileIndex: number) => void;
+  onLand?: (playerId: string, moveSeq: number, tileIndex: number) => void;
 }
 
 const gltfLoader = new GLTFLoader();
@@ -580,6 +581,7 @@ export function Simsar3DBoardCanvas({
   cameraMode,
   selectedTileIndex,
   onSelectTile,
+  onLand,
 }: Simsar3DBoardCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -592,6 +594,7 @@ export function Simsar3DBoardCanvas({
     cameraMode,
     selectedTileIndex,
     onSelectTile,
+    onLand,
   });
   liveRef.current = {
     players,
@@ -602,6 +605,7 @@ export function Simsar3DBoardCanvas({
     cameraMode,
     selectedTileIndex,
     onSelectTile,
+    onLand,
   };
 
   useEffect(() => {
@@ -2594,6 +2598,7 @@ export function Simsar3DBoardCanvas({
               );
               if (rig.isFinalStep) {
                 rig.stepCounter = 0;
+                snap.onLand?.(p.id, rig.lastMoveSeq, rig.renderedTile);
                 camShake = Math.max(camShake, 0.24);
                 spawnDustPuffs(toTf.x, 0.55, toTf.z, 8);
               }
