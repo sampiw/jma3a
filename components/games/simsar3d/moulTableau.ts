@@ -1,11 +1,12 @@
 import * as THREE from "three";
-import { MOUL_SITES, type MoulShot } from "@/games/simsar3d/moulBoard";
+import type { MoulShot } from "@/games/simsar3d/moulBoard";
 import { makeMoulCharacter } from "./moulStreetArt";
 import type { TileWorldTransform } from "@/games/simsar3d/boardData";
 
 // A transaction plays on the deed itself so everyone sees which building changed hands.
 export function createMoulTableau(scene: THREE.Scene) {
   const stage = new THREE.Group();
+  stage.name = "Property transaction";
   const gold = new THREE.MeshStandardMaterial({color:0xffc749,metalness:.75,roughness:.24});
   const ivory = new THREE.MeshStandardMaterial({color:0xffedc6,roughness:.8});
   const ink = new THREE.MeshBasicMaterial({color:0x4f3441});
@@ -26,10 +27,11 @@ export function createMoulTableau(scene: THREE.Scene) {
   stage.add(key,bill,coin,cast);stage.visible=false;scene.add(stage);
   let started=0, duration=0, lastId:string|undefined, gesture:THREE.Object3D|undefined;
   return {
-    update(shot:MoulShot|null,characters:Record<string,number>,tf:TileWorldTransform|null) {
-      if (shot && shot.id!==lastId && tf) {
+    update(shot:MoulShot|null,characters:Record<string,number>,tf:TileWorldTransform|null, premium:boolean) {
+      if (!shot || !tf) { stage.visible=false; return false; }
+      if (shot.id!==lastId) {
         lastId=shot.id;started=performance.now();
-        duration=shot.kind==="BUY" && MOUL_SITES[shot.tile].price>=500 ? 3300 : 2450;
+        duration=shot.kind==="BUY" && premium ? 3300 : 2450;
         stage.position.set(tf.x-tf.outwardNx*1.25,.63,tf.z-tf.outwardNz*1.25);
         stage.rotation.y=Math.atan2(-tf.outwardNx,-tf.outwardNz);
         cast.clear();gesture=undefined;
@@ -44,7 +46,7 @@ export function createMoulTableau(scene: THREE.Scene) {
         key.visible=shot.kind==="BUY" || shot.kind==="BUILD";bill.visible=paying;coin.visible=paying||shot.kind==="PRIZE";
       }
       const t=(performance.now()-started)/duration;
-      stage.visible=!!shot && t>=0 && t<1;
+      stage.visible=t>=0 && t<1;
       if (!stage.visible) return false;
       const arc=Math.sin(t*Math.PI);
       key.position.set(-.1,2.05+.34*arc,.18);key.rotation.y=t*5;

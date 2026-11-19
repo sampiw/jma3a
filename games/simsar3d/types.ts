@@ -232,6 +232,7 @@ export interface SimsarMiniGameState {
 }
 
 export interface SimsarEventBanner {
+  propertyScene?: {kind: "BUY" | "BUILD"; tile: number; actor: string; amount: number; recipient?: string};
   id: string;
   emoji: string;
   titleAr: string;

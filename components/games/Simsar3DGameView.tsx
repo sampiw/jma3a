@@ -739,6 +739,8 @@ export function Simsar3DGameView({
       ===================================================================== */}
       <div className="flex-1 relative min-h-0 w-full overflow-hidden">
         <Simsar3DBoardCanvas
+          propertyEvents={state.recentEvents}
+          propertyBoardCovered={empireOpen || inspectedTileIndex !== null || Boolean(dealSheet) || historyOpen}
           players={state.players}
           properties={state.properties}
           currentPlayerId={state.currentPlayerId}

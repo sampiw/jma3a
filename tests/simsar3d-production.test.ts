@@ -237,6 +237,7 @@ describe("SIMSAR ROYALE 3D — Production 3D Board, GLB Assets, Auctions, Heist,
     });
     expect(buyRes.success).toBe(true);
     state = buyRes.newState;
+    expect(state.recentEvents[0].propertyScene).toEqual({kind:"BUY", tile:2, actor:"p1", amount:SIMSAR_BOARD_TILES[2].price});
     expect(state.properties[2].ownerId).toBe("p1");
     expect(state.pendingTileIndex).toBeNull();
     expect(state.players.p1.cash).toBe(1000 - (SIMSAR_BOARD_TILES[2].price || 0));
@@ -248,6 +249,7 @@ describe("SIMSAR ROYALE 3D — Production 3D Board, GLB Assets, Auctions, Heist,
     });
     expect(upgRes.success).toBe(true);
     state = upgRes.newState;
+    expect(state.recentEvents[0].propertyScene).toEqual({kind:"BUILD", tile:2, actor:"p1", amount:SIMSAR_BOARD_TILES[2].upgradeCost});
     expect(state.properties[2].level).toBe(1);
 
     // Mortgage & Unmortgage

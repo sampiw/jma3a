@@ -87,6 +87,7 @@ function pushBanner(
     ...(rent && { rent }),
   };
   state.recentEvents = [ev, ...state.recentEvents.slice(0, 5)];
+  return ev;
 }
 
 function refreshAllNetWorths(state: SimsarState) {
@@ -504,7 +505,7 @@ function resolveTileArrival(
             `رخصة بني مجانية لـ ${player.nickname}!`,
             `${pick.shortAr} طلعات لـ ${BUILDING_TIER_NAMES_AR[pr.level]}!`,
             "EMERALD"
-          );
+          ).propertyScene = {kind:"BUILD", tile:pick.index, actor:player.id, amount:0};
         } else {
           player.cash += 160;
           pushBanner(
@@ -763,7 +764,7 @@ function finalizeAuction(state: SimsarState) {
         `الدلالة رسات على ${winner.nickname}!`,
         `شرا ${tile.shortAr} بالمزاد غير بـ ${auc.currentBid} DH!`,
         "GOLD"
-      );
+      ).propertyScene = {kind:"BUY", tile:tile.index, actor:winner.id, amount:auc.currentBid};
     }
   } else if (tile) {
     pushBanner(
@@ -861,13 +862,14 @@ function applyPropertyOffer(state: SimsarState, actorId: string, action: Propert
       updateWealth(state);
       return;
     }
-    pushBanner(
+    const banner = pushBanner(
       state,
       "🤝",
       `${from.nickname} و ${actor.nickname} دارو صفقة!`,
       `${SIMSAR_BOARD_TILES[offer.requestedTileIndex].shortAr} ولات ديال ${from.nickname}.`,
       "EMERALD"
     );
+    if (offer.cashDh > 0) banner.propertyScene = {kind:"BUY",tile:offer.requestedTileIndex,actor:from.id,recipient:actor.id,amount:offer.cashDh};
     checkAndFinalizeMatchIfWon(state);
     return;
   }
@@ -1268,7 +1270,7 @@ function applySimsarActionInternal(
       `${player.nickname} شرا ${tile.nameAr}!`,
       `خلص ${tile.price} DH وتملّك الأرض رسمياً!`,
       "EMERALD"
-    );
+    ).propertyScene = {kind:"BUY", tile:tile.index, actor:player.id, amount:tile.price};
     checkAndFinalizeMatchIfWon(state);
     return { success: true, newState: state, newPhase: state.phase };
   }
@@ -1322,7 +1324,7 @@ function applySimsarActionInternal(
       `${player.nickname} بنى ${BUILDING_TIER_NAMES_AR[quote.nextLevel]} فـ ${tile.shortAr}!`,
       `الكرا طلع من ${quote.currentRent} لـ ${quote.nextRent} DH!`,
       "GOLD"
-    );
+    ).propertyScene = {kind:"BUILD", tile:tile.index, actor:player.id, amount:quote.cost};
     checkAndFinalizeMatchIfWon(state);
     return { success: true, newState: state, newPhase: state.phase };
   }

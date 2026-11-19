@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Simsar3DBoardCanvas } from "./Simsar3DBoardCanvas";
 import { MOUL_CAST, MOUL_SITES, routeTile } from "@/games/simsar3d/moulBoard";
 import { SIMSAR_TOKEN_ORDER, type SimsarState, type SimsarTileSpec } from "@/games/simsar3d/types";
-import { createMoulTableau } from "./moulTableau";
 import styles from "./MoulGame.module.css";
 
 const districtColors = ["#06b6d4", "#a855f7", "#f97316", "#10b981"];
@@ -36,7 +35,7 @@ export default function MoulDiorama({state,highlight,onInspect}: {
   return <div className={styles.royalBoard}>
     <Simsar3DBoardCanvas players={players} properties={state.properties} currentPlayerId={active.id} gardiennagePot={0}
       lastDice={die} cameraMode={overview?"OVERVIEW":"AUTO"} selectedTileIndex={null} onSelectTile={onInspect}
-      neighborhood={{tiles,cast:m.cast,emblems:Object.fromEntries(state.turnOrder.map(id=>[id,MOUL_CAST[m.cast[id]].emblem])),createTableau:createMoulTableau,focusOwner:highlight,routes:areas,shot:m.history[0] ?? null}} onGraphicsFailure={()=>setFallback(true)}/>
+      neighborhood={{tiles,cast:m.cast,emblems:Object.fromEntries(state.turnOrder.map(id=>[id,MOUL_CAST[m.cast[id]].emblem])),focusOwner:highlight,routes:areas,shot:m.history[0] ?? null}} onGraphicsFailure={()=>setFallback(true)}/>
     <button className={styles.camera} aria-pressed={overview} onClick={()=>setOverview(!overview)}>{overview?"🎥 كاميرا اللعب":"🗺️ شوف الجزيرة"}</button>
   </div>;
 }

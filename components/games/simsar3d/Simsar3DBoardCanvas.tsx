@@ -15,6 +15,7 @@ import {
   SIMSAR_REACTIONS,
   SIMSAR_TOKENS,
   SimsarDiceRoll,
+  type SimsarEventBanner,
   SimsarPlayer,
   SimsarPropertyState,
   SimsarTileSpec,
@@ -30,7 +31,7 @@ import {
 } from "./worldEnvironment";
 
 import type { MoulShot } from "@/games/simsar3d/moulBoard";
-import type { createMoulTableau } from "./moulTableau";
+import { createMoulTableau } from "./moulTableau";
 
 export interface Simsar3DBoardCanvasProps {
   players: Record<string, SimsarPlayer>;
@@ -40,7 +41,9 @@ export interface Simsar3DBoardCanvasProps {
   lastDice: SimsarDiceRoll | null;
   cameraMode: "AUTO" | "OVERVIEW";
   selectedTileIndex: number | null;
-  neighborhood?: { tiles: SimsarTileSpec[]; cast: Record<string,number>; emblems: Record<string,string>; focusOwner: string | null; routes: number[]; shot: MoulShot | null; createTableau: typeof createMoulTableau };
+  neighborhood?: { tiles: SimsarTileSpec[]; cast: Record<string,number>; emblems: Record<string,string>; focusOwner: string | null; routes: number[]; shot: MoulShot | null };
+  propertyEvents?: SimsarEventBanner[];
+  propertyBoardCovered?: boolean;
   onGraphicsFailure?: () => void;
   onSelectTile?: (tileIndex: number) => void;
   onLand?: (playerId: string, moveSeq: number, tileIndex: number) => void;
@@ -588,6 +591,7 @@ export function Simsar3DBoardCanvas({
   onSelectTile,
   onLand,
   neighborhood,
+  propertyEvents, propertyBoardCovered,
   onGraphicsFailure,
 }: Simsar3DBoardCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -601,7 +605,7 @@ export function Simsar3DBoardCanvas({
     cameraMode,
     selectedTileIndex,
     onSelectTile,
-    onLand, neighborhood, onGraphicsFailure,
+    onLand, neighborhood, onGraphicsFailure, propertyEvents, propertyBoardCovered,
   });
   liveRef.current = {
     players,
@@ -612,7 +616,7 @@ export function Simsar3DBoardCanvas({
     cameraMode,
     selectedTileIndex,
     onSelectTile,
-    onLand, neighborhood, onGraphicsFailure,
+    onLand, neighborhood, onGraphicsFailure, propertyEvents, propertyBoardCovered,
   };
 
   useEffect(() => {
@@ -644,7 +648,12 @@ export function Simsar3DBoardCanvas({
     }
     const graphicsLost = () => liveRef.current.onGraphicsFailure?.();
     renderer.domElement.addEventListener("webglcontextlost", graphicsLost);
-    const tableau = district?.createTableau(scene);
+    const tableau = createMoulTableau(scene);
+    let lastBannerId = liveRef.current.propertyEvents?.[0]?.id;
+    const pendingScenes: MoulShot[] = [];
+    let activeScene: MoulShot | null = null;
+    let cast: Record<string, number> = {};
+    let lastCastPlayers: typeof players | undefined;
     renderer.setPixelRatio(dpr);
     renderer.setSize(initW, initH);
     renderer.shadowMap.enabled = true;
@@ -2834,6 +2843,20 @@ export function Simsar3DBoardCanvas({
 
       let orbitYaw = userOrbitOffset;
       let neighborhoodOverview = false;
+      const events = snap.propertyEvents;
+      if (events?.length && events[0].id !== lastBannerId) {
+        const seenAt = events.findIndex(event => event.id === lastBannerId);
+        const fresh = events.slice(0, seenAt < 0 ? events.length : seenAt);
+        for (const event of fresh.reverse()) {
+          if (event.propertyScene) pendingScenes.push({id:event.id,...event.propertyScene});
+        }
+        lastBannerId = events[0].id;
+      }
+      if (!district && !activeScene && !snap.propertyBoardCovered) activeScene = pendingScenes.shift() ?? null;
+      if (!district && activeScene && lastCastPlayers !== snap.players) {
+        cast = Object.fromEntries(Object.keys(snap.players).map((id,index)=>[id,index]));
+        lastCastPlayers = snap.players;
+      }
       if (district && snap.neighborhood) {
         const n=snap.neighborhood;
         routeRings.forEach((ring,i)=>{
@@ -2842,13 +2865,7 @@ export function Simsar3DBoardCanvas({
         });
         dieMesh2.visible=false;
         dieMesh1.visible=!!snap.lastDice;
-        const spot=n.shot ? getTileWorldTransform(n.shot.tile) : null;
-        const playing=tableau?.update(n.shot,n.cast,spot);
-        if(spot && playing && snap.cameraMode==="AUTO" && !reducedMotion.matches) {
-          desiredLookX=spot.x;desiredLookZ=spot.z;
-          finalDist=8.7*closePortraitMult;finalElev=6.2;
-          orbitYaw=Math.atan2(-spot.outwardNx,-spot.outwardNz)+.22;
-        } else if (snap.cameraMode==="OVERVIEW" || n.routes.length || reducedMotion.matches) {
+        if (snap.cameraMode==="OVERVIEW" || n.routes.length || reducedMotion.matches) {
           neighborhoodOverview = true;
           desiredLookX = 0;
           desiredLookZ = 0;
@@ -2864,6 +2881,19 @@ export function Simsar3DBoardCanvas({
         }
       }
 
+      const shot = snap.neighborhood?.shot ?? activeScene;
+      const spot = shot ? getTileWorldTransform(shot.tile) : null;
+      const premium = !!shot && (tiles[shot.tile]?.price ?? 0) >= (district ? 500 : 300);
+      const playing = tableau.update(shot, snap.neighborhood?.cast ?? cast, spot, premium);
+      if (!playing) activeScene = null;
+      if (spot && playing && snap.cameraMode === "AUTO" && !reducedMotion.matches) {
+        neighborhoodOverview = false;
+        desiredLookX = spot.x;
+        desiredLookZ = spot.z;
+        finalDist = 8.7 * closePortraitMult;
+        finalElev = 6.2;
+        orbitYaw = Math.atan2(-spot.outwardNx, -spot.outwardNz) + .22;
+      }
       const targetCamX = desiredLookX + Math.sin(orbitYaw) * finalDist;
       const targetCamZ = desiredLookZ + Math.cos(orbitYaw) * finalDist;
       const targetCamY = finalElev;
@@ -2906,7 +2936,7 @@ export function Simsar3DBoardCanvas({
       domEl.removeEventListener("pointercancel", onPointerUp);
       domEl.removeEventListener("wheel", onWheel);
       renderer.domElement.removeEventListener("webglcontextlost",graphicsLost);
-      tableau?.dispose();
+      tableau.dispose();
       for (const sign of ownerSigns.values()) { sign.sprite.material.map?.dispose(); sign.sprite.material.dispose(); }
       for (const ring of routeRings) { ring.geometry.dispose(); ring.material.dispose(); }
       envTex.dispose();
