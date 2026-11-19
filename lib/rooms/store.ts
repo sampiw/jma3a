@@ -297,7 +297,7 @@ export class RoomStore {
       room.players.filter((p) => p.status !== "LEFT").length < 8;
 
     const canHotJoinSimsar =
-      room.selectedGameId === "simsar3d" &&
+      room.selectedGameId === "simsar3d" && room.settings.gameSettings?.mode !== "MOUL" &&
       room.status === "ACTIVE" &&
       room.players.filter((p) => p.status !== "LEFT").length < 6;
 

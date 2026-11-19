@@ -1,4 +1,5 @@
-export type SimsarMode = "BLITZ" | "EMPIRE";
+import type { MoulTable } from "./moulBoard";
+export type SimsarMode = "BLITZ" | "EMPIRE" | "MOUL";
 
 export type SimsarPhase =
   | "ROLL_READY"
@@ -284,6 +285,7 @@ export interface SimsarSettings {
 }
 
 export interface SimsarState {
+  moul?: MoulTable;
   phase: SimsarPhase;
   mode: SimsarMode;
   round: number;
@@ -319,6 +321,9 @@ export interface SimsarState {
 }
 
 export type SimsarAction =
+  | { type: "MOUL_ROUTE"; direction: 1 | -1 }
+  | { type: "MOUL_CAST"; character: number }
+  | { type: "MOUL_BID"; amount: number }
   | { type: "ROLL_DICE"; multiplier?: 1 | 2 }
   | { type: "PAY_JAIL_BAIL" }
   | { type: "BUY_PROPERTY" }

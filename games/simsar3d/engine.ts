@@ -45,6 +45,8 @@ import {
   SimsarState,
 } from "./types";
 
+import { applyMoul, startMoul, receipt, updateWealth } from "./moulEngine";
+
 export const AUCTION_DURATION_MS = 10_000;
 export const MINIGAME_DURATION_MS = 22_000;
 
@@ -854,6 +856,11 @@ function applyPropertyOffer(state: SimsarState, actorId: string, action: Propert
     state.properties[offer.requestedTileIndex].ownerId = from.id;
     if (offer.offeredTileIndex !== null) state.properties[offer.offeredTileIndex].ownerId = actor.id;
     state.propertyOffers = getOpenPropertyOffers(state);
+    if (state.mode === "MOUL") {
+      receipt(state, {kind:"BUY", actor:from.id, recipient:actor.id, tile:offer.requestedTileIndex, amount:offer.cashDh, swapped:offer.offeredTileIndex ?? undefined});
+      updateWealth(state);
+      return;
+    }
     pushBanner(
       state,
       "🤝",
@@ -1381,16 +1388,17 @@ export const Simsar3DEngine: GameDefinition<SimsarState, SimsarAction, SimsarSet
   shortDescriptionKey:
     "مونوبولي المغرب 3D × تحديات جماعية سريعة بيد وحدة فالهاتف! شري المدن، بني الرياضات والأوطيلات، ودير السطو والدلالة!",
   minPlayers: 1,
-  maxPlayers: 6,
+  maxPlayers: 7,
   capabilities: ["MULTI_PHONE", "ONE_PHONE", "HYBRID", "REALTIME", "SCORES", "TIMERS"],
   defaultSettings: DEFAULT_SIMSAR_SETTINGS,
 
-  validateSetup(players: Player[]): ValidationResult {
+  validateSetup(players: Player[], settings?: SimsarSettings): ValidationResult {
     const active = players.filter((p) => p.status !== "LEFT");
     if (active.length < 1) {
       return { isValid: false, errors: ["خاص على الأقل لاعب واحد!"] };
     }
-    if (active.length > 6) {
+    if (settings?.mode === "MOUL" && active.length > 7) return { isValid: false, errors: ["مول البلاد كيساع سبعة لاعبين"] };
+    if (settings?.mode !== "MOUL" && active.length > 6) {
       return { isValid: false, errors: ["الحد الأقصى فـ الطبلة هو 6 سماسرية!"] };
     }
     return { isValid: true };
@@ -1406,7 +1414,7 @@ export const Simsar3DEngine: GameDefinition<SimsarState, SimsarAction, SimsarSet
       empireTargetDh: mode === "EMPIRE" ? 6000 : 4200,
     };
 
-    const humans = players.filter((p) => p.status !== "LEFT").slice(0, 6);
+    const humans = players.filter((p) => p.status !== "LEFT").slice(0, mode === "MOUL" ? 7 : 6);
     const playersMap: Record<string, SimsarPlayer> = {};
     const turnOrder: string[] = [];
 
@@ -1450,7 +1458,7 @@ export const Simsar3DEngine: GameDefinition<SimsarState, SimsarAction, SimsarSet
 
     const firstId = turnOrder[0] || "p1";
 
-    return {
+    const initial: SimsarState = {
       phase: "ROLL_READY",
       mode,
       round: 1,
@@ -1487,6 +1495,7 @@ export const Simsar3DEngine: GameDefinition<SimsarState, SimsarAction, SimsarSet
       awards: [],
       updatedAt: Date.now(),
     };
+    return mode === "MOUL" ? startMoul(initial) : initial;
   },
 
   start(ctx: GameContext<SimsarState, SimsarSettings>): TransitionResult<SimsarState> {
@@ -1506,11 +1515,21 @@ export const Simsar3DEngine: GameDefinition<SimsarState, SimsarAction, SimsarSet
   ): TransitionResult<SimsarState> {
     const actorObj = ctx.players.find((p) => p.id === actorPlayerId);
     const isHost = Boolean(actorObj?.isHost);
+    if (ctx.state.mode === "MOUL") {
+      if (action.type === "OFFER_PROPERTY_DEAL" || action.type === "ANSWER_PROPERTY_DEAL" || action.type === "CANCEL_PROPERTY_DEAL") {
+        const next = cloneState(ctx.state);
+        const error = applyPropertyOffer(next, actorPlayerId, action);
+        return {success: !error, error, newState: error ? ctx.state : next, newPhase: next.phase};
+      }
+      if (action.type === "PLAY_AGAIN" && isHost && ctx.state.phase === "GAME_OVER") return this.start({...ctx, settings: ctx.state.settings});
+      return applyMoul(ctx.state, actorPlayerId, action, isHost);
+    }
     return applySimsarActionInternal(ctx.state, actorPlayerId, action, ctx.players, isHost);
   },
 
   getPublicView(ctx: GameContext<SimsarState, SimsarSettings>): PublicGameView {
     const s = ctx.state;
+    if (s.moul) return { gameId: "simsar3d", phase: s.phase, round: s.round, stateVersion: ctx.stateVersion, publicData: { ...s, propertyOffers: getOpenPropertyOffers(s), moul: { ...s.moul, bids: Object.fromEntries(Object.keys(s.moul.bids).map(id => [id, 0])) } } };
     // Mask unrevealed heist boxes so nobody peeks via network tab!
     const safeHeist = s.heist
       ? {

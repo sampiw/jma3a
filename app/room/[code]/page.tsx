@@ -8,6 +8,7 @@ import { PassThePhoneCurtain } from "@/components/PassThePhoneCurtain";
 import { DiibCardsGameView } from "@/components/games/DiibCardsGameView";
 import { DiibCardsCharacters } from "@/components/games/diib-cards/DiibCardsCharacters";
 import { DEFAULT_DIIB_CARD_CHARACTERS, DIIB_CARD_CHARACTERS, parseDiibCardsCharacters, requiredDiibCardsPlayers, type DiibCardsCharacters as Characters } from "@/games/diib-cards/characters";
+import dynamic from "next/dynamic";
 import { Simsar3DGameView } from "@/components/games/Simsar3DGameView";
 import { Ksida3DGameView } from "@/components/games/Ksida3DGameView";
 import { DibGameView } from "@/components/games/DibGameView";
@@ -43,6 +44,8 @@ import {
   Maximize,
   Minimize,
 } from "lucide-react";
+
+const MoulGame = dynamic(() => import("@/components/games/simsar3d/MoulGame"), { ssr: false });
 
 // Active flagship games: SIMSAR ROYALE 3D, KSIDA ROYAL 3D, DIIB CARDS, PROTOCOL CARBON 3D, DIB 3D, Ghammada 3D & Classic DIB
 const ACTIVE_GAMES: GameId[] = [
@@ -88,6 +91,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [savingRoles, setSavingRoles] = useState(false);
   const [diibCharactersDraft, setDiibCharactersDraft] = useState<Characters | null>(null);
   const [diibSaving, setDiibSaving] = useState(false);
+  const [savingSimsarMode, setSavingSimsarMode] = useState(false);
   const [diibStarting, setDiibStarting] = useState(false);
   const [diibCharactersError, setDiibCharactersError] = useState("");
   const [rolesError, setRolesError] = useState("");
@@ -286,6 +290,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   const handleStartGame = async () => {
     const isDiibCards = gameState?.room.selectedGameId === "diib-cards";
+    if (savingSimsarMode) return;
     if (isDiibCards && (diibSaving || diibStarting || diibCharactersDraft)) return;
     if (isDiibCards) setDiibStarting(true);
     sound.playCardFlip();
@@ -743,13 +748,14 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               {room.selectedGameId === "simsar3d" && (
                 <div className="mt-4 pt-3.5 border-t border-jma3a-border/50">
                   <span className="text-[11px] text-emerald-300 font-bold block mb-2">
-                    طور سمسار رويال 3D (1 حتى 6 سماسرية بيد وحدة فالهاتف أو سولو):
+                    مود سمسار رويال · مول البلاد حتى لـ 7 لاعبين
                   </span>
                   <div className="grid grid-cols-2 gap-1.5">
                     {(
                       [
                         { id: "BLITZ", label: "⚡ سمسار سريع (10 دورات)" },
                         { id: "EMPIRE", label: "👑 إمبراطور العقار (15 دورة)" },
+                        { id: "MOUL", label: "🏘️ مول البلاد · سوق الحومة" },
                       ] as const
                     ).map((m) => {
                       const curMode =
@@ -758,17 +764,23 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                       return (
                         <button
                           key={m.id}
-                          disabled={!isHost}
+                          disabled={!isHost || savingSimsarMode}
                           onClick={async () => {
-                            sound.playCardFlip();
-                            await fetch(`/api/rooms/${roomCode}/settings`, {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                gameSettings: { mode: m.id },
-                              }),
-                            });
-                            fetchState();
+                            setSavingSimsarMode(true);
+                            try {
+                              sound.playCardFlip();
+                              const res = await fetch(`/api/rooms/${roomCode}/settings`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  gameSettings: { mode: m.id },
+                                }),
+                              });
+                              if (!res.ok) throw Error();
+                              await fetchState();
+                              setActionError("");
+                            } catch { setActionError("تعذّر تسجيل المود"); }
+                            finally { setSavingSimsarMode(false); }
                           }}
                           className={`py-2 px-2 rounded-xl text-[11px] font-black border transition-all ${
                             active
@@ -923,7 +935,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             {isHost ? (
               <button
                 onClick={handleStartGame}
-                disabled={isDiibCards && !canStartDiib}
+                disabled={savingSimsarMode || (isDiibCards && !canStartDiib)}
                 className="disabled:opacity-50 w-full py-4 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-black text-lg shadow-xl shadow-jma3a-terracotta/40 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
               >
                 <Play className="w-5 h-5 fill-white" />
@@ -1312,6 +1324,7 @@ function renderActiveGameView(
 ) {
   switch (gameId) {
     case "simsar3d":
+      if (publicData?.mode === "MOUL") return <MoulGame {...{publicData, privateData, isHost, onAction, players, activePlayerId, devicePlayers, roomCode}} />;
       return (
         <Simsar3DGameView
           publicData={publicData}
