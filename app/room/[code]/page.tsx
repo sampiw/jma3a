@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useEffect, useState, use, useCallback } from "react";
+import React, { useEffect, useRef, useState, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { AuthorizedGameState, GameId, DevicePlayerInfo } from "@/lib/types";
 import { QRCodeModal } from "@/components/QRCodeModal";
 import { PassThePhoneCurtain } from "@/components/PassThePhoneCurtain";
 import { DiibCardsGameView } from "@/components/games/DiibCardsGameView";
+import { DiibCardsCharacters } from "@/components/games/diib-cards/DiibCardsCharacters";
+import { DEFAULT_DIIB_CARD_CHARACTERS, DIIB_CARD_CHARACTERS, parseDiibCardsCharacters, requiredDiibCardsPlayers, type DiibCardsCharacters as Characters } from "@/games/diib-cards/characters";
 import { Simsar3DGameView } from "@/components/games/Simsar3DGameView";
 import { Ksida3DGameView } from "@/components/games/Ksida3DGameView";
 import { DibGameView } from "@/components/games/DibGameView";
@@ -84,6 +86,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [addLocalModalOpen, setAddLocalModalOpen] = useState(false);
   const [rolesModalOpen, setRolesModalOpen] = useState(false);
   const [savingRoles, setSavingRoles] = useState(false);
+  const [diibCharactersDraft, setDiibCharactersDraft] = useState<Characters | null>(null);
+  const [diibSaving, setDiibSaving] = useState(false);
+  const [diibStarting, setDiibStarting] = useState(false);
+  const [diibCharactersError, setDiibCharactersError] = useState("");
   const [rolesError, setRolesError] = useState("");
   const [localPlayerNick, setLocalPlayerNick] = useState("");
   const [actionError, setActionError] = useState("");
@@ -143,11 +149,14 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     }
   };
 
+  const stateRequests = useRef({ sent: 0, applied: 0 });
   const fetchState = useCallback(async () => {
+    const requestId = ++stateRequests.current.sent;
     try {
       const res = await fetch(`/api/rooms/${roomCode}/state`, { cache: "no-store" });
       const data = await res.json();
-      if (data.success && data.state) {
+      if (data.success && data.state && requestId > stateRequests.current.applied) {
+        stateRequests.current.applied = requestId;
         setGameState(data.state);
       }
       setLoading(false);
@@ -276,6 +285,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   };
 
   const handleStartGame = async () => {
+    const isDiibCards = gameState?.room.selectedGameId === "diib-cards";
+    if (isDiibCards && (diibSaving || diibStarting || diibCharactersDraft)) return;
+    if (isDiibCards) setDiibStarting(true);
     sound.playCardFlip();
     setActionError("");
     try {
@@ -288,10 +300,14 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       }
     } catch {
       setActionError("خطأ فالشبكة");
+    } finally {
+      if (isDiibCards) setDiibStarting(false);
     }
   };
 
   const handleSwitchGame = async (newGameId: GameId) => {
+    setDiibCharactersDraft(null);
+    setDiibCharactersError("");
     sound.playCardFlip();
     setSwitchModalOpen(false);
     try {
@@ -427,6 +443,40 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const isHost = Boolean(player?.isHost);
   const isOnePhone = room.settings.interactionMode === "ONE_PHONE";
   const isLobby = room.status === "LOBBY";
+  const isDiibCards = room.selectedGameId === "diib-cards";
+  const savedDiibCharacters = parseDiibCardsCharacters(room.settings.gameSettings?.customRoles) ?? DEFAULT_DIIB_CARD_CHARACTERS;
+  const shownDiibCharacters = diibCharactersDraft ?? savedDiibCharacters;
+  const diibMinimum = requiredDiibCardsPlayers(savedDiibCharacters);
+  const canStartDiib = !diibSaving && !diibStarting && !diibCharactersDraft && room.players.length >= diibMinimum;
+
+  const editDiibCharacters = (next: Characters | null) => {
+    setDiibCharactersError("");
+    setDiibCharactersDraft(next && DIIB_CARD_CHARACTERS.some(role => next[role] !== savedDiibCharacters[role]) ? next : null);
+  };
+
+  const saveDiibCharacters = async () => {
+    if (!diibCharactersDraft || diibSaving || diibStarting) return;
+    setDiibSaving(true);
+    setDiibCharactersError("");
+    try {
+      const res = await fetch(`/api/rooms/${roomCode}/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gameSettings: { customRoles: diibCharactersDraft } }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setDiibCharactersError(data.error || "ما تحفظوش الشخصيات. عاود جرّب.");
+        return;
+      }
+      await fetchState();
+      setDiibCharactersDraft(null);
+    } catch {
+      setDiibCharactersError("ما تحفظوش الشخصيات. عاود جرّب.");
+    } finally {
+      setDiibSaving(false);
+    }
+  };
 
   // Device-scoped players
   const myDevicePlayers: DevicePlayerInfo[] =
@@ -643,14 +693,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 </button>
               </div>
 
-              {/* Diib Cards Quick Info Banner in Lobby */}
-              {room.selectedGameId === "diib-cards" && (
-                <div className="mt-4 pt-3.5 border-t border-jma3a-border/50 text-xs text-amber-200/90 leading-relaxed">
-                  👑 <strong>بلا ما يخرج حتى واحد من الغرفة!</strong> دخلو كاملين، وملي تبداو غادي يطلب واحد فيكم{" "}
-                  <strong className="text-amber-300">كارطة المانيجر</strong> باش يسيّر الليل، التسكيت، تايمر الهضرة والتصويت!
-                </div>
-              )}
-
               {/* Carbon 3D Quick Mode Selector in Lobby */}
               {room.selectedGameId === "carbon3d" && (
                 <div className="mt-4 pt-3.5 border-t border-jma3a-border/50">
@@ -851,6 +893,18 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               </button>
             </div>
 
+            {isDiibCards && (
+              <DiibCardsCharacters
+                roles={shownDiibCharacters}
+                playerCount={room.players.length}
+                onEdit={isHost && !diibStarting ? editDiibCharacters : undefined}
+                onSave={saveDiibCharacters}
+                dirty={Boolean(diibCharactersDraft)}
+                saving={diibSaving}
+                error={diibCharactersError}
+              />
+            )}
+
             {actionError && (
               <div className="p-3.5 rounded-2xl bg-rose-950/60 border border-rose-500/40 text-rose-300 text-xs font-semibold mb-5 flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
@@ -859,10 +913,18 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             )}
 
             {/* Start Game CTA */}
+            {isHost && isDiibCards && !canStartDiib && (
+              <p className="mb-2 text-sm text-amber-200" role="status">
+                {diibSaving ? "كنحفظو الشخصيات…" : diibStarting ? "كنبداو اللعبة…" : diibCharactersDraft
+                  ? "حفظ الشخصيات أو لغِ التعديلات قبل ما تبدا."
+                  : `خاصّ ${diibMinimum} لاعبين مع المسيّر بهاد التوزيع.`}
+              </p>
+            )}
             {isHost ? (
               <button
                 onClick={handleStartGame}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-black text-lg shadow-xl shadow-jma3a-terracotta/40 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
+                disabled={isDiibCards && !canStartDiib}
+                className="disabled:opacity-50 w-full py-4 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-black text-lg shadow-xl shadow-jma3a-terracotta/40 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
               >
                 <Play className="w-5 h-5 fill-white" />
                 <span>الكل مجموع؟ يلا نبداو! 🚀</span>
@@ -956,24 +1018,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 </button>
 
                 <button
-                  onClick={() => {
-                    if (
-                      room.selectedGameId === "diib-cards" &&
-                      room.gameView?.phase === "GAME_OVER"
-                    ) {
-                      handleGameAction({ type: "NEW_GAME_NEW_MANAGER" });
-                    } else {
-                      handleSwitchGame(room.selectedGameId);
-                    }
-                  }}
+                  onClick={() => handleSwitchGame(room.selectedGameId)}
                   className="py-3 px-5 rounded-2xl bg-gradient-to-r from-jma3a-terracotta to-jma3a-accent text-white font-bold text-xs shadow-md flex items-center gap-2"
                 >
                   <RotateCcw className="w-4 h-4" />
                   <span>
-                    {room.selectedGameId === "diib-cards" &&
-                    room.gameView?.phase !== "GAME_OVER"
-                      ? "رجوع للوبي"
-                      : "نعاودو نلعبو"}
+                    {isDiibCards ? "الرجوع للّوبي" : "نعاودو نلعبو"}
                   </span>
                 </button>
               </>

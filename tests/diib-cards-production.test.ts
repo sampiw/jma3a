@@ -4,6 +4,7 @@ import {
   getRecommendedDiibCardsDistribution,
 } from "../games/diib-cards/engine";
 import { DIIB_CARDS_ROLE_META } from "../games/diib-cards/types";
+import { DEFAULT_DIIB_CARD_CHARACTERS, diibCardsWolfPowers } from "../games/diib-cards/characters";
 import { Player } from "../lib/types";
 import { RoomStore } from "../lib/rooms/store";
 
@@ -150,7 +151,10 @@ describe("Diib Cards (كوارط الذيب) Production Engine & Rules", () => {
 
   it("enforces Night rules: Protector shield, no-repeat protection/mute, Witch potions & Wolf Mute speaking skip", () => {
     const players = createPlayers(9); // p_1 manager, 8 playable (wolf, mute_wolf, seer, protector, witch, hunter, 2 villagers)
-    let state = DiibCardsEngine.createInitialState(players, DiibCardsEngine.defaultSettings);
+    let state = DiibCardsEngine.createInitialState(players, {
+      ...DiibCardsEngine.defaultSettings,
+      customRoles: getRecommendedDiibCardsDistribution(8),
+    });
     state = DiibCardsEngine.handleAction(makeCtx(players, state), "p_1", {
       type: "CONFIRM_MANAGER",
       managerId: "p_1",
@@ -344,5 +348,58 @@ describe("Diib Cards (كوارط الذيب) Production Engine & Rules", () => {
       expect(meta.description.length).toBeGreaterThan(0);
       expect("image" in (meta as any)).toBe(false);
     }
+  });
+});
+
+describe("DIIB Cards lobby characters", () => {
+  it("deals exactly the requested defaults and keeps kill and mute separate", () => {
+    const settings = DiibCardsEngine.defaultSettings;
+    expect(settings.customRoles).toEqual({ wolf: 1, mute_wolf: 1, seer: 0, witch: 1, hunter: 1, protector: 0 });
+    expect(DiibCardsEngine.validateSetup(createPlayers(4), settings).isValid).toBe(false);
+    const players = createPlayers(5);
+    const state = DiibCardsEngine.createInitialState(players, settings);
+    const result = DiibCardsEngine.handleAction(makeCtx(players, state), "p_1", { type: "CONFIRM_MANAGER", managerId: "p_2" });
+    expect(result.success).toBe(true);
+    expect(Object.values(result.newState.playerStates).map(p => p.role).sort()).toEqual(["hunter", "manager", "mute_wolf", "witch", "wolf"]);
+    expect(diibCardsWolfPowers([{ role: "wolf", isAlive: true }], settings.muteRule)).toEqual({ attack: true, mute: false });
+    expect(diibCardsWolfPowers([{ role: "mute_wolf", isAlive: true }], settings.muteRule)).toEqual({ attack: false, mute: true });
+  });
+
+  it("saves characters before friends join and reuses them for a new manager and a fresh start", async () => {
+    const store = new RoomStore();
+    const host = "diib_characters_host";
+    const { room } = await store.createRoom("Host", "diib-cards", "MULTI_PHONE", "darija", host);
+    const read = async () => (await store.getAuthorizedState(room.code, host))!.room;
+    expect((await read()).settings.gameSettings.customRoles).toEqual(DEFAULT_DIIB_CARD_CHARACTERS);
+    expect((await store.updateGameSettings(room.code, "guest", { customRoles: DEFAULT_DIIB_CARD_CHARACTERS })).success).toBe(false);
+    expect((await store.updateGameSettings(room.code, host, { customRoles: { wolf: 1.5 } })).success).toBe(false);
+
+    const customRoles = { wolf: 1, mute_wolf: 1, seer: 1, witch: 0, hunter: 0, protector: 1 };
+    expect((await store.updateGameSettings(room.code, host, { customRoles })).success).toBe(true);
+    for (let i = 2; i <= 6; i++) {
+      expect((await store.joinRoom(room.code, "Friend " + i, "diib_chars_" + i)).success).toBe(true);
+    }
+    expect((await read()).settings.gameSettings.customRoles).toEqual(customRoles);
+    expect((await store.startGame(room.code, host)).success).toBe(true);
+    expect((await store.updateGameSettings(room.code, host, { customRoles: DEFAULT_DIIB_CARD_CHARACTERS })).success).toBe(false);
+    expect((await store.dispatchAction(room.code, host, {
+      type: "UPDATE_INLINE_SETTINGS", settings: { customRoles: DEFAULT_DIIB_CARD_CHARACTERS },
+    })).success).toBe(false);
+
+    const confirm = async (index: number) => {
+      const player = (await read()).players[index];
+      expect((await store.dispatchAction(room.code, host, { type: "CONFIRM_MANAGER", managerId: player.id })).success).toBe(true);
+      const manager = await store.getAuthorizedState(room.code, "diib_chars_" + (index + 1));
+      const roster = manager?.privateView?.privateData.masterRoster as Array<{ role: string }>;
+      expect(roster.map(p => p.role).sort()).toEqual(["mute_wolf", "protector", "seer", "villager", "wolf"]);
+    };
+    await confirm(1);
+    expect((await store.dispatchAction(room.code, host, { type: "NEW_GAME_NEW_MANAGER" })).success).toBe(true);
+    await confirm(2);
+
+    expect((await store.switchGame(room.code, host, "diib-cards")).success).toBe(true);
+    expect((await read()).settings.gameSettings.customRoles).toEqual(customRoles);
+    expect((await store.startGame(room.code, host)).success).toBe(true);
+    await confirm(3);
   });
 });

@@ -4,11 +4,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   DIIB_CARDS_ROLE_META,
   DiibCardRole,
-  PlayableDiibRole,
   SpeakerEntry,
   SpeakerTimerState,
 } from "@/games/diib-cards/types";
-import { getRecommendedDiibCardsDistribution } from "@/games/diib-cards/engine";
+import { DIIB_CARD_CHARACTERS, diibCardsWolfPowers, parseDiibCardsCharacters } from "@/games/diib-cards/characters";
 import { DiibTarotCard } from "@/components/games/diib-cards/DiibTarotCard";
 import { DiibCardsIcon } from "@/components/icons/DiibCardsIcon";
 import { sound } from "@/lib/sound";
@@ -68,14 +67,7 @@ const DEATH_CAUSE_LABELS: Record<string, string> = {
   MANAGER_DECREE: "سقط فظلام الليل 💀",
 };
 
-const PLAYABLE_ROLES_ORDER: PlayableDiibRole[] = [
-  "wolf",
-  "mute_wolf",
-  "seer",
-  "protector",
-  "witch",
-  "hunter",
-];
+
 
 export function DiibCardsGameView({
   publicData,
@@ -112,24 +104,9 @@ export function DiibCardsGameView({
   const [nightInputTab, setNightInputTab] = useState<"GUIDED" | "QUICK">("GUIDED");
   const [nowMs, setNowMs] = useState(() => Date.now());
 
-  // Custom role stepper draft in MANAGER_SELECT
-  const playableCount = Math.max(3, players.length - 1);
+  const playableCount = Math.max(0, players.length - 1);
   const effectiveSettings = publicData?.effectiveSettings || {};
-  const [roleDraft, setRoleDraft] = useState<Record<PlayableDiibRole, number>>(() =>
-    getRecommendedDiibCardsDistribution(playableCount)
-  );
-
-  useEffect(() => {
-    if (effectiveSettings?.customRoles) {
-      const base = getRecommendedDiibCardsDistribution(playableCount);
-      setRoleDraft({
-        ...base,
-        ...effectiveSettings.customRoles,
-      });
-    } else {
-      setRoleDraft(getRecommendedDiibCardsDistribution(playableCount));
-    }
-  }, [playableCount, effectiveSettings?.customRoles]);
+  const savedCharacters = parseDiibCardsCharacters(effectiveSettings.customRoles);
 
   // Reset card flip when round/match or player changes
   useEffect(() => {
@@ -579,7 +556,20 @@ export function DiibCardsGameView({
               </div>
             </div>
 
-            {/* Rules & Deck Customizer Accordion */}
+            {savedCharacters && (
+              <div className="rounded-2xl border border-amber-400/25 bg-jma3a-surface/60 p-3.5 text-sm">
+                <p className="mb-2 font-bold text-jma3a-sand">الشخصيات المحفوظة من اللّوبي</p>
+                <ul className="flex flex-wrap gap-2">
+                  {DIIB_CARD_CHARACTERS.filter(role => savedCharacters[role] > 0).map(role => (
+                    <li key={role} className="rounded-lg bg-jma3a-dark px-2.5 py-1 text-amber-200">
+                      {DIIB_CARDS_ROLE_META[role].title} ×{savedCharacters[role]}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Table rules */}
             <div className="rounded-2xl bg-jma3a-surface/60 border border-jma3a-border overflow-hidden">
               <button
                 onClick={() => {
@@ -590,7 +580,7 @@ export function DiibCardsGameView({
               >
                 <span className="flex items-center gap-2">
                   <Settings2 className="w-4 h-4 text-amber-400" />
-                  <span>قوانين الطاولة وتشكيلة الكوارط ({playableCount} كوارط لعب + 1 مانيجر)</span>
+                  <span>قوانين الطاولة</span>
                 </span>
                 <span className="text-amber-300">
                   {setupCustomizeOpen ? "إغلاق ▲" : "تعديل ▼"}
@@ -637,7 +627,7 @@ export function DiibCardsGameView({
                           type: "UPDATE_INLINE_SETTINGS",
                           settings: {
                             muteRule:
-                              effectiveSettings?.muteRule === "OFF" ? "WOLVES_PACK" : "OFF",
+                              effectiveSettings?.muteRule === "OFF" ? "MUTE_WOLF_ONLY" : "OFF",
                           },
                         })
                       }
@@ -671,75 +661,6 @@ export function DiibCardsGameView({
                     </button>
                   </div>
 
-                  {/* Role Deck Steppers */}
-                  <div>
-                    <label className="text-xs font-bold text-jma3a-sand block mb-2">
-                      🃏 تخصيص عدد الكوارط الخاصة (الباقي ولاد الحومة 👨‍🌾):
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {PLAYABLE_ROLES_ORDER.map((rKey) => {
-                        const meta = DIIB_CARDS_ROLE_META[rKey];
-                        const count = roleDraft[rKey] || 0;
-                        return (
-                          <div
-                            key={rKey}
-                            className="p-2.5 rounded-xl bg-jma3a-dark border border-jma3a-border flex items-center justify-between"
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={() => {
-                                  const next = {
-                                    ...roleDraft,
-                                    [rKey]: Math.max(0, count - 1),
-                                  };
-                                  setRoleDraft(next);
-                                  dispatch({
-                                    type: "UPDATE_INLINE_SETTINGS",
-                                    settings: { customRoles: next },
-                                  });
-                                }}
-                                className="w-7 h-7 rounded-lg bg-jma3a-surface text-white font-black text-sm"
-                              >
-                                -
-                              </button>
-                              <span className="w-5 text-center font-black text-amber-300 text-xs">
-                                {count}
-                              </span>
-                              <button
-                                onClick={() => {
-                                  const next = {
-                                    ...roleDraft,
-                                    [rKey]: count + 1,
-                                  };
-                                  setRoleDraft(next);
-                                  dispatch({
-                                    type: "UPDATE_INLINE_SETTINGS",
-                                    settings: { customRoles: next },
-                                  });
-                                }}
-                                className="w-7 h-7 rounded-lg bg-jma3a-surface text-white font-black text-sm"
-                              >
-                                +
-                              </button>
-                            </div>
-                            <span className="text-xs font-bold text-jma3a-sand">
-                              {meta.emoji} {meta.title}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="mt-2 text-center text-xs text-jma3a-muted">
-                      ولاد الحومة المتبقون 👨‍🌾:{" "}
-                      <strong className="text-amber-300">
-                        {Math.max(
-                          0,
-                          playableCount -
-                            PLAYABLE_ROLES_ORDER.reduce((s, k) => s + (roleDraft[k] || 0), 0)
-                        )}
-                      </strong>
-                    </div>
-                  </div>
                 </div>
               )}
             </div>
@@ -1899,6 +1820,7 @@ function ManagerNightLedger({
     players.find((p) => p.id === id)?.nickname || "لاعب";
 
   const wolvesList = roster.filter((r) => r.team === "WOLVES");
+  const wolfPowers = diibCardsWolfPowers(livingRoster, effectiveSettings.muteRule);
   const hasProtectorInDeck = Boolean(rolesInPlay.protector?.total);
   const isProtectorAlive = Boolean(rolesInPlay.protector?.alive);
   const hasSeerInDeck = Boolean(rolesInPlay.seer?.total);
@@ -2095,7 +2017,7 @@ function ManagerNightLedger({
             </div>
 
             {/* 3A: Wolf Attack Victim */}
-            <div>
+            {wolfPowers.attack && <div>
               <div className="text-xs font-black text-rose-200 mb-1.5">
                 🩸 شكون بغاو ياكلو الذيابة هاد الليلة؟
               </div>
@@ -2131,10 +2053,10 @@ function ManagerNightLedger({
                     );
                   })}
               </div>
-            </div>
+            </div>}
 
             {/* 3B: Wolf Mute Target */}
-            {effectiveSettings?.muteRule !== "OFF" && (
+            {wolfPowers.mute && (
               <div className="pt-2 border-t border-rose-500/20">
                 <div className="text-xs font-black text-fuchsia-300 mb-1.5">
                   🤐 شكون سكّتو الذيابة للنهار الجاي؟ (ممنوع يهضر!)

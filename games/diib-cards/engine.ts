@@ -20,9 +20,18 @@ import {
   PlayableDiibRole,
   SpeakerEntry,
 } from "./types";
+import {
+  DEFAULT_DIIB_CARD_CHARACTERS,
+  DIIB_CARD_CHARACTERS,
+  diibCardsWolfPowers,
+  parseDiibCardsCharacters,
+  requiredDiibCardsPlayers,
+  type DiibCardsCharacters,
+} from "./characters";
 
 interface DiibCardsInternalState extends DiibCardsState {
   inlineSettings?: Partial<DiibCardsSettings>;
+  roleSetup?: DiibCardsCharacters;
 }
 
 /**
@@ -108,6 +117,7 @@ export function computeNightOutcome(
     (p) => p.role !== "manager" && p.isAlive
   );
   const livingSet = new Set(playableLiving.map((p) => p.playerId));
+  const wolfPowers = diibCardsWolfPowers(playableLiving, settings.muteRule);
 
   // Seer inspection helper
   let seerInspection: ComputedNightOutcome["seerInspection"] = undefined;
@@ -130,7 +140,7 @@ export function computeNightOutcome(
 
     const dyingSet = new Set(manualDeaths.map((d) => d.playerId));
     const mutedId =
-      draft.mutedTargetId && livingSet.has(draft.mutedTargetId) && !dyingSet.has(draft.mutedTargetId)
+      wolfPowers.mute && draft.mutedTargetId && livingSet.has(draft.mutedTargetId) && !dyingSet.has(draft.mutedTargetId)
         ? draft.mutedTargetId
         : undefined;
 
@@ -149,7 +159,7 @@ export function computeNightOutcome(
   let savedByWitch = false;
 
   const wolfTarget =
-    draft.wolfTargetId && livingSet.has(draft.wolfTargetId) ? draft.wolfTargetId : undefined;
+    wolfPowers.attack && draft.wolfTargetId && livingSet.has(draft.wolfTargetId) ? draft.wolfTargetId : undefined;
   const protectedId =
     draft.protectedId && livingSet.has(draft.protectedId) ? draft.protectedId : undefined;
 
@@ -180,7 +190,7 @@ export function computeNightOutcome(
 
   const dyingSet = new Set(dyingRecords.map((d) => d.playerId));
   const mutedId =
-    settings.muteRule !== "OFF" &&
+    wolfPowers.mute &&
     draft.mutedTargetId &&
     livingSet.has(draft.mutedTargetId) &&
     !dyingSet.has(draft.mutedTargetId)
@@ -203,75 +213,18 @@ function getEffectiveSettings(
   return {
     ...ctxSettings,
     ...(state.inlineSettings || {}),
+    customRoles: state.roleSetup ?? state.inlineSettings?.customRoles ?? ctxSettings.customRoles,
   };
 }
 
-function buildRoleDeck(
-  playableCount: number,
-  customRoles?: Partial<Record<PlayableDiibRole, number>>
-): PlayableDiibRole[] {
-  let dist: Record<PlayableDiibRole, number>;
-
-  if (customRoles) {
-    const wolf = Math.max(0, customRoles.wolf ?? 0);
-    const mute_wolf = Math.max(0, customRoles.mute_wolf ?? 0);
-    const seer = Math.max(0, customRoles.seer ?? 0);
-    const protector = Math.max(0, customRoles.protector ?? 0);
-    const witch = Math.max(0, customRoles.witch ?? 0);
-    const hunter = Math.max(0, customRoles.hunter ?? 0);
-
-    // Ensure at least 1 wolf and at least 1 non-wolf even if room size changed after saving custom roles
-    let finalWolf = wolf;
-    let finalMuteWolf = mute_wolf;
-    if (finalWolf + finalMuteWolf < 1) {
-      finalWolf = 1;
-    }
-    if (finalWolf + finalMuteWolf >= playableCount) {
-      finalMuteWolf = 0;
-      finalWolf = Math.max(1, playableCount - 1);
-    }
-
-    dist = {
-      wolf: finalWolf,
-      mute_wolf: finalMuteWolf,
-      seer,
-      protector,
-      witch,
-      hunter,
-      villager: 0,
-    };
-
-    const deck: PlayableDiibRole[] = [];
-    const priorityOrder: PlayableDiibRole[] = [
-      "wolf",
-      "mute_wolf",
-      "seer",
-      "protector",
-      "witch",
-      "hunter",
-    ];
-    for (const r of priorityOrder) {
-      for (let i = 0; i < dist[r] && deck.length < playableCount; i++) {
-        deck.push(r);
-      }
-    }
-    while (deck.length < playableCount) {
-      deck.push("villager");
-    }
-    return shuffleArray(deck);
-  }
-
-  dist = getRecommendedDiibCardsDistribution(playableCount);
+function buildRoleDeck(playableCount: number, customRoles?: DiibCardsSettings["customRoles"]): PlayableDiibRole[] {
+  const roles = parseDiibCardsCharacters(customRoles) ?? DEFAULT_DIIB_CARD_CHARACTERS;
   const deck: PlayableDiibRole[] = [];
-  for (const [role, count] of Object.entries(dist)) {
-    for (let i = 0; i < count; i++) {
-      deck.push(role as PlayableDiibRole);
-    }
+  for (const role of DIIB_CARD_CHARACTERS) {
+    for (let i = 0; i < roles[role]; i++) deck.push(role);
   }
-  while (deck.length < playableCount) {
-    deck.push("villager");
-  }
-  return shuffleArray(deck.slice(0, playableCount));
+  while (deck.length < playableCount) deck.push("villager");
+  return shuffleArray(deck);
 }
 
 function shuffleArray<T>(items: T[]): T[] {
@@ -430,7 +383,8 @@ export const DiibCardsEngine: GameDefinition<
     runoffDefenseSeconds: 30,
     openDebateSeconds: 60,
     roleRevealOnDeath: true,
-    muteRule: "WOLVES_PACK",
+    muteRule: "MUTE_WOLF_ONLY",
+    customRoles: { ...DEFAULT_DIIB_CARD_CHARACTERS },
     preventConsecutiveMute: true,
     preventConsecutiveProtect: true,
     allowPlayerPhoneVotes: true,
@@ -449,37 +403,24 @@ export const DiibCardsEngine: GameDefinition<
       return { isValid: false, errors: ["الحد الأقصى هو 20 حاضر فالغرفة."] };
     }
 
-    const playableCount = players.length - 1;
-    if (settings.customRoles) {
-      const wolves = (settings.customRoles.wolf ?? 0) + (settings.customRoles.mute_wolf ?? 0);
-      const specials =
-        wolves +
-        (settings.customRoles.seer ?? 0) +
-        (settings.customRoles.protector ?? 0) +
-        (settings.customRoles.witch ?? 0) +
-        (settings.customRoles.hunter ?? 0);
-
-      if (wolves < 1) {
-        return { isValid: false, errors: ["ضروري يكون على الأقل ذيب واحد فالتشكيلة 🐺"] };
-      }
-      if (wolves >= playableCount) {
-        return {
-          isValid: false,
-          errors: ["عدد الذيابة خاصو يكون أقل من عدد اللاعبين (تذكر أن 1 غادي ياخد كارطة المانيجر 👑)."],
-        };
-      }
-      if (specials > playableCount) {
-        return {
-          isValid: false,
-          errors: [`مجموع الكوارط الخاصة (${specials}) كبر من عدد اللاعبين بلا مانيجر (${playableCount})!`],
-        };
-      }
+    const roles = settings.customRoles === undefined
+      ? DEFAULT_DIIB_CARD_CHARACTERS
+      : parseDiibCardsCharacters(settings.customRoles);
+    if (!roles) {
+      return { isValid: false, errors: ["توزيع الشخصيات غير صالح. بدّلو من إعدادات الشخصيات فاللّوبي."] };
+    }
+    const required = requiredDiibCardsPlayers(roles);
+    if (players.length < required) {
+      return {
+        isValid: false,
+        errors: [`هاد توزيع الشخصيات خاصّو ${required} لاعبين مع المسيّر. زيد لاعبين أو نقص الكوارط فاللّوبي.`],
+      };
     }
 
     return { isValid: true };
   },
 
-  createInitialState(players: Player[]): DiibCardsInternalState {
+  createInitialState(players: Player[], settings: DiibCardsSettings): DiibCardsInternalState {
     const playerStates: Record<string, DiibCardsPlayerState> = {};
     players.forEach((p, idx) => {
       playerStates[p.id] = {
@@ -494,6 +435,7 @@ export const DiibCardsEngine: GameDefinition<
 
     return {
       matchNumber: 1,
+      roleSetup: parseDiibCardsCharacters(settings.customRoles) ?? { ...DEFAULT_DIIB_CARD_CHARACTERS },
       phase: "MANAGER_SELECT",
       round: 1,
       eventSequence: 1,
@@ -581,24 +523,10 @@ export const DiibCardsEngine: GameDefinition<
           };
         }
 
-        const mergedInline: Partial<DiibCardsSettings> = {
-          ...(state.inlineSettings || {}),
-          ...action.settings,
-        };
-
-        // Validate custom roles if updated during MANAGER_SELECT
-        const check = DiibCardsEngine.validateSetup(players, {
-          ...ctx.settings,
-          ...mergedInline,
-        });
-        if (!check.isValid) {
-          return {
-            success: false,
-            newState: state,
-            newPhase: state.phase,
-            error: check.errors?.[0] || "إعدادات غير صالحة",
-          };
+        if (action.settings && Object.hasOwn(action.settings, "customRoles")) {
+          return { success: false, newState: state, newPhase: state.phase, error: "بدّل الشخصيات من اللّوبي قبل ما تبدا اللعبة." };
         }
+        const mergedInline = { ...state.inlineSettings, ...action.settings };
 
         return {
           success: true,
@@ -636,6 +564,8 @@ export const DiibCardsEngine: GameDefinition<
           };
         }
 
+        const valid = DiibCardsEngine.validateSetup(players, settings);
+        if (!valid.isValid) return { success: false, newState: state, newPhase: state.phase, error: valid.errors?.[0] };
         const dealtState = dealRolesForMatch(state, players, targetManager.id, settings);
         return {
           success: true,
@@ -660,6 +590,8 @@ export const DiibCardsEngine: GameDefinition<
         const chosen =
           freshestCandidates[Math.floor(Math.random() * freshestCandidates.length)] || players[0];
 
+        const valid = DiibCardsEngine.validateSetup(players, settings);
+        if (!valid.isValid) return { success: false, newState: state, newPhase: state.phase, error: valid.errors?.[0] };
         const dealtState = dealRolesForMatch(state, players, chosen.id, settings);
         return {
           success: true,
@@ -781,6 +713,10 @@ export const DiibCardsEngine: GameDefinition<
         }
 
         const incoming = action.draft;
+        const powers = diibCardsWolfPowers(Object.values(state.playerStates), settings.muteRule);
+        if ((!powers.attack && incoming.wolfTargetId) || (!powers.mute && incoming.mutedTargetId)) {
+          return { success: false, newState: state, newPhase: state.phase, error: "هاد القدرة ما بقاتش متاحة فالليل." };
+        }
 
         // Enforce Protector consecutive protection rule
         if (

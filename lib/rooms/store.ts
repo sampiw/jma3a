@@ -10,6 +10,7 @@ import {
 } from "@/lib/types";
 import { generateRoomCode, normalizeRoomCode } from "./code";
 import { getGameDefinition } from "@/games";
+import { DEFAULT_DIIB_CARD_CHARACTERS, parseDiibCardsCharacters, type DiibCardsCharacters } from "@/games/diib-cards/characters";
 import { buildHumanCombatant, DEFAULT_CARBON_SETTINGS } from "@/games/carbon3d/engine";
 import { buildHumanRacer, DEFAULT_KSIDA_SETTINGS } from "@/games/ksida3d/engine";
 import { DEFAULT_SIMSAR_SETTINGS } from "@/games/simsar3d/engine";
@@ -71,6 +72,20 @@ export class RoomStore {
   private rooms: Map<string, GameRoom> = new Map();
   private gameSessions: Map<string, InternalGameSession> = new Map();
   private deviceSessions: Map<string, DeviceSession> = new Map();
+  private diibCharacters = new Map<string, DiibCardsCharacters>();
+
+  private diibCharactersKey(code: string) {
+    return `jma3a:room:${code}:diib-characters`;
+  }
+
+  private async getSavedDiibCharacters(code: string) {
+    if (!redis) return this.diibCharacters.get(code);
+    return await redis.get<DiibCardsCharacters>(this.diibCharactersKey(code)) ?? undefined;
+  }
+
+  private resolveDiibCharacters(saved: DiibCardsCharacters | undefined) {
+    return parseDiibCardsCharacters(saved) ?? { ...DEFAULT_DIIB_CARD_CHARACTERS };
+  }
 
   private async persistRoom(room: GameRoom) {
     this.rooms.set(room.code, room);
@@ -560,6 +575,30 @@ export class RoomStore {
       return { success: false, error: "غير المضيف لي يقدر يبدل إعدادات اللعبة" };
     }
 
+    if (room.selectedGameId === "diib-cards" && Object.hasOwn(gameSettings, "customRoles")) {
+      if (room.status !== "LOBBY") return { success: false, error: "بدّل الشخصيات من اللّوبي قبل ما تبدا اللعبة." };
+      const roles = parseDiibCardsCharacters(gameSettings.customRoles);
+      if (!roles) return { success: false, error: "اختار على الأقل ذيب واحد ووزّع حتى لـ19 كارت." };
+      if (redis) {
+        // Store characters separately so a concurrent join cannot overwrite the saved deck.
+        const saved = await redis.eval(
+          `local value = redis.call("GET", KEYS[1])
+           if not value then return 0 end
+           local room = cjson.decode(value)
+           if room.status ~= "LOBBY" or room.selectedGameId ~= "diib-cards" or room.hostPlayerId ~= ARGV[2] then return 0 end
+           redis.call("SET", KEYS[2], ARGV[1], "EX", 86400)
+           return 1`,
+          [`jma3a:room:${room.code}`, this.diibCharactersKey(room.code)],
+          [JSON.stringify(roles), host.id],
+        );
+        if (saved !== 1) return { success: false, error: "اللّوبي تبدّل. عاود جرّب من اللّوبي." };
+      } else {
+        this.diibCharacters.set(room.code, roles);
+      }
+      realtimeHub.publish(room.code, "SETTINGS_UPDATED", 1);
+      return { success: true };
+    }
+
     room.settings.gameSettings = {
       ...(room.settings.gameSettings || {}),
       ...gameSettings,
@@ -587,6 +626,18 @@ export class RoomStore {
     const gameDef = getGameDefinition(newGameId);
     if (!gameDef) return { success: false, error: "Invalid game selected" };
 
+    // Preserve character settings from sessions created before the lobby editor.
+    if (room.selectedGameId === "diib-cards" && room.activeSessionId) {
+      const session = await this.getSession(room.activeSessionId);
+      const legacy = session?.gameId === "diib-cards" && !session.state.roleSetup
+        ? parseDiibCardsCharacters(session.state.inlineSettings?.customRoles)
+        : undefined;
+      if (legacy) {
+        if (redis) await redis.set(this.diibCharactersKey(room.code), legacy, { ex: 86400, nx: true });
+        else if (!this.diibCharacters.has(room.code)) this.diibCharacters.set(room.code, legacy);
+      }
+    }
+
     // Reset room back to LOBBY keeping all players!
     room.selectedGameId = newGameId;
     room.status = "LOBBY";
@@ -612,9 +663,15 @@ export class RoomStore {
     const gameDef = getGameDefinition(room.selectedGameId);
     if (!gameDef) return { success: false, error: "Game engine not found" };
 
+    const isDiibCards = room.selectedGameId === "diib-cards";
+    if (isDiibCards && room.status !== "LOBBY" && room.status !== "FINISHED") {
+      return { success: false, error: "اللعبة بدات ديجا." };
+    }
+    const savedDiibCharacters = isDiibCards ? await this.getSavedDiibCharacters(room.code) : undefined;
     const mergedSettings = {
       ...gameDef.defaultSettings,
       ...(room.settings.gameSettings || {}),
+      ...(isDiibCards ? { customRoles: this.resolveDiibCharacters(savedDiibCharacters) } : {}),
     };
 
     const val = gameDef.validateSetup(room.players, mergedSettings);
@@ -641,12 +698,40 @@ export class RoomStore {
           : undefined,
     };
 
-    room.activeSessionId = sessionId;
-    room.status = "ACTIVE";
-    room.updatedAt = Date.now();
-
-    await this.persistSession(session);
-    await this.persistRoom(room);
+    const startedRoom: GameRoom = { ...room, activeSessionId: sessionId, status: "ACTIVE", updatedAt: Date.now() };
+    if (isDiibCards && redis) {
+      const saved = await redis.eval(
+        `local value = redis.call("GET", KEYS[1])
+         if not value then return 0 end
+         local room = cjson.decode(value)
+         local started = cjson.decode(ARGV[2])
+         if room.selectedGameId ~= "diib-cards" or room.hostPlayerId ~= started.hostPlayerId then return 0 end
+         if room.status ~= "LOBBY" and room.status ~= "FINISHED" then return 0 end
+         if (redis.call("GET", KEYS[2]) or "") ~= ARGV[1] then return 0 end
+         if #room.players ~= #started.players then return 0 end
+         for i, player in ipairs(room.players) do
+           if player.id ~= started.players[i].id then return 0 end
+         end
+         redis.call("SET", KEYS[3], ARGV[3], "EX", 86400)
+         redis.call("SET", KEYS[4], "1", "EX", 86400)
+         redis.call("SET", KEYS[1], ARGV[2], "EX", 86400)
+         return 1`,
+        [`jma3a:room:${room.code}`, this.diibCharactersKey(room.code), `jma3a:session:${session.id}`, `jma3a:session:${session.id}:v`],
+        [savedDiibCharacters ? JSON.stringify(savedDiibCharacters) : "", JSON.stringify(startedRoom), JSON.stringify(session)],
+      );
+      if (saved !== 1) return { success: false, error: "اللّوبي أو الشخصيات تبدّلو. تأكد من الإعدادات وعاود بدا." };
+      this.rooms.set(room.code, startedRoom);
+      this.gameSessions.set(session.id, session);
+    } else {
+      if (isDiibCards && (room.status === "ACTIVE" || this.diibCharacters.get(room.code) !== savedDiibCharacters)) {
+        return { success: false, error: "اللّوبي أو الشخصيات تبدّلو. تأكد من الإعدادات وعاود بدا." };
+      }
+      room.activeSessionId = sessionId;
+      room.status = "ACTIVE";
+      room.updatedAt = startedRoom.updatedAt;
+      await this.persistSession(session);
+      await this.persistRoom(room);
+    }
 
     realtimeHub.publish(room.code, "GAME_STARTED", 1);
     return { success: true };
@@ -815,6 +900,9 @@ export class RoomStore {
     const room = await this.getRoom(code);
     if (!room) return null;
 
+    const lobbyCharacters = room.selectedGameId === "diib-cards" && room.status === "LOBBY"
+      ? this.resolveDiibCharacters(await this.getSavedDiibCharacters(room.code))
+      : undefined;
     const publicRoomView: PublicRoomView = {
       code: room.code,
       status: room.status,
@@ -829,7 +917,9 @@ export class RoomStore {
         isOnline: p.isOnline,
         teamId: p.teamId,
       })),
-      settings: room.settings,
+      settings: lobbyCharacters
+        ? { ...room.settings, gameSettings: { ...room.settings.gameSettings, customRoles: lobbyCharacters } }
+        : room.settings,
     };
 
     let session = room.activeSessionId ? await this.getSession(room.activeSessionId) : undefined;

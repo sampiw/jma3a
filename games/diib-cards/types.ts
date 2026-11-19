@@ -56,7 +56,7 @@ export interface DiibCardsSettings {
   runoffDefenseSeconds: number; // default: 30s per tied candidate
   openDebateSeconds: number; // default: 60s optional free debate
   roleRevealOnDeath: boolean; // default: true
-  muteRule: "WOLVES_PACK" | "MUTE_WOLF_ONLY" | "OFF"; // default: "WOLVES_PACK"
+  muteRule: "WOLVES_PACK" | "MUTE_WOLF_ONLY" | "OFF"; // default: "MUTE_WOLF_ONLY"
   preventConsecutiveMute: boolean; // default: true
   preventConsecutiveProtect: boolean; // default: true
   allowPlayerPhoneVotes: boolean; // default: true (hybrid: players CAN tap vote OR Manager tallies hands!)
@@ -180,7 +180,7 @@ export type DiibCardsAction =
   | { type: "VOLUNTEER_MANAGER" }
   | { type: "CONFIRM_MANAGER"; managerId: string }
   | { type: "AUTO_PICK_MANAGER" }
-  | { type: "UPDATE_INLINE_SETTINGS"; settings: Partial<DiibCardsSettings> }
+  | { type: "UPDATE_INLINE_SETTINGS"; settings: Partial<Omit<DiibCardsSettings, "customRoles">> }
   // Phase 2: Card Reveal & One-Phone Deal
   | { type: "MARK_CARD_SEEN" }
   | { type: "DEAL_RELAY_STEP" }
