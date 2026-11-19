@@ -8,7 +8,7 @@ import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeom
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import {
   BOARD_TILE_COUNT,
-  getTileWorldTransform,
+  getTileWorldTransform as classicTransform,
   SIMSAR_BOARD_TILES,
 } from "@/games/simsar3d/boardData";
 import {
@@ -29,6 +29,9 @@ import {
   getCarLiveryMaterial,
 } from "./worldEnvironment";
 
+import type { MoulShot } from "@/games/simsar3d/moulBoard";
+import type { createMoulTableau } from "./moulTableau";
+
 export interface Simsar3DBoardCanvasProps {
   players: Record<string, SimsarPlayer>;
   properties: Record<number, SimsarPropertyState>;
@@ -37,6 +40,8 @@ export interface Simsar3DBoardCanvasProps {
   lastDice: SimsarDiceRoll | null;
   cameraMode: "AUTO" | "OVERVIEW";
   selectedTileIndex: number | null;
+  neighborhood?: { tiles: SimsarTileSpec[]; cast: Record<string,number>; emblems: Record<string,string>; focusOwner: string | null; routes: number[]; shot: MoulShot | null; createTableau: typeof createMoulTableau };
+  onGraphicsFailure?: () => void;
   onSelectTile?: (tileIndex: number) => void;
   onLand?: (playerId: string, moveSeq: number, tileIndex: number) => void;
 }
@@ -119,7 +124,7 @@ function easeOutBackOvershoot(x: number): number {
 }
 
 /** High-DPI 512x512 Royal Obsidian-Slate & Gold Zellige 3D Tile Top Texture (Zero White Glare!) */
-function createTileTopTexture(tile: SimsarTileSpec, isCorner: boolean): THREE.CanvasTexture {
+function createTileTopTexture(tile: SimsarTileSpec, isCorner: boolean, taxDh = 120): THREE.CanvasTexture {
   const c = document.createElement("canvas");
   c.width = 512;
   c.height = 512;
@@ -196,7 +201,7 @@ function createTileTopTexture(tile: SimsarTileSpec, isCorner: boolean): THREE.Ca
   ctx.font = "900 58px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(tile.shortAr, 256, 362);
+  ctx.fillText(tile.shortAr, 256, 362, 425);
 
   // Bottom Price / Bonus Pill
   const footerText = tile.price
@@ -208,7 +213,7 @@ function createTileTopTexture(tile: SimsarTileSpec, isCorner: boolean): THREE.Ca
     : tile.kind === "HEIST"
     ? "سرقة 🥷"
     : tile.kind === "TAX"
-    ? "-120 DH"
+    ? `-${taxDh} DH`
     : tile.kind === "RADAR_TO_JAIL"
     ? "للفوريان!"
     : tile.shortAr;
@@ -582,6 +587,8 @@ export function Simsar3DBoardCanvas({
   selectedTileIndex,
   onSelectTile,
   onLand,
+  neighborhood,
+  onGraphicsFailure,
 }: Simsar3DBoardCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -594,7 +601,7 @@ export function Simsar3DBoardCanvas({
     cameraMode,
     selectedTileIndex,
     onSelectTile,
-    onLand,
+    onLand, neighborhood, onGraphicsFailure,
   });
   liveRef.current = {
     players,
@@ -605,13 +612,17 @@ export function Simsar3DBoardCanvas({
     cameraMode,
     selectedTileIndex,
     onSelectTile,
-    onLand,
+    onLand, neighborhood, onGraphicsFailure,
   };
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    const district = liveRef.current.neighborhood;
+    const tiles = district?.tiles ?? SIMSAR_BOARD_TILES;
+    const getTileWorldTransform = (index:number) => classicTransform(index * BOARD_TILE_COUNT / tiles.length);
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x062444);
     // Keep fog strictly beyond 90m on the distant ocean horizon — ZERO haze over the 3D board!
@@ -621,12 +632,19 @@ export function Simsar3DBoardCanvas({
     const initH = Math.max(300, container.clientHeight);
 
     const camera = new THREE.PerspectiveCamera(40, initW / initH, 0.5, 320);
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, district ? 1.5 : 2);
 
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      powerPreference: "high-performance",
-    });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({antialias: true, powerPreference: "high-performance"});
+    } catch (err) {
+      if (!liveRef.current.onGraphicsFailure) throw err;
+      liveRef.current.onGraphicsFailure();
+      return;
+    }
+    const graphicsLost = () => liveRef.current.onGraphicsFailure?.();
+    renderer.domElement.addEventListener("webglcontextlost", graphicsLost);
+    const tableau = district?.createTableau(scene);
     renderer.setPixelRatio(dpr);
     renderer.setSize(initW, initH);
     renderer.shadowMap.enabled = true;
@@ -649,7 +667,8 @@ export function Simsar3DBoardCanvas({
     const sun = new THREE.DirectionalLight(0xfff1d0, 1.68);
     sun.position.set(22, 36, -24);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    const shadowSize = district && initW < 650 ? 1024 : 2048;
+    sun.shadow.mapSize.set(shadowSize, shadowSize);
     sun.shadow.camera.near = 6;
     sun.shadow.camera.far = 96;
     const shBounds = 21;
@@ -1294,7 +1313,7 @@ export function Simsar3DBoardCanvas({
     // =========================================================================
     // 4. ALL 24 BEVELED ROUNDED-BOX MARBLE TILES + PRE-DRESSED SKYLINE PLOTS!
     // =========================================================================
-    const tilePickMeshes: THREE.Mesh[] = [];
+    const tilePickMeshes: THREE.Object3D[] = [];
     const tileRigs = new Map<number, TileAnimRig>();
     const buildingSlots = new Map<number, BuildingSlotRig>();
 
@@ -1324,9 +1343,17 @@ export function Simsar3DBoardCanvas({
       metalness: 0.78,
     });
 
-    SIMSAR_BOARD_TILES.forEach((tile) => {
+    const ownerSigns = new Map<number, ReturnType<typeof createFloatingBadgeSprite> & {key:string}>();
+    const routeRings: THREE.Mesh<THREE.RingGeometry,THREE.MeshBasicMaterial>[] = [];
+    if (district) {
+      for (const color of [0xffdd68,0x5ae9fd]) {
+        const ring = new THREE.Mesh(new THREE.RingGeometry(2.15,2.35,40), new THREE.MeshBasicMaterial({color, side:THREE.DoubleSide}));
+        ring.rotation.x = -Math.PI/2; ring.visible = false; scene.add(ring); routeRings.push(ring);
+      }
+    }
+    tiles.forEach((tile) => {
       const tf = getTileWorldTransform(tile.index);
-      const span = tf.isCorner ? 3.54 : 3.34;
+      const span = district ? 4.26 : tf.isCorner ? 3.54 : 3.34;
       const height = tf.isCorner ? 0.46 : 0.36;
 
       const tileGroup = new THREE.Group();
@@ -1348,7 +1375,7 @@ export function Simsar3DBoardCanvas({
       tilePickMeshes.push(slabMesh);
 
       // Crisp High-DPI Top Card Inlay
-      const topTex = createTileTopTexture(tile, tf.isCorner);
+      const topTex = createTileTopTexture(tile, tf.isCorner, district ? 80 : 120);
       const topCard = new THREE.Mesh(
         new THREE.PlaneGeometry(span - 0.14, span - 0.14),
         new THREE.MeshStandardMaterial({
@@ -1444,6 +1471,14 @@ export function Simsar3DBoardCanvas({
         skybeam.visible = false;
         holder.add(skybeam);
 
+        if (district) {
+          const sign = createFloatingBadgeSprite("", "#f9ce71");
+          sign.sprite.position.copy(holder.position).y = 3.45;
+          sign.sprite.visible = false;
+          sign.sprite.userData.tileIndex = tile.index;
+          scene.add(sign.sprite);tilePickMeshes.push(sign.sprite);
+          ownerSigns.set(tile.index,{...sign,key:""});
+        }
         buildingSlots.set(tile.index, {
           holder,
           ownerRing,
@@ -1772,10 +1807,12 @@ export function Simsar3DBoardCanvas({
           "/models/simsar/suburban/villa-g.glb",
           "/models/simsar/commercial/plaza-fountain.glb",
         ];
-        const previewUrl = unownedBuildingUrls[tileIdx % unownedBuildingUrls.length];
+        const price = tiles[tileIdx].price ?? 0;
+        const previewUrl = district && price >= 500 ? SKYSCRAPER_GLBS[tileIdx % SKYSCRAPER_GLBS.length]
+          : district && price >= 300 ? VILLA_GLBS[tileIdx % VILLA_GLBS.length] : unownedBuildingUrls[tileIdx % unownedBuildingUrls.length];
         loadClonedModel(previewUrl)
           .then(({ scene: raw }) => {
-            const bFit = fitModelToFootprint(raw, 1.95, 2.2);
+            const bFit = fitModelToFootprint(raw, district && price >= 300 ? 2.6 : 1.95, district && price >= 500 ? 4.4 : 2.2);
             slot.holder.add(bFit);
           })
           .catch(() => {});
@@ -1902,7 +1939,7 @@ export function Simsar3DBoardCanvas({
     // =========================================================================
     // 7. PORTRAIT-FRIENDLY TOUCH ORBIT, PINCH-ZOOM & TILE RAYCASTER
     // =========================================================================
-    let userOrbitOffset = 0;
+    let userOrbitOffset = district ? .18 : 0;
     let userZoomMult = 1.0;
     const activePointers = new Map<number, { x: number; y: number }>();
     let downStart = { x: 0, y: 0, moved: false };
@@ -1957,7 +1994,7 @@ export function Simsar3DBoardCanvas({
         ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
         raycaster.setFromCamera(ndc, camera);
-        const hits = raycaster.intersectObjects(tilePickMeshes, false);
+        const hits = raycaster.intersectObjects(tilePickMeshes, false).filter(hit => hit.object.visible);
         if (hits.length > 0) {
           const tIdx = hits[0].object.userData?.tileIndex;
           if (typeof tIdx === "number") {
@@ -1998,8 +2035,13 @@ export function Simsar3DBoardCanvas({
     const clock = new THREE.Clock();
     let rafId = 0;
 
+    let lastFrame = 0;
     const animate = () => {
       rafId = requestAnimationFrame(animate);
+      const now = performance.now();
+      if (district && (document.hidden || now-lastFrame < 1000/32)) return;
+      const cameraBlend = Math.min(1, (now-lastFrame)/170);
+      lastFrame = now;
       const dt = Math.min(0.05, clock.getDelta());
       const elapsed = clock.elapsedTime;
       const snap = liveRef.current;
@@ -2106,7 +2148,25 @@ export function Simsar3DBoardCanvas({
       for (const [tileIdx, slot] of buildingSlots.entries()) {
         const prop = snap.properties[tileIdx];
         const ownerId = prop?.ownerId || null;
-        const level = ownerId ? prop?.level ?? 0 : 0;
+        const tier = prop?.level ?? 0;
+        const price = tiles[tileIdx].price ?? 0;
+        const level = ownerId ? district ? Math.min(3,tier+(price>=500?3:price>=300?2:1)) : tier : 0;
+        const sign = ownerSigns.get(tileIdx);
+        if (sign) {
+          const owner = ownerId ? snap.players[ownerId] : undefined;
+          sign.sprite.visible = !!owner;
+          if (owner) {
+            const name = (snap.neighborhood?.emblems[owner.id] ?? "")+" "+owner.nickname;
+            const key = name+owner.accentHex;
+            if(sign.key!==key){sign.updateText(name,owner.accentHex);sign.key=key;}
+            const lit = snap.neighborhood?.focusOwner===owner.id;
+            const pixelSize = 2 * camera.position.distanceTo(sign.sprite.position) * .364 / Math.max(1,container.clientHeight);
+            const width = Math.max(3.8, Math.min(8.0, pixelSize * (lit ? 74 : 61)));
+            sign.sprite.scale.set(width, width * .27, 1);
+            sign.sprite.position.y=level>=3?5.7:level===2?4.1:3.05;
+            slot.ownerRing.scale.setScalar(lit?1.38:1.15);
+          }
+        }
 
         if (ownerId) {
           const owner = snap.players[ownerId];
@@ -2525,7 +2585,9 @@ export function Simsar3DBoardCanvas({
         if (!waitingOnDice) {
           if (rig.hopProgress >= 1 && rig.renderedTile !== rig.targetTile) {
             rig.hopFromTile = rig.renderedTile;
-            rig.hopToTile = (rig.renderedTile + 1) % BOARD_TILE_COUNT;
+            const distance = (rig.targetTile-rig.renderedTile+tiles.length)%tiles.length;
+            const dir = district && distance>tiles.length/2 ? -1 : 1;
+            rig.hopToTile = (rig.renderedTile + dir + tiles.length) % tiles.length;
             rig.isFinalStep = rig.hopToTile === rig.targetTile;
             // Pre-jump crouch anticipation on first step!
             rig.hopProgress = rig.stepCounter === 0 ? -0.14 : 0;
@@ -2559,7 +2621,7 @@ export function Simsar3DBoardCanvas({
             rig.root.position.set(curX, arcY, curZ);
 
             // Smooth shortest-angle yaw interpolation + corner banking!
-            const yawDelta = shortestAngleDiff(rig.smoothYaw, toTf.forwardYaw);
+            const yawDelta = shortestAngleDiff(rig.smoothYaw, district ? Math.atan2(toTf.x-fromTf.x,toTf.z-fromTf.z) : toTf.forwardYaw);
             rig.smoothYaw += yawDelta * Math.min(1, dt * 14);
             rig.root.rotation.y = rig.smoothYaw;
 
@@ -2770,7 +2832,37 @@ export function Simsar3DBoardCanvas({
         }
       }
 
-      const orbitYaw = userOrbitOffset;
+      let orbitYaw = userOrbitOffset;
+      let neighborhoodOverview = false;
+      if (district && snap.neighborhood) {
+        const n=snap.neighborhood;
+        routeRings.forEach((ring,i)=>{
+          const tile=n.routes[i];ring.visible=tile!==undefined;
+          if(tile!==undefined){const t=getTileWorldTransform(tile);ring.position.set(t.x,.58,t.z);}
+        });
+        dieMesh2.visible=false;
+        dieMesh1.visible=!!snap.lastDice;
+        const spot=n.shot ? getTileWorldTransform(n.shot.tile) : null;
+        const playing=tableau?.update(n.shot,n.cast,spot);
+        if(spot && playing && snap.cameraMode==="AUTO" && !reducedMotion.matches) {
+          desiredLookX=spot.x;desiredLookZ=spot.z;
+          finalDist=8.7*closePortraitMult;finalElev=6.2;
+          orbitYaw=Math.atan2(-spot.outwardNx,-spot.outwardNz)+.22;
+        } else if (snap.cameraMode==="OVERVIEW" || n.routes.length || reducedMotion.matches) {
+          neighborhoodOverview = true;
+          desiredLookX = 0;
+          desiredLookZ = 0;
+          // Fit the estate signs and outer buildings at all four corners, even after orbiting.
+          const pitch = .76;
+          const sinPitch = Math.sin(pitch), cosPitch = Math.cos(pitch);
+          const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+          const side = 16.5 * (Math.abs(Math.cos(orbitYaw)) + Math.abs(Math.sin(orbitYaw)));
+          const nearEdge = side * cosPitch + 5.7 * sinPitch;
+          const distance = nearEdge + Math.max(side / (tanV * aspect), (side * sinPitch + 5.7 * cosPitch) / tanV);
+          finalDist = distance * cosPitch * userZoomMult;
+          finalElev = distance * sinPitch * userZoomMult;
+        }
+      }
 
       const targetCamX = desiredLookX + Math.sin(orbitYaw) * finalDist;
       const targetCamZ = desiredLookZ + Math.cos(orbitYaw) * finalDist;
@@ -2791,6 +2883,12 @@ export function Simsar3DBoardCanvas({
         camShake = Math.max(0, camShake - dt * 1.85);
       }
 
+      if (district && (neighborhoodOverview || reducedMotion.matches)) {
+        const blend = reducedMotion.matches ? 1 : cameraBlend;
+        camPos.lerp(new THREE.Vector3(targetCamX, targetCamY, targetCamZ), blend);
+        camLook.x += (desiredLookX-camLook.x)*blend;
+        camLook.z += (desiredLookZ-camLook.z)*blend;
+      }
       camera.position.set(camPos.x + shakeX, camPos.y + shakeY, camPos.z);
       camera.lookAt(camLook);
 
@@ -2807,6 +2905,10 @@ export function Simsar3DBoardCanvas({
       domEl.removeEventListener("pointerup", onPointerUp);
       domEl.removeEventListener("pointercancel", onPointerUp);
       domEl.removeEventListener("wheel", onWheel);
+      renderer.domElement.removeEventListener("webglcontextlost",graphicsLost);
+      tableau?.dispose();
+      for (const sign of ownerSigns.values()) { sign.sprite.material.map?.dispose(); sign.sprite.material.dispose(); }
+      for (const ring of routeRings) { ring.geometry.dispose(); ring.material.dispose(); }
       envTex.dispose();
       pmrem.dispose();
       renderer.dispose();

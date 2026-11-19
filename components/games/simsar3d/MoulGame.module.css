@@ -1,17 +1,84 @@
-.game{--paper:#fff0cf;--ink:#182b26;--jade:#124d42;position:relative;isolation:isolate;color:var(--paper);background:#142c2c;border:1px solid #637663;border-radius:22px;overflow:hidden;text-align:right;box-shadow:0 14px 60px #0005}
-.head{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:linear-gradient(110deg,#213a3a,#113e37);border-bottom:2px solid #be9354}
-.kicker,.match span,.desk small,.sheet small,.receipt small{font-size:.8rem;line-height:1.45}
-.kicker{color:#f1c27c;font-weight:750}.head h2{font-size:clamp(1.6rem,4vw,2.15rem);line-height:1.18;font-weight:900;color:#fff3d2}
-.match{display:grid;justify-items:end;gap:3px}.match span{color:#bccebe;font-family:monospace}.frame{position:relative;background:#caa882;direction:ltr}
-.desk{padding:13px 18px 16px;color:var(--ink);background:linear-gradient(115deg,#ffe7b5,#fff3d9 60%);border-top:3px solid #b99054}
-.turn,.sheet header{display:flex;align-items:center;justify-content:space-between;gap:10px}.turn h3,.sheet h3{font-weight:900;font-size:1.24rem}.turn b{border-radius:8px;background:#183e34;padding:4px 9px;color:#ffe6a8;font-size:.93rem}
-.desk p,.sheet p{margin:6px 0 10px;line-height:1.5}.game button,.game input{font:inherit}.game button{cursor:pointer}.game button:disabled{cursor:default;opacity:.52}.game button:focus-visible,.game input:focus-visible{outline:3px solid #e28c30;outline-offset:2px}
-.primary,.routes button{border-radius:11px;min-height:45px;padding:8px 15px;background:var(--jade);color:#fff5da;font-weight:800!important}.desk>.primary{width:100%}.desk>small{display:block;margin-top:7px}
-.row,.routes,.nav,.players{display:flex;flex-wrap:wrap;align-items:stretch;gap:7px}.row>*{flex:1}.row input{width:6em;padding:8px;border:1px solid #65796b;background:#fffaf0;border-radius:8px}.row button:nth-child(n+2){background:#355b4e}
-.routes{margin-top:10px}.routes button{flex:1;display:grid;gap:4px;text-align:start;border-top:3px solid #efb365}.routes button strong{font-size:1.05rem}.routes span,.players small,.cards small{font-size:.8rem}.routes small{color:#e0d7b1}
-.receipt{border-bottom:1px dashed #c09a62;display:flex;align-items:center;gap:10px;width:100%;text-align:start;background:#352d28;padding:10px 16px;color:#ffebb6}.receipt small{color:#f3bf79;white-space:nowrap}.receipt strong{font-size:.94rem}
-.nav,.players{padding:9px 14px}.nav button,.players button,.sheet header button,.deed>button{min-height:40px;border:1px solid #50685a;background:#243f39;border-radius:9px;color:var(--paper);padding:5px 10px}.nav button{flex:1;font-weight:700;white-space:nowrap}
-.players{padding-top:0}.players button{display:flex;gap:5px;align-items:center;font-size:.85rem}.players button[aria-pressed=true]{outline:2px solid #f9c879}
-.scrim{position:fixed;inset:0;z-index:85;display:grid;place-items:center;background:#091e1bc9;padding:14px}.sheet{color:var(--ink);background:#fff0d4;border:2px solid #d4ac72;border-radius:20px;padding:17px;width:min(100%,560px);max-height:78dvh;overflow:auto;box-shadow:0 22px 75px #0006}.sheet header{margin-bottom:12px}.sheet header button{min-width:42px}.sheet .players{padding:0 0 10px}
-.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.cards button{background:#fff9e8;border:2px solid #baad92;border-radius:11px;padding:10px;text-align:start;color:var(--ink)}.cards button:disabled{opacity:.8}.cards small,.deed small{display:block}.deal{margin-top:10px;display:grid;gap:7px}.deal label{display:grid;gap:6px}.deal input,.deal select{background:#fff8e9;border:1px solid #a28b70;border-radius:8px;padding:8px;color:#18362d}.line{border-bottom:1px dashed #ab987d;padding:6px}.deed>button{display:block;margin-top:9px}
-@media(max-width:450px){.head,.desk{padding:11px 12px}.nav,.players{padding-left:8px;padding-right:8px}.nav button{padding:5px;font-size:.88rem}.scrim{align-items:end;padding:0}.sheet{width:100%;border-radius:19px 19px 0 0;padding-bottom:max(16px,env(safe-area-inset-bottom))}}
+.game {
+  --paper: #fff4da;
+  --gold: #f6bf58;
+  --line: #3a455d;
+  position: relative;
+  color: var(--paper);
+  background: #0a1020;
+  border: 1px solid #72552c;
+  border-radius: 20px;
+  overflow: hidden;
+  text-align: right;
+  box-shadow: 0 18px 62px #02061780;
+}
+.head, .turn, .sheet header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.head {
+  background: linear-gradient(110deg,#111a30,#171e34 70%,#33263d);
+  border-bottom: 2px solid #cb9440;
+  padding: 11px 18px;
+}
+.head h2, .turn h3, .sheet h3 { font-weight: 900; line-height: 1.25; }
+.head h2 { font-size: clamp(1.55rem,4vw,2.1rem); }
+.turn h3, .sheet h3 { font-size: 1.22rem; }
+.kicker, .match span, .desk small, .sheet small, .receipt small { font-size: .82rem; line-height: 1.5; }
+.kicker { color: var(--gold); font-weight: 750; }
+.match { display: grid; justify-items: end; }
+.match span { font-family: monospace; color: #bec8db; }
+.frame { direction: ltr; position: relative; background: #073959; }
+.royalBoard { position: relative; height: clamp(305px, 54svh, 600px); }
+.game button, .game input { font: inherit; }
+.game button { cursor: pointer; }
+.game button:disabled { cursor: default; opacity: .5; }
+.game button:focus-visible, .game input:focus-visible { outline: 3px solid #ffc34f; outline-offset: 2px; }
+.camera { position: absolute; top: 10px; right: 10px; padding: 6px 12px; min-height: 38px; border-radius: 22px; background: #0c1428ed; color: #ffdf94; border: 1px solid #ca994a; }
+.desk { padding: 12px 16px 15px; background: linear-gradient(125deg,#141f35,#101726 66%,#201c29); border-top: 2px solid #b3833c; }
+.turn b { border: 1px solid #9a7138; border-radius: 9px; padding: 4px 10px; color: #ffdc80; background: #2b241e; }
+.desk p, .sheet p { margin: 7px 0 10px; color: #e1e7f1; line-height: 1.5; }
+.primary, .routes button { border-radius: 11px; min-height: 45px; padding: 8px 14px; font-weight: 800!important; }
+.primary { color: #251806; background: linear-gradient(#ffdf86,#f5af44); border: 1px solid #ffe3a4; }
+.desk>.primary { width: 100%; }
+.desk>small { display: block; margin-top: 7px; }
+.row,.routes,.nav,.players { display: flex; flex-wrap: wrap; gap: 7px; align-items: stretch; }
+.row>* { flex: 1; }
+.row input,.deal input,.deal select { border: 1px solid #68748a; border-radius: 8px; background: #0b1425; color: var(--paper); padding: 8px; }
+.row input { width: 6em; }
+.row button:nth-child(n+2) { color: #f4eddf; background: #283752; border-color: #536279; }
+.routes { margin-top: 10px; }
+.routes button { flex: 1; display: grid; gap: 4px; text-align: start; color: #fff8e5; background: #352b21; border: 1px solid #997c3e; border-top: 3px solid #ffdd68; }
+.routes button:nth-child(2) { border-color: #38889c; border-top-color: #5ae9fd; background: #19303e; }
+.routes small { color: #dacfb7; }
+.routes span,.cards small,.players small { font-size: .82rem; }
+.receipt { display: flex; align-items: center; gap: 10px; width: 100%; text-align: start; padding: 10px 16px; background: #231e26; border-bottom: 1px solid #735d36; }
+.receipt small { color: var(--gold); white-space: nowrap; }
+.receipt strong { font-size: .95rem; }
+.nav,.players { padding: 9px 12px; }
+.players { padding-top: 4px; }
+.nav button,.players button,.sheet header button,.deed>button { min-height: 40px; color: var(--paper); border: 1px solid var(--line); background: #182337; border-radius: 9px; padding: 5px 10px; }
+.nav button { flex: 1; font-weight: 700; white-space: nowrap; }
+.players button { display: flex; gap: 5px; align-items: center; font-size: .88rem; }
+.players button[aria-pressed=true] { outline: 2px solid var(--gold); }
+.scrim { position: fixed; inset: 0; z-index: 85; display: grid; place-items: center; background: #060a14c9; padding: 14px; }
+.sheet { width: min(100%,560px); max-height: 78dvh; overflow: auto; padding: 17px; border-radius: 18px; border: 1px solid #bb9253; background: #121d30; box-shadow: 0 22px 75px #0007; }
+.sheet header { margin-bottom: 12px; }
+.sheet header button { min-width: 42px; }
+.sheet .players { padding: 0 0 10px; }
+.cards,.boardFallback { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.cards button,.boardFallback button { padding: 10px; text-align: start; border: 2px solid #54647b; border-radius: 11px; color: #fff3db; background: #1d2a40; }
+.cards small,.deed small,.boardFallback small { display: block; }
+.boardFallback { padding: 8px; direction: rtl; grid-template-columns: repeat(4,minmax(0,1fr)); }
+.boardFallback button { padding: 5px; }
+.line { border-bottom: 1px dashed #68573f; padding: 6px; }
+.deal,.deal label { display: grid; gap: 7px; }
+.deal,.deed>button { margin-top: 9px; }
+@media(max-width:450px) {
+  .head,.desk { padding: 11px 12px; }
+  .nav,.players { padding-left: 8px; padding-right: 8px; }
+  .nav button { padding: 5px; font-size: .88rem; }
+  .scrim { align-items: end; padding: 0; }
+  .sheet { border-radius: 18px 18px 0 0; padding-bottom: max(16px,env(safe-area-inset-bottom)); }
+}

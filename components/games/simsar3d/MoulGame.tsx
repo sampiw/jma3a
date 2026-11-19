@@ -102,7 +102,7 @@ export default function MoulGame({publicData, privateData, activePlayerId, devic
   const selected = tile !== null ? sites[tile] : null;
   return <main className={css.game} dir="rtl">
     <header className={css.head}><div><span className={css.kicker}>سمسار رويال 3D</span><h2>مول البلاد</h2></div><div className={css.match}><strong>{s.round === s.maxRounds ? "الجولة الأخيرة" : "الجولة "+s.round+" / "+s.maxRounds}</strong><span dir="ltr">{roomCode}</span></div></header>
-    <div className={css.frame}><MoulDiorama sites={sites} people={people} activeId={active.id} highlight={filter} shot={current} onInspect={inspect}/></div>
+    <div className={css.frame}><MoulDiorama state={s} highlight={filter} onInspect={inspect}/></div>
     <section className={css.desk} aria-live="polite"><div className={css.turn}><h3>{title}</h3>{me && <b dir="ltr">{me.cash} DH</b>}</div>
       {s.phase === "GAME_OVER" ? <><p>{s.winnerSummaryAr}</p>{[...s.turnOrder].sort((a,b)=>s.players[b].netWorth-s.players[a].netWorth || s.players[b].cash-s.players[a].cash).map(id=><p key={id}>{seat(id).emblem} {who(id)} · {s.players[id].cash} DH كاش + {s.players[id].netWorth-s.players[id].cash} DH أملاك</p>)}{isHost && button("نلعبو من جديد",{type:"PLAY_AGAIN"})}</> :
        s.phase === "MINIGAME" && s.miniGame ? <SimsarMiniGames key={s.round+"-"+myId} miniGame={s.miniGame} myId={myId} players={s.players} isHost={isHost} onSubmitScore={score=>act({type:"SUBMIT_MINIGAME_SCORE",score})} onFinalizeMiniGame={()=>act({type:"FINALIZE_MINIGAME"})}/> :
