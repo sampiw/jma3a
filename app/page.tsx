@@ -313,6 +313,15 @@ export default function HomePage() {
         </form>
       </section>
 
+      <a href="/paintball" className="group relative mx-auto mb-2 flex w-[calc(100%-2rem)] max-w-4xl items-center justify-between gap-4 overflow-hidden rounded-3xl border border-cyan-300/50 bg-[#101d31] px-5 py-5 shadow-xl transition-colors hover:border-cyan-200 sm:px-7" dir="ltr">
+        <span aria-hidden="true" className="pointer-events-none absolute -right-9 -top-20 h-64 w-64 rounded-full bg-cyan-400/20 blur-3xl" />
+        <span className="relative grid gap-1">
+          <strong className="text-2xl font-black tracking-tight text-cyan-100">Splat 3D</strong>
+          <span className="text-sm text-slate-200">Medina After Dark · Live paintball for 2–8 players</span>
+        </span>
+        <span className="relative inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-cyan-200 px-3.5 py-2.5 text-sm font-black text-slate-900 sm:px-5"><Play size={16} /> Play</span>
+      </a>
+
       {/* Game Catalog Section */}
       <section className="px-4 py-8 max-w-5xl mx-auto w-full flex-1">
         <div className="flex items-center justify-between mb-6">
